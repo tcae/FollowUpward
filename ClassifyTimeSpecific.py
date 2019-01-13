@@ -70,6 +70,28 @@ def preprocess_targets(california_housing_dataframe):
     california_housing_dataframe["median_house_value"] > 265000).astype(float)
   return output_targets
 
+
+
+# Choose the first 12000 (out of 17000) examples for training.
+training_examples = preprocess_features(california_housing_dataframe.head(12000))
+training_targets = preprocess_targets(california_housing_dataframe.head(12000))
+
+# Choose the last 5000 (out of 17000) examples for validation.
+validation_examples = preprocess_features(california_housing_dataframe.tail(5000))
+validation_targets = preprocess_targets(california_housing_dataframe.tail(5000))
+
+# Double-check that we've done the right thing.
+print("Training examples summary:")
+display.display(training_examples.describe())
+print("Validation examples summary:")
+display.display(validation_examples.describe())
+
+print("Training targets summary:")
+display.display(training_targets.describe())
+print("Validation targets summary:")
+display.display(validation_targets.describe())
+
+
 def construct_feature_columns(input_features):
   """Construct the TensorFlow Feature Columns.
 
