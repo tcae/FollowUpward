@@ -71,6 +71,7 @@ def test_fl():
 
     test = cp.performance
     print(test)
+    print(cp.cpc_performance)
 #    assert test[1] == -0.4147158338222414
 #    assert test[2] == 11.370369618494905 # resampling
 #    assert test[2] == 6.170258544137765 # rolling

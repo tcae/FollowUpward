@@ -109,6 +109,17 @@ def re_test():
 
 re_test()
 
+# <codecell> type check
+
+def type_check():
+    test1 = '123456';  # Only digit in this string
+    print(type(test1))
+    test2 = 123456;  # Only digit in this string
+    print(type(test2))
+    print(isinstance(test2, int))
+    print(isinstance(test2, str))
+
+
 # <codecell> append
 import pandas as pd
 import numpy as np
@@ -167,3 +178,4 @@ def check_loc4():
 
 #check_append()
 check_loc3()
+#print(str.isdecimal())

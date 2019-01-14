@@ -8,16 +8,10 @@ Created on Mon Jan  7 21:43:26 2019
 import numpy as np
 import pandas as pd
 
-
-def derive_features(df: pd.DataFrame):
-    "derived features in relation to price based on the provided time aggregated dataframe df"
-    # price changes in 1/1000
-    df['height'] = (df['high'] - df['low']) / df['close'] * 1000
-    df.loc[df['close'] > df['open'], 'top'] = (df['high'] - df['close']) / df['close'] * 1000
-    df.loc[df['close'] <= df['open'], 'top'] = (df['high'] - df['open']) / df['close'] * 1000
-    df.loc[df['close'] > df['open'], 'bottom'] = (df['open'] - df['low']) / df['close'] * 1000
-    df.loc[df['close'] <= df['open'], 'bottom'] = (df['close'] - df['low']) / df['close'] * 1000
-
+BUY = 'buy'
+HOLD = '-'
+SELL = 'sell'
+FEE = 1 #  in per mille, transaction fee is 0.1%
 
 class FeaturesLabels:
     """Receives a dict of currency pairs with associated minute candle data and
@@ -46,6 +40,48 @@ class FeaturesLabels:
 
 
     """
+
+    def __init__(self, currency_pair: str, minute_filename=None, minute_dataframe=None):
+        assert (minute_filename is not None) or (minute_dataframe is not None), \
+            "either filename or dataframe but not both"
+        assert len(currency_pair) > 1, "unexpected empty string as currency pair"
+        self.time_aggregations = {1: 4, 2: 4} # keys in minutes
+        self.performance = self.time_aggregations.copy()
+        self.cpc_performance = 0.
+        self.minute_data = pd.DataFrame()
+        self.fl_aggs = dict() # feature and label aggregations
+        self.vol_base_period = '1D'
+        self.sell_threshold = -2 # in per mille
+        self.buy_threshold = 10 # in per mille
+        self.best_n = 2 #10
+        self.missed_buy_end = 0
+        self.missed_sell_start = 0
+        self.pmax_ix = 0
+
+        if minute_filename is not None:
+            pass
+        elif not minute_dataframe.empty:
+            self.minute_data = minute_dataframe
+            self.pairs = pd.DataFrame()
+            self.pairs.loc[0, 'bts'] = self.minute_data.index[0]
+#            self.pairs.loc[0, 'sts'] = self.minute_data.index[len(self.minute_data.index)-1]
+            self.pairs.loc[0, 'sts'] = self.minute_data.index[1]
+            self.pairs.loc[0, 'lvl'] = int(0)
+            self.pairs.loc[0, 'child1'] = int(0)
+            self.pairs.loc[0, 'child2'] = int(0)
+            self.pairs.loc[0, 'perf'] = 0.
+            self.pairs.loc[0, 'best'] = False
+            self.currency_pair = currency_pair
+            self.time_aggregation()
+            for time_agg in self.time_aggregations.keys():
+                self.add_period_specific_labels(time_agg)
+            self.add_asset_summary_labels()
+            t1 = self.fl_aggs[1]
+            t2 = self.fl_aggs[2]
+            print(f"T1 length: {len(t1.index)}, T2 length: {len(t2.index)}")
+        else:
+            print("warning: neither filename nor dataframe => no action")
+
 
     def add_period_specific_labels(self, time_agg):
 #    def add_period_specific_labels_rolling(self, time_agg):
@@ -150,6 +186,16 @@ class FeaturesLabels:
                         lastlabel = "buy"
 
 
+    def derive_features(self, time_agg):
+        "derived features in relation to price based on the provided time aggregated dataframe df"
+        # price changes in 1/1000
+        df = self.fl_aggs[time_agg]
+        df['height'] = (df['high'] - df['low']) / df['close'] * 1000
+        df.loc[df['close'] > df['open'], 'top'] = (df['high'] - df['close']) / df['close'] * 1000
+        df.loc[df['close'] <= df['open'], 'top'] = (df['high'] - df['open']) / df['close'] * 1000
+        df.loc[df['close'] > df['open'], 'bottom'] = (df['open'] - df['low']) / df['close'] * 1000
+        df.loc[df['close'] <= df['open'], 'bottom'] = (df['close'] - df['low']) / df['close'] * 1000
+
 
 
 #    def time_aggregation_rolling(self):
@@ -176,8 +222,8 @@ class FeaturesLabels:
                 df['low'] = mdf.low.rolling(time_agg).min()
                 df['open'] = mdf.open.shift(time_agg-1)
                 df['volume_change'] = mdf.volume_change.rolling(time_agg).mean()
-            derive_features(df)
             self.fl_aggs[time_agg] = df
+            self.derive_features(time_agg)
 
 
     def time_aggregation_resampling(self):
@@ -208,8 +254,127 @@ class FeaturesLabels:
                 df['open'] = mdf.open.resample(mstr, label='right', closed='right').first()
                 df['volume_change'] = mdf.volume_change.resample(mstr, label='right', \
                                                                        closed='right').mean()
-            derive_features(df)
             self.fl_aggs[time_agg] = df
+            self.derive_features(df)
+
+    def calc_best(self):
+        """identify best path through all aggregations - use all buy and sell signals.
+        The search space is limited because costs increase the same for all paths.
+        Hence, one has only to check the most recent 2 buy signals and
+        the most recent 2 sell signals for maximization.
+
+        1. no holding with buy signal:
+            open potential buy
+        2. holding, old open potential sell with sell signal:
+            current performance - fee >= potential transaction performance:
+                discard old potential sell and open new potential sell
+            else:
+                ignore new sell signal
+                if potential transaction performance > 0:
+                    execute potential sell and remove corresponding buy and sell
+        3. holding, no open potential sell with sell signal:
+            open potential sell
+        4. holding, with buy signal:
+            current performance < -fee:
+                if potential transaction performance > 0:
+                    execute potential sell and remove corresponding buy and sell
+                discard old potential buy and open new potential buy
+                discard any potential sell including new ones
+                current performance = -fee
+            current performance >= -fee:
+                discard new buy and hold on to old potential buy
+                hold on to any potential sells including new ones
+
+        *) potential transaction performance includes fees
+        """
+
+        self.cpc_labels = pd.DataFrame(self.minute_data, columns=['close'])
+        self.cpc_labels['label'] = HOLD
+        assert self.cpc_labels.index.is_unique, "unexpected not unique index"
+        holding = False
+        pot_transaction = False
+        transaction_perf = current_perf = best_perf = 0.
+        buy_tic = sell_tic = self.minute_data.index[0]
+        last = self.minute_data.at[self.minute_data.index[0], 'close']
+        for tic in self.minute_data.index:
+            this = self.minute_data.at[self.minute_data.index[tic], 'close']
+            sell_sig = False
+            buy_sig = False
+            for time_agg in self.time_aggregations.keys():
+                signal = self.fl_aggs[time_agg].at[tic, 'label']
+                if signal == BUY:
+                    buy_sig = True
+                if signal == SELL:
+                    sell_sig = True
+            if holding:
+                current_perf += ((last - this)/ last * 1000)
+                if sell_sig:
+                    if pot_transaction: # use case 2
+                        assert buy_tic < sell_tic, "inconsistent buy/sell tic marks"
+                        if (current_perf - FEE) >= transaction_perf: # reset transaction
+                            transaction_perf = current_perf - FEE
+                            sell_tic = tic
+                            pot_transaction = True # remains True
+                        else:
+                            if transaction_perf > 0: # execute transaction
+                                best_perf += transaction_perf
+                                self.cpc_labels.at[buy_tic,'label'] = BUY
+                                self.cpc_labels.at[sell_tic,'label'] = SELL
+                            transaction_perf = 0.
+                            pot_transaction = False
+                    else: # use case 3 = no potential transaction
+                        transaction_perf = current_perf - FEE
+                        sell_tic = tic
+                        pot_transaction = True # remains True
+                        assert buy_tic < sell_tic, "inconsistent buy/sell tic marks"
+                elif buy_sig: # use case 4
+                    if current_perf < -FEE:
+                        if pot_transaction:
+                            assert buy_tic < sell_tic, "inconsistent buy/sell tic marks"
+                            if transaction_perf > 0: # execute transaction
+                                best_perf += transaction_perf
+                                self.cpc_labels.at[buy_tic,'label'] = BUY
+                                self.cpc_labels.at[sell_tic,'label'] = SELL
+                            transaction_perf = 0.
+                            pot_transaction = False
+                        buy_tic = tic
+                        current_perf = -FEE
+                    else: # current_perf >= -FEE
+                        buy_tic = tic
+                        holding = True
+            elif buy_sig: # use case 1 = not holding with buy signal
+                buy_tic = tic
+                current_perf = -FEE
+                holding = True
+                transaction_perf = 0.
+                pot_transaction = False
+
+
+
+        perf_tmp = self.performance.copy()
+        for p in perf_tmp:
+            p = 0.
+        status = HOLD
+        holding = False
+        perf_cpc = 0.
+        buy_tic = sell_tic = self.minute_data.index[0]
+        this = last = self.minute_data.at[self.minute_data.index[0], 'close']
+        for tic in self.minute_data.index:
+            this = self.minute_data.at[self.minute_data.index[tic], 'close']
+            if holding:
+                perf_cpc += ((last - this)/ last * 1000)
+            for time_agg in self.time_aggregations.keys():
+                if self.fl_aggs[time_agg].at[tic, 'label'] == BUY:
+                    if holding:
+                        if -FEE > perf_cpc:
+                            perf_cpc = -FEE
+                            buy_tic = tic
+                        else
+                    elif holding
+                        ((last - this)/ last * 1000 - FEE) perf_cpc = - FEE
+
+
+diff / self.minute_data.at[row.bts, 'close'] * 1000 - 2 * FEE
 
     def check_pairs(self):
         problem = self.pairs.isna()
@@ -287,7 +452,7 @@ class FeaturesLabels:
     def calc_performance(self, row):
         "calculates the performance of each pair"
         diff = (self.minute_data.at[row.sts, 'close'] - self.minute_data.at[row.bts, 'close'])
-        return diff / self.minute_data.at[row.bts, 'close'] * 1000 - 2 * self.transaction_fee
+        return diff / self.minute_data.at[row.bts, 'close'] * 1000 - 2 * FEE
 
     def mark_childs(self, bix):
         "recursively marks all pairs involved in the best path with best=True"
@@ -307,11 +472,11 @@ class FeaturesLabels:
     def build_period_pairs(self, start_ts, end_ts):
         "builds level 0 pairs based on aggregated time data"
         for p in iter(self.fl_aggs.keys()):
-            buy_sigs = self.fl_aggs[p].loc[(self.fl_aggs[p].label == 'buy') & \
+            buy_sigs = self.fl_aggs[p].loc[(self.fl_aggs[p].label == BUY) & \
                                    (self.fl_aggs[p].index >= start_ts) & \
                                    (self.fl_aggs[p].index < end_ts)]
             for bs in buy_sigs.index:
-                sell_sigs = self.fl_aggs[p].loc[(self.fl_aggs[p].label == 'sell') & \
+                sell_sigs = self.fl_aggs[p].loc[(self.fl_aggs[p].label == SELL) & \
                                         (self.fl_aggs[p].index <= end_ts) & \
                                         (self.fl_aggs[p].index > bs)]
                 for s in sell_sigs.index:
@@ -333,7 +498,7 @@ class FeaturesLabels:
             if self.fl_aggs[max_period].index[0].freq < self.fl_aggs[p].index[0].freq:
                 max_period = p
         start_ts = self.minute_data.index[0]
-        sell_ixs = self.fl_aggs[max_period].loc[self.fl_aggs[max_period].label == 'sell']
+        sell_ixs = self.fl_aggs[max_period].loc[self.fl_aggs[max_period].label == SELL]
         for end_ts in sell_ixs.index:
             self.build_period_pairs(start_ts, end_ts)
             assert self.pairs.index.is_unique, "unexpected not unique index"
@@ -368,20 +533,19 @@ class FeaturesLabels:
         self.check_result_consistency()
         self.pairs = self.pairs.loc[self.pairs.best & (self.pairs.lvl == 0)] # reduce pairs to best_n path pairs on level 0
         assert self.pairs.index.is_unique, "unexpected not unique index"
-        cpc_labels = pd.DataFrame(self.minute_data, columns=['close'])
-        cpc_labels['label'] = '-'
+        self.cpc_labels = pd.DataFrame(self.minute_data, columns=['close'])
+        self.cpc_labels['label'] = HOLD
         for bix in self.pairs.index:
-            assert cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'] == '-', \
+            assert self.cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'] == HOLD, \
                 'buy inconsistency due to unexpected value {0} instead of hold at timestamp'\
-                .format(cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'])
-            cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'] = 'buy'
+                .format(self.cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'])
+            self.cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'] = BUY
 
-            assert cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'] == '-', \
+            assert self.cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'] == HOLD, \
                 'error sell: inconsistency due to unexpected value {} instead of hold at timestamp'\
-                .format(cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'])
-            cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'] = 'sell'
-        assert cpc_labels.index.is_unique, "unexpected not unique index"
-        self.fl_aggs[self.cpc_label_key] = cpc_labels
+                .format(self.cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'])
+            self.cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'] = SELL
+        assert self.cpc_labels.index.is_unique, "unexpected not unique index"
 
 
     def check_period_consistency(self):
@@ -392,21 +556,21 @@ class FeaturesLabels:
         for agg in iter(self.fl_aggs.keys()):
             tdf = self.fl_aggs[agg]
             lastbuy_close = 0.
-            sigs = tdf.loc[(tdf.label == 'buy') | (tdf.label == 'sell')]
+            sigs = tdf.loc[(tdf.label == BUY) | (tdf.label == SELL)]
             self.missed_sell_start = 0
             self.missed_buy_end = -1
             for sig in sigs.index:
-                if sigs.at[sig, 'label'] == 'buy':
+                if sigs.at[sig, 'label'] == BUY:
                     if lastbuy_close == 0.:
                         lastbuy_close = sigs.at[sig, 'close']
                         self.missed_buy_end = 1
                     else:
                         self.missed_buy_end += 1 # buy is following buy
-                elif sigs.at[sig, 'label'] == 'sell':
+                elif sigs.at[sig, 'label'] == SELL:
                     if lastbuy_close > 0.:
                         sell_close = sigs.at[sig, 'close']
                         p = (sell_close - lastbuy_close) / \
-                            lastbuy_close * 1000 - 2 * self.transaction_fee
+                            lastbuy_close * 1000 - 2 * FEE
                         self.performance[agg] += p
                         lastbuy_close = 0.
                         self.missed_buy_end = 0
@@ -429,7 +593,7 @@ class FeaturesLabels:
             bts = self.pairs.at[p, 'bts']
             sts = self.pairs.at[p, 'sts']
             check_perf = (tdf.at[sts, 'close'] - tdf.at[bts, 'close']) / tdf.at[bts, 'close'] \
-                         * 1000 - 2 * self.transaction_fee
+                         * 1000 - 2 * FEE
             if check_perf > best_perf:
                 best_perf = check_perf
 
@@ -446,52 +610,9 @@ class FeaturesLabels:
         self.check_period_consistency()
         for perf_elem in iter(self.performance.keys()):
             assert self.performance[perf_elem] <= best_perf
-        self.performance[self.cpc_label_key] = best_perf
+        self.cpc_performance = best_perf
 
 
-
-    def __init__(self, currency_pair: str, minute_filename=None, minute_dataframe=None):
-        assert (minute_filename is not None) or (minute_dataframe is not None), \
-            "either filename or dataframe but not both"
-        self.currency_pair = '?'
-        self.cpc_label_key = 'CPC'
-        self.time_aggregations = {1: 4, 2: 4} # keys in minutes
-        self.performance = self.time_aggregations.copy()
-        self.performance[self.cpc_label_key] = 0.
-        self.minute_data = pd.DataFrame()
-        self.fl_aggs = dict() # feature and label aggregations
-        self.vol_base_period = '1D'
-        self.sell_threshold = -2 # in per mille
-        self.buy_threshold = 10 # in per mille
-        self.transaction_fee = 1 # in per mille, i.e. 0,1%
-        self.best_n = 2 #10
-        self.missed_buy_end = 0
-        self.missed_sell_start = 0
-        self.pmax_ix = 0
-
-        if minute_filename is not None:
-            pass
-        elif not minute_dataframe.empty:
-            self.minute_data = minute_dataframe
-            self.pairs = pd.DataFrame()
-            self.pairs.loc[0, 'bts'] = self.minute_data.index[0]
-#            self.pairs.loc[0, 'sts'] = self.minute_data.index[len(self.minute_data.index)-1]
-            self.pairs.loc[0, 'sts'] = self.minute_data.index[1]
-            self.pairs.loc[0, 'lvl'] = int(0)
-            self.pairs.loc[0, 'child1'] = int(0)
-            self.pairs.loc[0, 'child2'] = int(0)
-            self.pairs.loc[0, 'perf'] = 0.
-            self.pairs.loc[0, 'best'] = False
-            self.currency_pair = currency_pair
-            self.time_aggregation()
-            for time_agg in self.time_aggregations.keys():
-                self.add_period_specific_labels(time_agg)
-            self.add_asset_summary_labels()
-            t1 = self.fl_aggs[1]
-            t2 = self.fl_aggs[2]
-            print(f"T1 length: {len(t1.index)}, T2 length: {len(t2.index)}")
-        else:
-            print("warning: neither filename nor dataframe => no action")
 
 
 
