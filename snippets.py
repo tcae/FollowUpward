@@ -109,4 +109,61 @@ def re_test():
 
 re_test()
 
-# <codecell> re
+# <codecell> append
+import pandas as pd
+import numpy as np
+
+def check_append():
+    df= pd.DataFrame()
+    #print(df)
+    #print(df.dtypes)
+    # ignore_index=True may reset the index with an append, e.g. when index has gaps
+    df = df.append({'key': 'abc', 'hugo': int(2)}, ignore_index=True)
+    df = df.append({'key': 'abc', 'hugo': 3, 'erich': 4.}, ignore_index=True)
+    df = df.append({'key': 'abc', 'hugo': 5, 'erich': 4.}, ignore_index=True)
+    df[3] = {'key': 'abc', 'hugo': 5, 'erich': 4.}
+    print(df)
+
+def check_iloc():
+    df = pd.DataFrame(columns=["a","b","c","d"])
+    df.set_index(['a', 'b'], inplace = True)
+
+    df.loc[('3','4'),['c','d']] = [4,5]
+
+    df.loc[('4','4'),['c','d']] = [3,1]
+    print(df)
+
+def check_iloc2():
+    df = pd.DataFrame(columns=["a","b"])
+    df = df.append({'a': 'hugo', 'b': 511}, ignore_index=True)
+    df = df.append({'a': 'erich', 'b': 512}, ignore_index=True)
+    df = df.append({'a': 'karl', 'b': 513}, ignore_index=True)
+    print(df)
+    df = df.iloc[[2,1]]
+    print(df)
+    df = df.append({'a': 'mimi', 'b': 514}, ignore_index=True)
+    print(df)
+    print("index was reset")
+
+def check_loc3():
+    df = pd.DataFrame(columns=["a","b"])
+    df = df.append({'a': 'hugo', 'b': 511}, ignore_index=True)
+    df = df.append({'a': 'erich', 'b': 512}, ignore_index=True)
+    df = df.append({'a': 'karl', 'b': 513}, ignore_index=True)
+    print(df)
+    df = df.iloc[[2,1]]
+    print(df)
+    df.loc[4 ,['a', 'b']] = ['mimi', 514]
+    print(df)
+    print("index was reset")
+
+def check_loc4():
+    df = pd.DataFrame(np.arange(6).reshape(3,2), columns=['A','B'])
+    print(df)
+    df.loc[:,'C'] = df.loc[:,'A']
+    print(df)
+    df.loc[3] = 5
+    print(df)
+
+#check_append()
+check_loc3()

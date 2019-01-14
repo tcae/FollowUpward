@@ -5,7 +5,7 @@ Created on Mon Jan  7 21:43:26 2019
 
 @author: tc
 """
-
+import numpy as np
 import pandas as pd
 
 
@@ -17,25 +17,6 @@ def derive_features(df: pd.DataFrame):
     df.loc[df['close'] <= df['open'], 'top'] = (df['high'] - df['open']) / df['close'] * 1000
     df.loc[df['close'] > df['open'], 'bottom'] = (df['open'] - df['low']) / df['close'] * 1000
     df.loc[df['close'] <= df['open'], 'bottom'] = (df['close'] - df['low']) / df['close'] * 1000
-
-
-def combine_all_pairs(pairs: pd.DataFrame):
-    "build all pair combinations on level 0 between all time aggregations"
-
-    first = pairs.loc[pairs.lvl == 0]
-    if not first.empty:
-        for fp in first.index:
-            fp_bts = first.at[fp, 'bts']
-            second = first.loc[(first.sts > first.at[fp, 'bts'])] # only a sell after the fp buy
-            for sp in second.index:
-                sp_sts = second.at[sp, 'sts']
-                already_there = pairs.loc[(pairs.bts == fp_bts) & (pairs.sts == sp_sts)]
-                if already_there.empty: # otherwise pair already exists
-                    pairs = pairs.append(dict([('bts', fp_bts), \
-                                               ('sts', sp_sts), \
-                                               ('lvl', 0)]), ignore_index=True)
-    assert pairs.index.is_unique, "unexpected not unique index"
-    return pairs
 
 
 class FeaturesLabels:
@@ -66,21 +47,6 @@ class FeaturesLabels:
 
     """
 
-    currency_pair = '?'
-    cpc_label_key = 'CPC'
-    time_aggregations = {1: 4, 2: 4} # keys in minutes
-    performance = time_aggregations.copy()
-    performance[cpc_label_key] = 0.
-    minute_data = pd.DataFrame()
-    fl_aggs = dict() # feature and label aggregations
-    vol_base_period = '1D'
-    sell_threshold = -2 # in per mille
-    buy_threshold = 10 # in per mille
-    transaction_fee = 1 # in per mille, i.e. 0,1%
-    best_n = 2 #10
-    missed_buy_end = 0
-    missed_sell_start = 0
-
     def add_period_specific_labels(self, time_agg):
 #    def add_period_specific_labels_rolling(self, time_agg):
         "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
@@ -98,6 +64,7 @@ class FeaturesLabels:
         lastlabel = dict()
         for slot in range(0, time_agg):
             win[slot] = loss[slot] = 0.
+            winix[slot] = lossix[slot] = slot
             lastlabel[slot] = "-"
 #        for tix in range(((len(df)-1) % time_agg)+time_agg, len(df), time_agg): # tix = time index
         for tix in range(time_agg, len(df), 1): # tix = time index
@@ -117,8 +84,9 @@ class FeaturesLabels:
                         win[slot] = 0.
                 if loss[slot] < self.sell_threshold: # reset win monitor because dip exceeded threshold
                     win[slot] = 0.
-                    if lastlabel[slot] != "sell": # only one signal without further repeat
-                        df.iat[lossix[slot], lix] = lastlabel[slot] = "sell"
+#                    if lastlabel[slot] != "sell": # only one signal without further repeat
+                    df.iat[lossix[slot], lix] = lastlabel[slot] = "sell"
+                    lossix[slot] += 1 # allow multiple signals if conditions hold
             elif delta > 0:
                 if win[slot] > 0: # win monitoring is running
                     win[slot] += delta
@@ -131,8 +99,9 @@ class FeaturesLabels:
                         loss[slot] = 0. # reset loss monitor as it recovered before triggered sell threshold
                 if win[slot] > self.buy_threshold: # reset win monitor because dip exceeded threshold
                     loss[slot] = 0.
-                    if lastlabel[slot] != "buy": # only one signal without further repeat
-                        df.iat[winix[slot], lix] = lastlabel[slot] = "buy"
+#                    if lastlabel[slot] != "buy": # only one signal without further repeat
+                    df.iat[winix[slot], lix] = lastlabel[slot] = "buy"
+                    winix[slot] += 1 # allow multiple signals if conditions hold
 
     def add_period_specific_labels_resampling(self, time_agg):
 #    def add_period_specific_labels(self, time_agg):
@@ -242,10 +211,49 @@ class FeaturesLabels:
             derive_features(df)
             self.fl_aggs[time_agg] = df
 
-    def next_pairs_level(self, pairs: pd.DataFrame, level):
+    def check_pairs(self):
+        problem = self.pairs.isna()
+        for pix in problem.index:
+            if problem.at[pix, 'sts'] is True:
+                print(f"problem at pix {pix} for sts")
+            if problem.at[pix, 'bts'] is True:
+                print(f"problem at pix {pix} for bts")
+            if problem.at[pix, 'lvl'] is True:
+                print(f"problem at pix {pix} for lvl")
+            if problem.at[pix, 'child1'] is True:
+                print(f"problem at pix {pix} for child1")
+            if problem.at[pix, 'child2'] is True:
+                print(f"problem at pix {pix} for child2")
+            if problem.at[pix, 'perf'] is True:
+                print(f"problem at pix {pix} for perf")
+            if problem.at[pix, 'best'] is True:
+                print(f"problem at pix {pix} for best")
+
+
+
+    def combine_all_pairs(self):
+        "build all pair combinations on level 0 between all time aggregations"
+
+        first = self.pairs.loc[self.pairs.lvl == 0]
+        if not first.empty:
+            for fp in first.index:
+                fp_bts = first.at[fp, 'bts']
+                second = first.loc[(first.sts > first.at[fp, 'bts'])] # only a sell after the fp buy
+                for sp in second.index:
+                    sp_sts = second.at[sp, 'sts']
+                    already_there = self.pairs.loc[(self.pairs.bts == fp_bts) & (self.pairs.sts == sp_sts)]
+                    if already_there.empty: # otherwise pair already exists
+                        self.pmax_ix += 1
+                        self.pairs.loc[self.pmax_ix, \
+                                       ['bts','sts','lvl','perf', 'child1', 'child2', 'best']] = \
+                                       [ fp_bts, sp_sts, 0, 0, -2, -2, False]
+        assert self.pairs.index.is_unique, "unexpected not unique index"
+
+
+    def next_pairs_level(self, level):
         "build pairs of pairs"
         paired = False
-        first = pairs.loc[pairs.lvl < level] # childs can be on different levels!
+        first = self.pairs.loc[self.pairs.lvl < level] # childs can be on different lower levels!
         if not first.empty:
             for fp in first.index:
                 fp_bts = first.at[fp, 'bts']
@@ -256,32 +264,47 @@ class FeaturesLabels:
                     sp_sts = second.at[sp, 'sts']
                     sp_perf = second.at[sp, 'perf']
                     already_there = first.loc[(first.child1 == fp) & (first.child2 == sp)]
+                    try:
+                        self.check_pairs()
+                        if (self.pairs.at[fp, 'lvl'] >= level) or (self.pairs.at[sp, 'lvl'] >= level):
+                            print("inconsistency")
+                    except:
+                        print("key error")
+                        raise
+#                    assert self.pairs.at[fp, 'lvl'] < level, "unexpected level"
+#                    assert self.pairs.at[sp, 'lvl'] < level, "unexpected level"
                     if already_there.empty: # otherwise pair already exists
                         paired = True
-                        pairs = pairs.append(dict([('bts', fp_bts), \
-                                                   ('sts', sp_sts), \
-                                                   ('lvl', level), \
-                                                   ('perf', fp_perf + sp_perf), \
-                                                   ('child1', fp), ('child2', sp)]), ignore_index=True)
+                        self.pmax_ix += 1
+                        self.pairs.loc[self.pmax_ix, \
+                                       ['bts','sts','lvl','perf', 'child1', 'child2', 'best']] = \
+                                       [ fp_bts, sp_sts, level, fp_perf + sp_perf, fp, sp, False]
             if paired:
-                pairs = self.next_pairs_level(pairs, int(level + 1))
-        assert pairs.index.is_unique, "unexpected not unique index"
-        return pairs
+                self.next_pairs_level(int(level + 1))
+        assert self.pairs.index.is_unique, "unexpected not unique index"
+
 
     def calc_performance(self, row):
         "calculates the performance of each pair"
         diff = (self.minute_data.at[row.sts, 'close'] - self.minute_data.at[row.bts, 'close'])
         return diff / self.minute_data.at[row.bts, 'close'] * 1000 - 2 * self.transaction_fee
 
-    def mark_childs(self, pairs, bix):
+    def mark_childs(self, bix):
         "recursively marks all pairs involved in the best path with best=True"
-        pairs.at[bix, 'best'] = True
-        if pairs.at[bix, 'lvl'] > 0:
-            self.mark_childs(pairs, int(pairs.at[bix, 'child1']))
-            self.mark_childs(pairs, int(pairs.at[bix, 'child2']))
+        self.pairs.at[bix, 'best'] = True
+        my_lvl = self.pairs.at[bix, 'lvl']
+        if my_lvl > 0:
+            c1_ix = int(self.pairs.at[bix, 'child1'])
+            c1_lvl = self.pairs.at[c1_ix, 'lvl']
+            c2_ix = int(self.pairs.at[bix, 'child2'])
+            c2_lvl = self.pairs.at[c2_ix, 'lvl']
+            assert my_lvl > c1_lvl, "inconsistent levels with child1"
+            self.mark_childs(c1_ix)
+            assert my_lvl > c2_lvl, "inconsistent levels with child2"
+            self.mark_childs(c2_ix)
 
 
-    def build_period_pairs(self, pairs, start_ts, end_ts):
+    def build_period_pairs(self, start_ts, end_ts):
         "builds level 0 pairs based on aggregated time data"
         for p in iter(self.fl_aggs.keys()):
             buy_sigs = self.fl_aggs[p].loc[(self.fl_aggs[p].label == 'buy') & \
@@ -292,12 +315,13 @@ class FeaturesLabels:
                                         (self.fl_aggs[p].index <= end_ts) & \
                                         (self.fl_aggs[p].index > bs)]
                 for s in sell_sigs.index:
-                    ix = len(pairs.index)
-                    already_there = pairs.loc[(pairs.bts == bs) & (pairs.sts == s)& (pairs.lvl == 0)]
+                    already_there = self.pairs.loc[(self.pairs.bts == bs) \
+                                                   & (self.pairs.sts == s)& (self.pairs.lvl == 0)]
                     if already_there.empty: # otherwise pair already exists
-                        pairs = pairs.append(dict([('bts', bs), ('sts', s), ('lvl', 0), \
-                                                   ('child1', ix), ('child2', ix)]), ignore_index=True)
-        return pairs
+                        self.pmax_ix += 1
+                        self.pairs.loc[self.pmax_ix, \
+                                       ['bts','sts','lvl','perf', 'child1', 'child2', 'best']] = \
+                                       [ bs, s, 0, 0, -1, -1, False]
 
 
     def add_asset_summary_labels(self):
@@ -310,52 +334,52 @@ class FeaturesLabels:
                 max_period = p
         start_ts = self.minute_data.index[0]
         sell_ixs = self.fl_aggs[max_period].loc[self.fl_aggs[max_period].label == 'sell']
-        pairs = pd.DataFrame(columns=['bts', 'sts', 'lvl'])
         for end_ts in sell_ixs.index:
-            pairs = self.build_period_pairs(pairs, start_ts, end_ts)
-            assert pairs.index.is_unique, "unexpected not unique index"
-            pairs = combine_all_pairs(pairs)
-            pairs['perf'] = pairs.apply(self.calc_performance, axis=1)
+            self.build_period_pairs(start_ts, end_ts)
+            assert self.pairs.index.is_unique, "unexpected not unique index"
+            self.combine_all_pairs()
+            self.pairs['perf'] = self.pairs.apply(self.calc_performance, axis=1)
 
             # 1st level of pairs created
-            pairs = self.next_pairs_level(pairs, int(1)) # recursively create all pair levels
-            assert pairs.index.is_unique, "unexpected not unique index"
+            self.next_pairs_level(int(1)) # recursively create all pair levels
+            assert self.pairs.index.is_unique, "unexpected not unique index"
 
             # now select only those pairs that are part of the best n paths and work with those
-            n = min(self.best_n, len(pairs.index))
-            best_perf = pairs.nlargest(n, 'perf')
+            n = min(self.best_n, len(self.pairs.index))
+            best_perf = self.pairs.nlargest(n, 'perf')
             assert best_perf.index.is_unique, "unexpected not unique index"
-            assert min(self.best_n, len(pairs.index)) == len(best_perf.index), \
+            assert min(self.best_n, len(self.pairs.index)) == len(best_perf.index), \
                 "unexpected long best_perf data frame"
             st = best_perf.nsmallest(1, 'sts')
             assert st.index.is_unique, "unexpected not unique index"
             start_ts = st.iat[0, st.columns.get_loc('sts')]
 
-            pairs['best'] = False
+            self.pairs['best'] = False
             for bix in best_perf.index:
-                self.mark_childs(pairs, int(bix))
-            pairs = pairs.loc[pairs.best] # reduce pairs to best_n path pairs
-            assert pairs.index.is_unique, "unexpected not unique index"
+                self.mark_childs(int(bix))
+            self.pmax_ix = self.pairs.index.max()
+            self.pairs = self.pairs.loc[self.pairs.best] # reduce pairs to best_n path pairs
+            assert self.pairs.index.is_unique, "unexpected not unique index"
 
-        best_perf = pairs.nlargest(1, 'perf')
+        best_perf = self.pairs.nlargest(1, 'perf')
         assert best_perf.index.is_unique, "unexpected not unique index"
-        pairs['best'] = False
-        self.mark_childs(pairs, int(best_perf.index[0]))
-        self.check_result_consistency(pairs)
-        pairs = pairs.loc[pairs.best & (pairs.lvl == 0)] # reduce pairs to best_n path pairs on level 0
-        assert pairs.index.is_unique, "unexpected not unique index"
+        self.pairs['best'] = False
+        self.mark_childs(int(best_perf.index[0]))
+        self.check_result_consistency()
+        self.pairs = self.pairs.loc[self.pairs.best & (self.pairs.lvl == 0)] # reduce pairs to best_n path pairs on level 0
+        assert self.pairs.index.is_unique, "unexpected not unique index"
         cpc_labels = pd.DataFrame(self.minute_data, columns=['close'])
         cpc_labels['label'] = '-'
-        for bix in pairs.index:
-            assert cpc_labels.at[pairs.at[bix, 'bts'], 'label'] == '-', \
+        for bix in self.pairs.index:
+            assert cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'] == '-', \
                 'buy inconsistency due to unexpected value {0} instead of hold at timestamp'\
-                .format(cpc_labels.at[pairs.at[bix, 'bts'], 'label'])
-            cpc_labels.at[pairs.at[bix, 'bts'], 'label'] = 'buy'
+                .format(cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'])
+            cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'] = 'buy'
 
-            assert cpc_labels.at[pairs.at[bix, 'sts'], 'label'] == '-', \
+            assert cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'] == '-', \
                 'error sell: inconsistency due to unexpected value {} instead of hold at timestamp'\
-                .format(cpc_labels.at[pairs.at[bix, 'sts'], 'label'])
-            cpc_labels.at[pairs.at[bix, 'sts'], 'label'] = 'sell'
+                .format(cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'])
+            cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'] = 'sell'
         assert cpc_labels.index.is_unique, "unexpected not unique index"
         self.fl_aggs[self.cpc_label_key] = cpc_labels
 
@@ -395,26 +419,28 @@ class FeaturesLabels:
                     assert False, ("unexpected signal - neither buy nor sell")
 
 
-    def check_result_consistency(self, pairs):
+    def check_result_consistency(self):
         "consistency checks"
 
         best_perf = 0.
         tdf = self.fl_aggs[1]
-        pairs.sort_values(by=['lvl', 'bts'])
-        for p in pairs.index:
-            bts = pairs.at[p, 'bts']
-            sts = pairs.at[p, 'sts']
+        self.pairs.sort_values(by=['lvl', 'bts'])
+        for p in self.pairs.index:
+            bts = self.pairs.at[p, 'bts']
+            sts = self.pairs.at[p, 'sts']
             check_perf = (tdf.at[sts, 'close'] - tdf.at[bts, 'close']) / tdf.at[bts, 'close'] \
                          * 1000 - 2 * self.transaction_fee
             if check_perf > best_perf:
                 best_perf = check_perf
 
             assert bts < sts, f"intra pair sequence {bts} >= {sts} incorrect"
-            assert pairs.at[p, 'lvl'] >= 0, "unexpectd level in pairs"
+            assert self.pairs.at[p, 'lvl'] >= 0, "unexpectd level in pairs"
 
-            if pairs.at[p, 'lvl'] > 0:
-                assert (pairs.at[p, 'bts'] == pairs.at[int(pairs.at[p, 'child1']), 'bts']) and \
-                    (pairs.at[p, 'sts'] == pairs.at[int(pairs.at[p, 'child2']), 'sts']), \
+            if self.pairs.at[p, 'lvl'] > 0:
+                assert (self.pairs.at[p, 'bts'] \
+                        == self.pairs.at[int(self.pairs.at[p, 'child1']), 'bts']) and \
+                       (self.pairs.at[p, 'sts'] \
+                        == self.pairs.at[int(self.pairs.at[p, 'child2']), 'sts']), \
                     "can't find consistent childs"
 
         self.check_period_consistency()
@@ -427,10 +453,35 @@ class FeaturesLabels:
     def __init__(self, currency_pair: str, minute_filename=None, minute_dataframe=None):
         assert (minute_filename is not None) or (minute_dataframe is not None), \
             "either filename or dataframe but not both"
+        self.currency_pair = '?'
+        self.cpc_label_key = 'CPC'
+        self.time_aggregations = {1: 4, 2: 4} # keys in minutes
+        self.performance = self.time_aggregations.copy()
+        self.performance[self.cpc_label_key] = 0.
+        self.minute_data = pd.DataFrame()
+        self.fl_aggs = dict() # feature and label aggregations
+        self.vol_base_period = '1D'
+        self.sell_threshold = -2 # in per mille
+        self.buy_threshold = 10 # in per mille
+        self.transaction_fee = 1 # in per mille, i.e. 0,1%
+        self.best_n = 2 #10
+        self.missed_buy_end = 0
+        self.missed_sell_start = 0
+        self.pmax_ix = 0
+
         if minute_filename is not None:
             pass
         elif not minute_dataframe.empty:
             self.minute_data = minute_dataframe
+            self.pairs = pd.DataFrame()
+            self.pairs.loc[0, 'bts'] = self.minute_data.index[0]
+#            self.pairs.loc[0, 'sts'] = self.minute_data.index[len(self.minute_data.index)-1]
+            self.pairs.loc[0, 'sts'] = self.minute_data.index[1]
+            self.pairs.loc[0, 'lvl'] = int(0)
+            self.pairs.loc[0, 'child1'] = int(0)
+            self.pairs.loc[0, 'child2'] = int(0)
+            self.pairs.loc[0, 'perf'] = 0.
+            self.pairs.loc[0, 'best'] = False
             self.currency_pair = currency_pair
             self.time_aggregation()
             for time_agg in self.time_aggregations.keys():
