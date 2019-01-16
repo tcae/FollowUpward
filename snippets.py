@@ -87,13 +87,24 @@ def rolling5():
     print("tshift")
     print(b)
 
+def rolling6():
+    print("rolling4")
+    a = pd.DataFrame(np.arange(6), columns=['created'],\
+                     index = pd.date_range('2012-10-08 18:15:05', periods=6, freq='T'))
+    a['s1'] = a.created.shift(1)
+    a['s2'] = a.created.shift(2)
+    a['s3'] = a.created.shift(3)
+    a['t1'] = a.created.tshift(1)
+    a['t2'] = a.created.tshift(2)
+    a['t3'] = a.created.tshift(3)
+    print(a)
 
 print(f"panda version {pd.__version__}")
 #rolling1()
 #rolling2()
 #rolling3()
 #rolling4()
-rolling5()
+rolling6()
 
 # <codecell> re
 import re

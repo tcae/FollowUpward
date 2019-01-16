@@ -69,6 +69,9 @@ def test_fl():
     if cp.missed_sell_start > 0:
         print('info: missed {} sell signals at the start'.format(cp.missed_sell_start))
 
+    t1 = cp.fl_aggs[1].loc[:,['change', 'label', 'perf']]
+    t2 = cp.fl_aggs[2].loc[:,['change', 'label', 'perf']]
+    cpc = cp.cpc_labels
     test = cp.performance
     print(test)
     print(cp.cpc_performance)

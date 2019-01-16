@@ -75,10 +75,9 @@ class FeaturesLabels:
             self.time_aggregation()
             for time_agg in self.time_aggregations.keys():
                 self.add_period_specific_labels(time_agg)
-            self.add_asset_summary_labels()
-            t1 = self.fl_aggs[1]
-            t2 = self.fl_aggs[2]
-            print(f"T1 length: {len(t1.index)}, T2 length: {len(t2.index)}")
+            print(self.cpc_best_path())
+            self.calc_performances()
+#            self.add_asset_summary_labels() # pairs approach
         else:
             print("warning: neither filename nor dataframe => no action")
 
@@ -139,51 +138,6 @@ class FeaturesLabels:
                     df.iat[winix[slot], lix] = lastlabel[slot] = "buy"
                     winix[slot] += 1 # allow multiple signals if conditions hold
 
-    def add_period_specific_labels_resampling(self, time_agg):
-#    def add_period_specific_labels(self, time_agg):
-        "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
-
-        df = self.fl_aggs[time_agg]
-        df['change'] = 0.
-        df['label'] = lastlabel = "-"
-        pix = df.columns.get_loc('change') # performance column index
-        lix = df.columns.get_loc('label')
-        cix = df.columns.get_loc('close')
-        win = loss = 0.
-        for tix in range(1, len(df)): # tix = time index
-            last_close = df.iat[tix-1, cix]
-            delta = (df.iat[tix, cix] - last_close) / last_close * 1000 #  in per mille: 1% == 10
-            df.iat[tix, pix] = delta
-            if delta < 0:
-                if loss < 0: # loss monitoring is running
-                    loss += delta
-                else: # first time bar of decrease period
-                    lossix = tix
-                    loss = delta
-                if win > 0: # win monitoring is running
-                    win += delta
-                    if win < 0: # reset win monitor because it is below start price
-                        win = 0.
-                if loss < self.sell_threshold: # reset win monitor because dip exceeded threshold
-                    win = 0.
-                    if lastlabel != "sell": # only one signal without further repeat
-                        df.iat[lossix, lix] = "sell"
-                        lastlabel = "sell"
-            elif delta > 0:
-                if win > 0: # win monitoring is running
-                    win += delta
-                else: # first time bar of increase period
-                    winix = tix
-                    win = delta
-                if loss < 0: # loss monitoring is running
-                    loss += delta
-                    if loss > 0:
-                        loss = 0. # reset loss monitor as it recovered before triggered sell threshold
-                if win > self.buy_threshold: # reset win monitor because dip exceeded threshold
-                    loss = 0.
-                    if lastlabel != "buy": # only one signal without further repeat
-                        df.iat[winix, lix] = "buy"
-                        lastlabel = "buy"
 
 
     def derive_features(self, time_agg):
@@ -226,38 +180,8 @@ class FeaturesLabels:
             self.derive_features(time_agg)
 
 
-    def time_aggregation_resampling(self):
-#    def time_aggregation(self):
-        """Time aggregation through downsampling with the consequence that new data is only
-        generated after a specific period and overlooks minute bumps
 
-        in:
-            dataframe of minute data of a currency pair;
-        out:
-            dict of dataframes of aggregations with features and targets
-        """
-        global df, mdf
-        time_aggs = list(self.time_aggregations.keys())
-        for time_agg in time_aggs:
-            mstr = str(time_agg) + "T"
-            if time_agg == 1:
-                mdf = df = self.minute_data
-                df['volume_change'] = (df['volume']  - \
-                                      df.volume.rolling(self.vol_base_period).median()) / \
-                                      df.volume.rolling(self.vol_base_period).median() * 100 # in %
-            else:
-                mdf = self.minute_data
-                df = pd.DataFrame()
-                df['close'] = mdf.close.resample(mstr, label='right', closed='right').last()
-                df['high'] = mdf.high.resample(mstr, label='right', closed='right').max()
-                df['low'] = mdf.low.resample(mstr, label='right', closed='right').min()
-                df['open'] = mdf.open.resample(mstr, label='right', closed='right').first()
-                df['volume_change'] = mdf.volume_change.resample(mstr, label='right', \
-                                                                       closed='right').mean()
-            self.fl_aggs[time_agg] = df
-            self.derive_features(df)
-
-    def calc_best(self):
+    def cpc_best_path(self):
         """identify best path through all aggregations - use all buy and sell signals.
         The search space is limited because costs increase the same for all paths.
         Hence, one has only to check the most recent 2 buy signals and
@@ -281,337 +205,137 @@ class FeaturesLabels:
                 discard old potential buy and open new potential buy
                 discard any potential sell including new ones
                 current performance = -fee
-            current performance >= -fee:
+            current performance >= -fee: do nothing, i.e.
                 discard new buy and hold on to old potential buy
                 hold on to any potential sells including new ones
 
-        *) potential transaction performance includes fees
         """
 
         self.cpc_labels = pd.DataFrame(self.minute_data, columns=['close'])
         self.cpc_labels['label'] = HOLD
         assert self.cpc_labels.index.is_unique, "unexpected not unique index"
         holding = False
-        pot_transaction = False
+        pot_transaction = False # becomes true if potential buy and potential sell are detected
         transaction_perf = current_perf = best_perf = 0.
         buy_tic = sell_tic = self.minute_data.index[0]
         last = self.minute_data.at[self.minute_data.index[0], 'close']
         for tic in self.minute_data.index:
-            this = self.minute_data.at[self.minute_data.index[tic], 'close']
+            this = self.minute_data.at[tic, 'close']
+            tic_perf = ((this - last)/ last * 1000)
+            last = this
             sell_sig = False
             buy_sig = False
             for time_agg in self.time_aggregations.keys():
+                assert self.fl_aggs[time_agg].index.contains(tic), "missing timestamp(resample on?)"
                 signal = self.fl_aggs[time_agg].at[tic, 'label']
                 if signal == BUY:
                     buy_sig = True
                 if signal == SELL:
                     sell_sig = True
             if holding:
-                current_perf += ((last - this)/ last * 1000)
+                current_perf += tic_perf
                 if sell_sig:
                     if pot_transaction: # use case 2
-                        assert buy_tic < sell_tic, "inconsistent buy/sell tic marks"
                         if (current_perf - FEE) >= transaction_perf: # reset transaction
                             transaction_perf = current_perf - FEE
                             sell_tic = tic
                             pot_transaction = True # remains True
                         else:
                             if transaction_perf > 0: # execute transaction
+                                assert buy_tic < sell_tic, \
+                                    f"inconsistent tic marks, buy: {buy_tic} sell: {sell_tic}"
                                 best_perf += transaction_perf
                                 self.cpc_labels.at[buy_tic,'label'] = BUY
                                 self.cpc_labels.at[sell_tic,'label'] = SELL
-                            transaction_perf = 0.
                             pot_transaction = False
+                            holding = False
+                            current_perf = transaction_perf = 0.
                     else: # use case 3 = no potential transaction
                         transaction_perf = current_perf - FEE
                         sell_tic = tic
                         pot_transaction = True # remains True
                         assert buy_tic < sell_tic, "inconsistent buy/sell tic marks"
-                elif buy_sig: # use case 4
-                    if current_perf < -FEE:
-                        if pot_transaction:
-                            assert buy_tic < sell_tic, "inconsistent buy/sell tic marks"
-                            if transaction_perf > 0: # execute transaction
-                                best_perf += transaction_perf
-                                self.cpc_labels.at[buy_tic,'label'] = BUY
-                                self.cpc_labels.at[sell_tic,'label'] = SELL
-                            transaction_perf = 0.
+                if buy_sig: # use case 4, from different periods there can be sell and buy!
+                    if (current_perf < -FEE): # set new buy_tic but check for a potential tr.
+                        if pot_transaction and (transaction_perf > 0): # execute transaction
+                            assert buy_tic < sell_tic, \
+                                f"inconsistent tic marks, buy: {buy_tic} sell: {sell_tic}"
+                            best_perf += transaction_perf
+                            self.cpc_labels.at[buy_tic,'label'] = BUY
+                            self.cpc_labels.at[sell_tic,'label'] = SELL
                             pot_transaction = False
+                            holding = False
+                            transaction_perf = 0.
                         buy_tic = tic
                         current_perf = -FEE
-                    else: # current_perf >= -FEE
-                        buy_tic = tic
                         holding = True
-            elif buy_sig: # use case 1 = not holding with buy signal
-                buy_tic = tic
-                current_perf = -FEE
-                holding = True
-                transaction_perf = 0.
-                pot_transaction = False
+            else: # not holding
+                if buy_sig: # use case 1 = not holding with buy signal
+                    buy_tic = tic
+                    current_perf = -FEE
+                    holding = True
+                    pot_transaction = False
+        return best_perf
 
 
+    def calc_performances(self):
+        """calculate all time aggregation specific performances
+        as well as the CPC summary best path performance.
+        """
 
-        perf_tmp = self.performance.copy()
-        for p in perf_tmp:
-            p = 0.
-        status = HOLD
+        self.performance = dict()
+        ta_holding = dict()
+        for time_agg in self.time_aggregations.keys():
+            self.performance[time_agg] = 0.
+            ta_holding[time_agg]= False
+            self.fl_aggs[time_agg].loc[:,'perf'] = 0.
+        self.cpc_labels.loc[:,'perf'] = 0.
         holding = False
-        perf_cpc = 0.
-        buy_tic = sell_tic = self.minute_data.index[0]
-        this = last = self.minute_data.at[self.minute_data.index[0], 'close']
-        for tic in self.minute_data.index:
-            this = self.minute_data.at[self.minute_data.index[tic], 'close']
-            if holding:
-                perf_cpc += ((last - this)/ last * 1000)
-            for time_agg in self.time_aggregations.keys():
-                if self.fl_aggs[time_agg].at[tic, 'label'] == BUY:
-                    if holding:
-                        if -FEE > perf_cpc:
-                            perf_cpc = -FEE
-                            buy_tic = tic
-                        else
-                    elif holding
-                        ((last - this)/ last * 1000 - FEE) perf_cpc = - FEE
-
-
-diff / self.minute_data.at[row.bts, 'close'] * 1000 - 2 * FEE
-
-    def check_pairs(self):
-        problem = self.pairs.isna()
-        for pix in problem.index:
-            if problem.at[pix, 'sts'] is True:
-                print(f"problem at pix {pix} for sts")
-            if problem.at[pix, 'bts'] is True:
-                print(f"problem at pix {pix} for bts")
-            if problem.at[pix, 'lvl'] is True:
-                print(f"problem at pix {pix} for lvl")
-            if problem.at[pix, 'child1'] is True:
-                print(f"problem at pix {pix} for child1")
-            if problem.at[pix, 'child2'] is True:
-                print(f"problem at pix {pix} for child2")
-            if problem.at[pix, 'perf'] is True:
-                print(f"problem at pix {pix} for perf")
-            if problem.at[pix, 'best'] is True:
-                print(f"problem at pix {pix} for best")
-
-
-
-    def combine_all_pairs(self):
-        "build all pair combinations on level 0 between all time aggregations"
-
-        first = self.pairs.loc[self.pairs.lvl == 0]
-        if not first.empty:
-            for fp in first.index:
-                fp_bts = first.at[fp, 'bts']
-                second = first.loc[(first.sts > first.at[fp, 'bts'])] # only a sell after the fp buy
-                for sp in second.index:
-                    sp_sts = second.at[sp, 'sts']
-                    already_there = self.pairs.loc[(self.pairs.bts == fp_bts) & (self.pairs.sts == sp_sts)]
-                    if already_there.empty: # otherwise pair already exists
-                        self.pmax_ix += 1
-                        self.pairs.loc[self.pmax_ix, \
-                                       ['bts','sts','lvl','perf', 'child1', 'child2', 'best']] = \
-                                       [ fp_bts, sp_sts, 0, 0, -2, -2, False]
-        assert self.pairs.index.is_unique, "unexpected not unique index"
-
-
-    def next_pairs_level(self, level):
-        "build pairs of pairs"
-        paired = False
-        first = self.pairs.loc[self.pairs.lvl < level] # childs can be on different lower levels!
-        if not first.empty:
-            for fp in first.index:
-                fp_bts = first.at[fp, 'bts']
-                fp_perf = first.at[fp, 'perf']
-                second = first.loc[(first.bts > first.at[fp, 'sts'])] # only pairs after each other
-                for sp in second.index:
-                    assert sp != fp, "unexpected detection of same pair"
-                    sp_sts = second.at[sp, 'sts']
-                    sp_perf = second.at[sp, 'perf']
-                    already_there = first.loc[(first.child1 == fp) & (first.child2 == sp)]
-                    try:
-                        self.check_pairs()
-                        if (self.pairs.at[fp, 'lvl'] >= level) or (self.pairs.at[sp, 'lvl'] >= level):
-                            print("inconsistency")
-                    except:
-                        print("key error")
-                        raise
-#                    assert self.pairs.at[fp, 'lvl'] < level, "unexpected level"
-#                    assert self.pairs.at[sp, 'lvl'] < level, "unexpected level"
-                    if already_there.empty: # otherwise pair already exists
-                        paired = True
-                        self.pmax_ix += 1
-                        self.pairs.loc[self.pmax_ix, \
-                                       ['bts','sts','lvl','perf', 'child1', 'child2', 'best']] = \
-                                       [ fp_bts, sp_sts, level, fp_perf + sp_perf, fp, sp, False]
-            if paired:
-                self.next_pairs_level(int(level + 1))
-        assert self.pairs.index.is_unique, "unexpected not unique index"
-
-
-    def calc_performance(self, row):
-        "calculates the performance of each pair"
-        diff = (self.minute_data.at[row.sts, 'close'] - self.minute_data.at[row.bts, 'close'])
-        return diff / self.minute_data.at[row.bts, 'close'] * 1000 - 2 * FEE
-
-    def mark_childs(self, bix):
-        "recursively marks all pairs involved in the best path with best=True"
-        self.pairs.at[bix, 'best'] = True
-        my_lvl = self.pairs.at[bix, 'lvl']
-        if my_lvl > 0:
-            c1_ix = int(self.pairs.at[bix, 'child1'])
-            c1_lvl = self.pairs.at[c1_ix, 'lvl']
-            c2_ix = int(self.pairs.at[bix, 'child2'])
-            c2_lvl = self.pairs.at[c2_ix, 'lvl']
-            assert my_lvl > c1_lvl, "inconsistent levels with child1"
-            self.mark_childs(c1_ix)
-            assert my_lvl > c2_lvl, "inconsistent levels with child2"
-            self.mark_childs(c2_ix)
-
-
-    def build_period_pairs(self, start_ts, end_ts):
-        "builds level 0 pairs based on aggregated time data"
-        for p in iter(self.fl_aggs.keys()):
-            buy_sigs = self.fl_aggs[p].loc[(self.fl_aggs[p].label == BUY) & \
-                                   (self.fl_aggs[p].index >= start_ts) & \
-                                   (self.fl_aggs[p].index < end_ts)]
-            for bs in buy_sigs.index:
-                sell_sigs = self.fl_aggs[p].loc[(self.fl_aggs[p].label == SELL) & \
-                                        (self.fl_aggs[p].index <= end_ts) & \
-                                        (self.fl_aggs[p].index > bs)]
-                for s in sell_sigs.index:
-                    already_there = self.pairs.loc[(self.pairs.bts == bs) \
-                                                   & (self.pairs.sts == s)& (self.pairs.lvl == 0)]
-                    if already_there.empty: # otherwise pair already exists
-                        self.pmax_ix += 1
-                        self.pairs.loc[self.pmax_ix, \
-                                       ['bts','sts','lvl','perf', 'child1', 'child2', 'best']] = \
-                                       [ bs, s, 0, 0, -1, -1, False]
-
-
-    def add_asset_summary_labels(self):
-        "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
-
-        max_period = 1
-        for p in iter(self.fl_aggs.keys()):
-            assert self.fl_aggs[p].index.is_unique, "unexpected not unique index"
-            if self.fl_aggs[max_period].index[0].freq < self.fl_aggs[p].index[0].freq:
-                max_period = p
-        start_ts = self.minute_data.index[0]
-        sell_ixs = self.fl_aggs[max_period].loc[self.fl_aggs[max_period].label == SELL]
-        for end_ts in sell_ixs.index:
-            self.build_period_pairs(start_ts, end_ts)
-            assert self.pairs.index.is_unique, "unexpected not unique index"
-            self.combine_all_pairs()
-            self.pairs['perf'] = self.pairs.apply(self.calc_performance, axis=1)
-
-            # 1st level of pairs created
-            self.next_pairs_level(int(1)) # recursively create all pair levels
-            assert self.pairs.index.is_unique, "unexpected not unique index"
-
-            # now select only those pairs that are part of the best n paths and work with those
-            n = min(self.best_n, len(self.pairs.index))
-            best_perf = self.pairs.nlargest(n, 'perf')
-            assert best_perf.index.is_unique, "unexpected not unique index"
-            assert min(self.best_n, len(self.pairs.index)) == len(best_perf.index), \
-                "unexpected long best_perf data frame"
-            st = best_perf.nsmallest(1, 'sts')
-            assert st.index.is_unique, "unexpected not unique index"
-            start_ts = st.iat[0, st.columns.get_loc('sts')]
-
-            self.pairs['best'] = False
-            for bix in best_perf.index:
-                self.mark_childs(int(bix))
-            self.pmax_ix = self.pairs.index.max()
-            self.pairs = self.pairs.loc[self.pairs.best] # reduce pairs to best_n path pairs
-            assert self.pairs.index.is_unique, "unexpected not unique index"
-
-        best_perf = self.pairs.nlargest(1, 'perf')
-        assert best_perf.index.is_unique, "unexpected not unique index"
-        self.pairs['best'] = False
-        self.mark_childs(int(best_perf.index[0]))
-        self.check_result_consistency()
-        self.pairs = self.pairs.loc[self.pairs.best & (self.pairs.lvl == 0)] # reduce pairs to best_n path pairs on level 0
-        assert self.pairs.index.is_unique, "unexpected not unique index"
-        self.cpc_labels = pd.DataFrame(self.minute_data, columns=['close'])
-        self.cpc_labels['label'] = HOLD
-        for bix in self.pairs.index:
-            assert self.cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'] == HOLD, \
-                'buy inconsistency due to unexpected value {0} instead of hold at timestamp'\
-                .format(self.cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'])
-            self.cpc_labels.at[self.pairs.at[bix, 'bts'], 'label'] = BUY
-
-            assert self.cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'] == HOLD, \
-                'error sell: inconsistency due to unexpected value {} instead of hold at timestamp'\
-                .format(self.cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'])
-            self.cpc_labels.at[self.pairs.at[bix, 'sts'], 'label'] = SELL
         assert self.cpc_labels.index.is_unique, "unexpected not unique index"
+        last = self.minute_data.at[self.minute_data.index[0], 'close']
+        for tic in self.minute_data.index:
+            this = self.minute_data.at[tic, 'close']
+            tic_perf = ((this - last)/ last * 1000)
+            last = this
+            signal = self.cpc_labels.at[tic, 'label']
+            if holding:
+                self.cpc_performance += tic_perf
+                self.cpc_labels.at[tic, 'perf'] = self.cpc_performance
+            if (signal == BUY) and (not holding):
+                self.cpc_performance -= FEE
+                self.cpc_labels.at[tic, 'perf'] = self.cpc_performance
+                holding = True
+            if (signal == SELL) and holding:
+                self.cpc_performance -= FEE
+                self.cpc_labels.at[tic, 'perf'] = self.cpc_performance
+                holding = False
+            for time_agg in self.time_aggregations.keys():
+                assert self.fl_aggs[time_agg].index.contains(tic), "missing timestamp(resample on?)"
+                signal = self.fl_aggs[time_agg].at[tic, 'label']
+                if ta_holding[time_agg]:
+                    self.performance[time_agg] += tic_perf
+                    self.fl_aggs[time_agg].at[tic, 'perf'] = self.performance[time_agg]
+                if (signal == BUY) and (not ta_holding[time_agg]):
+                    self.performance[time_agg] -= FEE
+                    self.fl_aggs[time_agg].at[tic, 'perf'] = self.performance[time_agg]
+                    ta_holding[time_agg] = True
+                if (signal == SELL) and ta_holding[time_agg]:
+                    self.performance[time_agg] -= FEE
+                    self.fl_aggs[time_agg].at[tic, 'perf'] = self.performance[time_agg]
+                    ta_holding[time_agg]= False
 
 
-    def check_period_consistency(self):
-        "count non matching buy and sell signals and calculates the performance per period"
-        for perf_elem in iter(self.performance.keys()):
-            self.performance[perf_elem] = 0
-
-        for agg in iter(self.fl_aggs.keys()):
-            tdf = self.fl_aggs[agg]
-            lastbuy_close = 0.
-            sigs = tdf.loc[(tdf.label == BUY) | (tdf.label == SELL)]
-            self.missed_sell_start = 0
-            self.missed_buy_end = -1
-            for sig in sigs.index:
-                if sigs.at[sig, 'label'] == BUY:
-                    if lastbuy_close == 0.:
-                        lastbuy_close = sigs.at[sig, 'close']
-                        self.missed_buy_end = 1
-                    else:
-                        self.missed_buy_end += 1 # buy is following buy
-                elif sigs.at[sig, 'label'] == SELL:
-                    if lastbuy_close > 0.:
-                        sell_close = sigs.at[sig, 'close']
-                        p = (sell_close - lastbuy_close) / \
-                            lastbuy_close * 1000 - 2 * FEE
-                        self.performance[agg] += p
-                        lastbuy_close = 0.
-                        self.missed_buy_end = 0
-                    else:
-                        if self.missed_buy_end < 0: # no buy signal yet seen
-                            self.missed_sell_start += 1
-                        else:
-                            pass # sell is following sell
-                else:
-                    assert False, ("unexpected signal - neither buy nor sell")
-
-
-    def check_result_consistency(self):
-        "consistency checks"
-
-        best_perf = 0.
-        tdf = self.fl_aggs[1]
-        self.pairs.sort_values(by=['lvl', 'bts'])
-        for p in self.pairs.index:
-            bts = self.pairs.at[p, 'bts']
-            sts = self.pairs.at[p, 'sts']
-            check_perf = (tdf.at[sts, 'close'] - tdf.at[bts, 'close']) / tdf.at[bts, 'close'] \
-                         * 1000 - 2 * FEE
-            if check_perf > best_perf:
-                best_perf = check_perf
-
-            assert bts < sts, f"intra pair sequence {bts} >= {sts} incorrect"
-            assert self.pairs.at[p, 'lvl'] >= 0, "unexpectd level in pairs"
-
-            if self.pairs.at[p, 'lvl'] > 0:
-                assert (self.pairs.at[p, 'bts'] \
-                        == self.pairs.at[int(self.pairs.at[p, 'child1']), 'bts']) and \
-                       (self.pairs.at[p, 'sts'] \
-                        == self.pairs.at[int(self.pairs.at[p, 'child2']), 'sts']), \
-                    "can't find consistent childs"
-
-        self.check_period_consistency()
-        for perf_elem in iter(self.performance.keys()):
-            assert self.performance[perf_elem] <= best_perf
-        self.cpc_performance = best_perf
-
+    def build_feature_vectors(self):
+        print("rolling4")
+        a = pd.DataFrame(np.arange(6), columns=['created'],\
+                         index = pd.date_range('2012-10-08 18:15:05', periods=6, freq='T'))
+        a['s1'] = a.created.shift(1)
+        a['s2'] = a.created.shift(2)
+        a['s3'] = a.created.shift(3)
+        a['t1'] = a.created.tshift(1)
+        a['t2'] = a.created.tshift(2)
+        a['t3'] = a.created.tshift(3)
+        print(a)
 
 
 
