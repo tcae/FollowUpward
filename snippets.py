@@ -98,6 +98,8 @@ def rolling6():
     a['t2'] = a.created.tshift(2)
     a['t3'] = a.created.tshift(3)
     print(a)
+    print(np.datetime64('2012-10-08 18:15:05'))
+    print(True in a.index.isin([np.datetime64('2012-10-08 18:15:05')]))
 
 print(f"panda version {pd.__version__}")
 #rolling1()
@@ -133,7 +135,6 @@ def type_check():
 
 # <codecell> append
 import pandas as pd
-import numpy as np
 
 def check_append():
     df= pd.DataFrame()
@@ -190,3 +191,33 @@ def check_loc4():
 #check_append()
 check_loc3()
 #print(str.isdecimal())
+
+# <codecell> dict
+import numpy as np
+import pandas as pd
+
+def timedelta_minutes(first:str, last:str):
+    my_min = pd.Timedelta(pd.Timestamp(last) - pd.to_datetime(first))
+    min_res = my_min.days*24*60 + int(my_min.seconds/60)
+    return min_res
+
+def check_dict():
+    test_d = {1:10, 2:20, 'cpc':'text'}
+    for d in test_d:
+        print(d)
+        if isinstance(d, int):
+            print(d+1)
+        print(test_d[d])
+    for k in range(0):
+        print('hallo')
+
+check_dict()
+# my_time = pd.Timestamp('2009-01-01 05:45:00') - pd.to_datetime('2008-01-01 04:23:00')
+my_time = pd.Timestamp('2009-01-01') - pd.to_datetime('2008-01-01')
+
+min = pd.Timedelta(my_time,'m')
+# min = np.timedelta64(my_time, 'm')
+print(f"{min.days} {int(min.seconds/60)}")
+print(f"{min.days*24*60 + int(min.seconds/60)}")
+print(timedelta_minutes('2008-01-01', '2009-01-01'))
+
