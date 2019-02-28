@@ -87,13 +87,26 @@ def rolling5():
     print("tshift")
     print(b)
 
+def rolling6():
+    print("rolling4")
+    a = pd.DataFrame(np.arange(6), columns=['created'],\
+                     index = pd.date_range('2012-10-08 18:15:05', periods=6, freq='T'))
+    a['s1'] = a.created.shift(1)
+    a['s2'] = a.created.shift(2)
+    a['s3'] = a.created.shift(3)
+    a['t1'] = a.created.tshift(1)
+    a['t2'] = a.created.tshift(2)
+    a['t3'] = a.created.tshift(3)
+    print(a)
+    print(np.datetime64('2012-10-08 18:15:05'))
+    print(True in a.index.isin([np.datetime64('2012-10-08 18:15:05')]))
 
 print(f"panda version {pd.__version__}")
 #rolling1()
 #rolling2()
 #rolling3()
 #rolling4()
-rolling5()
+rolling6()
 
 # <codecell> re
 import re
@@ -109,4 +122,102 @@ def re_test():
 
 re_test()
 
-# <codecell> re
+# <codecell> type check
+
+def type_check():
+    test1 = '123456';  # Only digit in this string
+    print(type(test1))
+    test2 = 123456;  # Only digit in this string
+    print(type(test2))
+    print(isinstance(test2, int))
+    print(isinstance(test2, str))
+
+
+# <codecell> append
+import pandas as pd
+
+def check_append():
+    df= pd.DataFrame()
+    #print(df)
+    #print(df.dtypes)
+    # ignore_index=True may reset the index with an append, e.g. when index has gaps
+    df = df.append({'key': 'abc', 'hugo': int(2)}, ignore_index=True)
+    df = df.append({'key': 'abc', 'hugo': 3, 'erich': 4.}, ignore_index=True)
+    df = df.append({'key': 'abc', 'hugo': 5, 'erich': 4.}, ignore_index=True)
+    df[3] = {'key': 'abc', 'hugo': 5, 'erich': 4.}
+    print(df)
+
+def check_iloc():
+    df = pd.DataFrame(columns=["a","b","c","d"])
+    df.set_index(['a', 'b'], inplace = True)
+
+    df.loc[('3','4'),['c','d']] = [4,5]
+
+    df.loc[('4','4'),['c','d']] = [3,1]
+    print(df)
+
+def check_iloc2():
+    df = pd.DataFrame(columns=["a","b"])
+    df = df.append({'a': 'hugo', 'b': 511}, ignore_index=True)
+    df = df.append({'a': 'erich', 'b': 512}, ignore_index=True)
+    df = df.append({'a': 'karl', 'b': 513}, ignore_index=True)
+    print(df)
+    df = df.iloc[[2,1]]
+    print(df)
+    df = df.append({'a': 'mimi', 'b': 514}, ignore_index=True)
+    print(df)
+    print("index was reset")
+
+def check_loc3():
+    df = pd.DataFrame(columns=["a","b"])
+    df = df.append({'a': 'hugo', 'b': 511}, ignore_index=True)
+    df = df.append({'a': 'erich', 'b': 512}, ignore_index=True)
+    df = df.append({'a': 'karl', 'b': 513}, ignore_index=True)
+    print(df)
+    df = df.iloc[[2,1]]
+    print(df)
+    df.loc[4 ,['a', 'b']] = ['mimi', 514]
+    print(df)
+    print("index was reset")
+
+def check_loc4():
+    df = pd.DataFrame(np.arange(6).reshape(3,2), columns=['A','B'])
+    print(df)
+    df.loc[:,'C'] = df.loc[:,'A']
+    print(df)
+    df.loc[3] = 5
+    print(df)
+
+#check_append()
+check_loc3()
+#print(str.isdecimal())
+
+# <codecell> dict
+import numpy as np
+import pandas as pd
+
+def timedelta_minutes(first:str, last:str):
+    my_min = pd.Timedelta(pd.Timestamp(last) - pd.to_datetime(first))
+    min_res = my_min.days*24*60 + int(my_min.seconds/60)
+    return min_res
+
+def check_dict():
+    test_d = {1:10, 2:20, 'cpc':'text'}
+    for d in test_d:
+        print(d)
+        if isinstance(d, int):
+            print(d+1)
+        print(test_d[d])
+    for k in range(0):
+        print('hallo')
+
+check_dict()
+# my_time = pd.Timestamp('2009-01-01 05:45:00') - pd.to_datetime('2008-01-01 04:23:00')
+my_time = pd.Timestamp('2009-01-01') - pd.to_datetime('2008-01-01')
+
+min = pd.Timedelta(my_time,'m')
+# min = np.timedelta64(my_time, 'm')
+print(f"{min.days} {int(min.seconds/60)}")
+print(f"{min.days*24*60 + int(min.seconds/60)}")
+print(timedelta_minutes('2008-01-01', '2009-01-01'))
+

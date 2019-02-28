@@ -6,11 +6,11 @@ Created on Sat Jan 12 21:13:46 2019
 @author: tc
 """
 import pandas as pd
-import features_labels as fl
+import targets_features as fl
 
 
 def generate_minute_data():
-    "tests creation of features and labels with artificial data"
+    "tests creation of features and targets with artificial data"
     df_len = 21
     df = pd.DataFrame(index=pd.date_range('2018-12-28 01:10:00', periods=2*df_len+1, freq='T'))
     cl = 100.
@@ -60,21 +60,27 @@ def generate_minute_data():
 #    assert 0
 
 def test_fl():
-    "regression test performance returns of labels and features based on artificial input"
+    "regression test performance returns of targets and features based on artificial input"
     print("tests started")
+    agg = {'CPC': 0, 1: 4, 2: 4}
     df = generate_minute_data()
-    cp = fl.FeaturesLabels('tst_usdt', minute_dataframe=df)
+    cp = fl.TargetsFeatures(minute_dataframe=df, aggregation=agg)
     if cp.missed_buy_end > 0:
         print('info: missed {} buy signals at the end'.format(cp.missed_buy_end))
     if cp.missed_sell_start > 0:
         print('info: missed {} sell signals at the start'.format(cp.missed_sell_start))
-
+    t1 = cp.tf_aggs[1].loc[:,['delta', 'target', 'perf']]
+    t2 = cp.tf_aggs[2].loc[:,['delta', 'target', 'perf']]
+    tv1 = cp.tf_vectors[1]
+    tv2 = cp.tf_vectors[2]
+    tvcpc = cp.tf_vectors['CPC']
+    cpc = cp.tf_aggs['CPC']
     test = cp.performance
     print(test)
-    assert test[1] == -0.4147158338222414
-#    assert test[2] == 11.370369618494905 # resampling
-    assert test[2] == 6.170258544137765 # rolling
-    assert test['CPC'] == 25.33985232488435
+#    print(cp.cpc_performance)
+    assert test[1] == -0.23782522317685562
+    assert test[2] == 6.2407515870716175
+    assert test['CPC'] == 25.304288700980557
     print("tests finished")
 
 test_fl()
