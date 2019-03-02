@@ -11,7 +11,7 @@ from __future__ import print_function
 
 import os
 # import pandas as pd
-from targets_features import TfVectors
+import targets_features as t_f
 
 import math
 
@@ -45,7 +45,7 @@ def load_targets_features(currency_pair: str):
     and stores them for classifier training and evaluation
     """
     fname = DATA_PATH + '/' + currency_pair + '.pydata'
-    tf_vec = TfVectors(filename=fname)
+    tf_vec = t_f.TfVectors(filename=fname)
     assert tf_vec is not None, "missing tf vectors from {fname}"
     return tf_vec
 

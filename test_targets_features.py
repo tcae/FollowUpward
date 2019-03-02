@@ -7,7 +7,7 @@ Created on Sat Jan 12 21:13:46 2019
 """
 import os
 import pandas as pd
-import targets_features as tf
+import targets_features as t_f
 
 
 def generate_minute_data():
@@ -66,7 +66,7 @@ def test_fl():
     print("tests started")
     agg = {'CPC': 0, 1: 4, 2: 4}
     df = generate_minute_data()
-    cp = tf.TargetsFeatures(minute_dataframe=df, aggregation=agg, cur_pair=pair)
+    cp = t_f.TargetsFeatures(minute_dataframe=df, aggregation=agg, cur_pair=pair)
     if cp.missed_buy_end > 0:
         print('info: missed {} buy signals at the end'.format(cp.missed_buy_end))
     if cp.missed_sell_start > 0:
@@ -80,7 +80,7 @@ def test_fl():
 
     fname = os.getcwd() + '/' + pair + '.pydata'
     cp.tf_vectors.save(fname)
-    ncp_tfv = tf.TfVectors(filename=fname)
+    ncp_tfv = t_f.TfVectors(filename=fname)
     print(ncp_tfv.data_version)
     print(ncp_tfv.aggregations)
     print(ncp_tfv.pair_name())
