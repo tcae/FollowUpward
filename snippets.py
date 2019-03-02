@@ -100,6 +100,15 @@ def rolling6():
     print(a)
     print(np.datetime64('2012-10-08 18:15:05'))
     print(True in a.index.isin([np.datetime64('2012-10-08 18:15:05')]))
+    [print(my_feature) for my_feature in a]
+    print( set([my_feature for my_feature in a]))
+#    print( set([my_feature for my_feature in a.index]))
+    print("--")
+    print(dict(a))
+    print("===")
+    [print(my_feature) for my_feature in a]
+#    [print(dict(a[my_feature])) for my_feature in a]
+#    print(dict(a).items())
 
 print(f"panda version {pd.__version__}")
 #rolling1()
@@ -107,6 +116,39 @@ print(f"panda version {pd.__version__}")
 #rolling3()
 #rolling4()
 rolling6()
+
+# <codecell> split df
+
+a = pd.DataFrame(np.arange(6), columns=['created'],\
+                 index = pd.date_range('2012-10-08 18:15:05', periods=6, freq='T'))
+a['s1'] = a.created.shift(1)
+a['s2'] = a.created.shift(2)
+a['s3'] = a.created.shift(3)
+print(a)
+cl = list(a.columns)
+cl.remove('s1')
+print(cl)
+#b = pd.DataFrame(a, columns=cl)
+b = a[cl]
+print(b)
+
+# <codecell> dict construct
+
+a = pd.DataFrame(np.arange(6), columns=['created'],\
+                 index = pd.date_range('2012-10-08 18:15:05', periods=6, freq='T'))
+a['s1'] = a.created.shift(1)
+a['s2'] = a.created.shift(2)
+a['s3'] = a.created.shift(3)
+features = {key:np.array(value) for key,value in dict(a).items()}
+print(features)
+#for key,value in dict(a).items():
+#    print(f"key: {key}   - value: {np.array(value)}")
+#    features = {key:np.array(value)}
+#print(features)
+print(np.array(a.columns))
+
+key_list = [key for key in features]
+print(key_list)
 
 # <codecell> re
 import re
