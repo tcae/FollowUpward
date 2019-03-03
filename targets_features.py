@@ -9,6 +9,16 @@ Created on Mon Jan  7 21:43:26 2019
 import pandas as pd
 from datetime import datetime
 import math
+import json
+import re
+
+# DATA_PATH = os.getcwd() # local execution - to be avoided due to Git sync size
+DATA_PATH = '/Users/tc/Features' # local execution
+# DATA_PATH = '/content/gdrive/My Drive/Features' # Colab execution
+
+PICKLE_EXT = ".pydata" # pickle file extension
+JSON_EXT = ".json" # msgpack file extension
+MSG_EXT = ".msg" # msgpack file extension
 
 BUY = 'buy'
 HOLD = '-'
@@ -396,13 +406,41 @@ class TfVectors:
                 assert not self.vecs[ta].empty, "empty dataframe from TargetsFeatures"
         elif filename is not None:
             self.filename = None
-            df_f = open(filename, 'rb')
-            self.data_version, self.cur_pair, self.vecs, self.filename, self.aggregations \
-                = pickle.load(df_f)
-            print(f"{datetime.now()}: processing {self.cur_pair}")
-            print("{}: read tf vectors with {} tics x {} aggregations from {}".format( \
-                     datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
-            df_f.close()
+            if filename.endswith(PICKLE_EXT):
+                df_f = open(filename, 'rb')
+                self.data_version, self.cur_pair, self.aggregations = pickle.load(df_f)
+                self.vecs = pickle.load(df_f)
+                print(f"{datetime.now()}: processing {self.cur_pair}")
+                print("{}: read tf vectors with {} tics x {} aggregations from {}".format( \
+                         datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
+                df_f.close()
+            elif filename.endswith(JSON_EXT):
+#                df_f = open(filename, 'r')
+                with open(filename) as df_f:
+#                    self.data_version, self.cur_pair, self.aggregations = json.load(df_f)
+                    for line in df_f:
+                        self.data_version, self.cur_pair, self.aggregations = json.loads(line)
+                        break
+                    for ta in self.aggregations:
+                        self.vecs[ta] = pd.read_json(df_f)
+                print(f"{datetime.now()}: processing {self.cur_pair}")
+                print("{}: read tf vectors with {} tics x {} aggregations from {}".format( \
+                         datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
+                df_f.close()
+            elif filename.endswith(MSG_EXT):
+                df_f = open(filename, 'rb')
+                self.data_version, self.cur_pair, self.aggregations = pickle.load(df_f)
+                df_f.close()
+                for ta in self.aggregations:
+                    ext_fname = re.sub(MSG_EXT, '_'+str(ta)+MSG_EXT, filename)
+                    self.vecs[ta] = pd.read_msgpack(ext_fname)
+#                for ta in self.aggregations:
+#                    self.vecs[ta] = pd.read_msgpack(df_f)
+                print(f"{datetime.now()}: processing {self.cur_pair}")
+                print("{}: read tf vectors with {} tics x {} aggregations from {}".format( \
+                         datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
+            else:
+                print(f"TfVectors init from file {filename}: unknown file extension")
 
     def vec(self, key):
         "Returns the dataframe of the given key"
@@ -417,16 +455,51 @@ class TfVectors:
         return self.cur_pair
 
     def save(self, fname):
-        "saves the object via pickle"
-        print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format( \
-                 datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],\
-                 self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
-        self.filename = fname
-        df_f = open(fname, 'wb')
-        pickle.dump((self.data_version, self.cur_pair, self.vecs, self.filename, \
-                     self.aggregations), df_f)
-        df_f.close()
-        print(f"{datetime.now()}: tf vectors saved")
+        if fname.endswith(PICKLE_EXT):
+            "saves the object via pickle"
+            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format( \
+                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],\
+                     self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
+            self.filename = fname
+            df_f = open(fname, 'wb')
+            pickle.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
+            pickle.dump(self.vecs, df_f)
+            df_f.close()
+            print(f"{datetime.now()}: tf vectors saved")
+        elif fname.endswith(JSON_EXT):
+            "saves the object via json"
+            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format( \
+                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],\
+                     self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
+            self.filename = fname
+            df_f = open(fname, 'w')
+            json.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
+#            json.dump(self.vecs, df_f)
+            for ta in self.aggregations:
+                self.vecs[ta].to_json(df_f)
+            df_f.close()
+            print(f"{datetime.now()}: tf vectors saved")
+        elif fname.endswith(MSG_EXT):
+            "saves the object via msgpack"
+            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format( \
+                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],\
+                     self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
+            self.filename = fname
+            df_f = open(fname, 'wb')
+            pickle.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
+            df_f.close()
+            for ta in self.aggregations:
+                newext = '_'+str(ta)+MSG_EXT
+                ext_fname = re.sub(MSG_EXT, newext, fname)
+                self.vecs[ta].to_msgpack(ext_fname)
+#            df_f = open(fname, 'wb')
+#            pickle.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
+#            for ta in self.aggregations:
+#                self.vecs[ta].to_msgpack(df_f, append=True)
+#            df_f.close()
+            print(f"{datetime.now()}: tf vectors saved")
+        else:
+            print("TfVectors save: unknown file extension")
 
     def signal_sequences(self, key):
         "provides a histogram of consecutive signals for the given key data"

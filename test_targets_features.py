@@ -5,7 +5,7 @@ Created on Sat Jan 12 21:13:46 2019
 
 @author: tc
 """
-import os
+# import os
 import pandas as pd
 import targets_features as t_f
 
@@ -78,7 +78,9 @@ def test_fl():
     assert test[2] == 6.2407515870716175
     assert test['CPC'] == 25.304288700980557
 
-    fname = os.getcwd() + '/' + pair + '.pydata'
+#    fname = t_f.DATA_PATH + '/' + pair + t_f.PICKLE_EXT
+    fname = t_f.DATA_PATH + '/' + pair + t_f.MSG_EXT
+#    fname = t_f.DATA_PATH + '/' + pair + t_f.JSON_EXT
     cp.tf_vectors.save(fname)
     ncp_tfv = t_f.TfVectors(filename=fname)
     print(ncp_tfv.data_version)

@@ -30,8 +30,6 @@ pd.options.display.max_rows = 10
 pd.options.display.float_format = '{:.1f}'.format
 
 
-# DATA_PATH = os.getcwd() # local execution
-DATA_PATH = '/content/gdrive/My Drive/Features' # Colab execution
 # MODEL_PATH = '/Users/tc/tf_models/crypto' # local execution
 MODEL_PATH = '/content/gdrive/My Drive/tf_models/crypto' # Colab execution
 
@@ -44,7 +42,7 @@ def load_targets_features(currency_pair: str):
     """converts historic catalyst data of currency pairs into classifier target and feature vectors
     and stores them for classifier training and evaluation
     """
-    fname = DATA_PATH + '/' + currency_pair + '.pydata'
+    fname = t_f.DATA_PATH + '/' + currency_pair + '.pydata'
     tf_vec = t_f.TfVectors(filename=fname)
     assert tf_vec is not None, "missing tf vectors from {fname}"
     return tf_vec
