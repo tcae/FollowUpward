@@ -42,7 +42,7 @@ def load_targets_features(currency_pair: str):
     """converts historic catalyst data of currency pairs into classifier target and feature vectors
     and stores them for classifier training and evaluation
     """
-    fname = t_f.DATA_PATH + '/' + currency_pair + '.pydata'
+    fname = t_f.DATA_PATH + '/' + currency_pair + '.msg'
     tf_vec = t_f.TfVectors(filename=fname)
     assert tf_vec is not None, "missing tf vectors from {fname}"
     return tf_vec
