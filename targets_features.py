@@ -13,8 +13,8 @@ import json
 import re
 
 # DATA_PATH = os.getcwd() # local execution - to be avoided due to Git sync size
-DATA_PATH = '/Users/tc/Features' # local execution
-# DATA_PATH = '/content/gdrive/My Drive/Features' # Colab execution
+# DATA_PATH = '/Users/tc/Features' # local execution
+DATA_PATH = '/content/gdrive/My Drive/Features' # Colab execution
 
 PICKLE_EXT = ".pydata" # pickle file extension
 JSON_EXT = ".json" # msgpack file extension
