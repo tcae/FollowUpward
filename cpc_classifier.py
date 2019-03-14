@@ -187,7 +187,7 @@ def train_linear_classifier_model(
 
 def execute():
     tf_vectors = load_targets_features(CUR_PAIR)
-    set_dict = tf_vectors.split_data(1)
+    set_dict = tf_vectors.timeslice_and_select_targets(1)
     print(set_dict['training'].describe())
     print(set_dict['validation'].describe())
     print(set_dict['test'].describe())

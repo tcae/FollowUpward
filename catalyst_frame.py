@@ -11,7 +11,7 @@ catalyst ingest-exchange -x binance -i btc_usdt -f minute
 
 """
 
-#import os
+# import os
 from datetime import datetime
 import pytz
 import pandas as pd
@@ -22,14 +22,15 @@ from catalyst.api import symbol
 import targets_features as t_f
 
 
-def tdelta(first: str, last: str)-> int:
+def tdelta(first: str, last: str) -> int:
     "returns date/time difference in minutes"
     my_min = pd.Timedelta(pd.Timestamp(last) - pd.to_datetime(first))
     min_res = my_min.days*24*60 + int(my_min.seconds/60)
     return min_res
 
+
 CUR_CAND = ['xrp_usdt', 'btc_usdt', 'eth_usdt', 'bnb_usdt', 'eos_usdt', 'ltc_usdt', 'neo_usdt', 'trx_usdt']
-DATA_KEYS = ['open', 'high', 'low', 'close', 'volume'] # , 'price'
+DATA_KEYS = ['open', 'high', 'low', 'close', 'volume']  # , 'price'
 # classifier_input = dict()
 
 

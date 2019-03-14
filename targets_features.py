@@ -5,32 +5,44 @@ Created on Mon Jan  7 21:43:26 2019
 
 @author: tc
 """
-#import numpy as np
+# import numpy as np
 import pandas as pd
 from datetime import datetime
 import math
 import json
 import re
+from sklearn.utils import Bunch
+import numpy as np
+import pickle
 
 # DATA_PATH = os.getcwd() # local execution - to be avoided due to Git sync size
-# DATA_PATH = '/Users/tc/Features' # local execution
-DATA_PATH = '/content/gdrive/My Drive/Features' # Colab execution
+DATA_PATH = '/Users/tc/Features'  # local execution
+# DATA_PATH = '/content/gdrive/My Drive/Features' # Colab execution
 
-PICKLE_EXT = ".pydata" # pickle file extension
-JSON_EXT = ".json" # msgpack file extension
-MSG_EXT = ".msg" # msgpack file extension
+PICKLE_EXT = ".pydata"  # pickle file extension
+JSON_EXT = ".json"  # msgpack file extension
+MSG_EXT = ".msg"  # msgpack file extension
 
-BUY = 'buy'
-HOLD = '-'
-SELL = 'sell'
-FEE = 1 #  in per mille, transaction fee is 0.1%
-BUY_THRESHOLD = 10 # in per mille
-SELL_THRESHOLD = -2 # in per mille
+FEE = 1  # in per mille, transaction fee is 0.1%
+BUY_THRESHOLD = 10  # in per mille
+SELL_THRESHOLD = -2  # in per mille
 VOL_BASE_PERIOD = '1D'
 CPC = 'CPC'
+HOLD = '-'
+BUY = 'buy'
+SELL = 'sell'
+NA = 'not assigned'
+TRAIN = 'training'
+VAL = 'validation'
+TEST = 'test'
+TARGETS = {HOLD: 0, BUY: 1, SELL: 2, NA: 11}  # dict with int encoding of target labels
+TIME_AGGS = {CPC: 0, 1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10}
+LBL = {NA:0, TRAIN:-1, VAL:-2, TEST:-3}
+
 
 def time_in_index(dataframe_with_timeseriesindex, tic):
     return True in dataframe_with_timeseriesindex.index.isin([tic])
+
 
 class TargetsFeatures:
     """Receives a dict of currency pairs with associated minute candle data and
@@ -66,92 +78,16 @@ class TargetsFeatures:
 
     """
 
-    def __init__(self, minute_dataframe, aggregation=None, cur_pair=None):
-        assert not minute_dataframe.empty, "empty dataframe"
-        if aggregation:
-            self.time_aggregations = aggregation
-        else:
-            self.time_aggregations = {CPC: 0, 1: 10, 5: 10, \
-                                      15: 10, 60: 10, 4*60: 10}
-            # keys is aggregation in minutes, value is nbr of trailing DHTBV values
+    def __init__(self, aggregation=TIME_AGGS, cur_pair=None):
+        self.time_aggregations = aggregation  # aggregation in minutes of trailing DHTBV values
         self.performance = self.time_aggregations.copy()
-        self.minute_data = pd.DataFrame()
-        self.tf_aggs = dict() # feature and target aggregations
-        self.minute_data = minute_dataframe
-
-
-        self.time_aggregation() # calculate features and time aggregations of features
-        self.missed_buy_end = 0 # currently unused
-        self.missed_sell_start = 0 # currently unused
-        for time_agg in self.time_aggregations:
-            if isinstance(time_agg, int):
-                self.add_period_specific_targets(time_agg) # add aggregation targets
-        print(self.cpc_best_path()) # add summary targets for this currency pair
-        self.calc_performances() # calculate performances based on targets
-        self.tf_vectors = TfVectors(tf=self, currency_pair=cur_pair)
-
-
-    def add_period_specific_targets(self, time_agg):
-#    def add_period_specific_targets_rolling(self, time_agg):
-        "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
-
-        print(f"{datetime.now()}: add_period_specific_targets {time_agg}")
-        df = self.tf_aggs[time_agg]
-        df['delta'] = 0.
-        df['target'] = "-"
-        pix = df.columns.get_loc('delta') # performance column index
-        lix = df.columns.get_loc('target')
-        cix = df.columns.get_loc('close')
-        win = dict()
-        loss = dict()
-        lossix = dict()
-        winix = dict()
-        lasttarget = dict()
-        for slot in range(0, time_agg):
-            win[slot] = loss[slot] = 0.
-            winix[slot] = lossix[slot] = slot
-            lasttarget[slot] = "-"
-#        for tix in range(((len(df)-1) % time_agg)+time_agg, len(df), time_agg): # tix = time index
-        for tix in range(time_agg, len(df), 1): # tix = time index
-            slot = (tix % time_agg)
-            last_close = df.iat[tix - time_agg, cix]
-            delta = (df.iat[tix, cix] - last_close) / last_close * 1000 #  in per mille: 1% == 10
-            df.iat[tix, pix] = delta
-            if delta < 0:
-                if loss[slot] < 0: # loss monitoring is running
-                    loss[slot] += delta
-                else: # first time bar of decrease period
-                    lossix[slot] = tix
-                    loss[slot] = delta
-                if win[slot] > 0: # win monitoring is running
-                    win[slot] += delta
-                    if win[slot] < 0: # reset win monitor because it is below start price
-                        win[slot] = 0.
-                if loss[slot] < SELL_THRESHOLD: # reset win monitor because dip exceeded threshold
-                    win[slot] = 0.
-#                    if lasttarget[slot] != "sell": # only one signal without further repeat
-                    df.iat[lossix[slot], lix] = lasttarget[slot] = "sell"
-                    lossix[slot] += 1 # allow multiple signals if conditions hold
-            elif delta > 0:
-                if win[slot] > 0: # win monitoring is running
-                    win[slot] += delta
-                else: # first time bar of increase period
-                    winix[slot] = tix
-                    win[slot] = delta
-                if loss[slot] < 0: # loss monitoring is running
-                    loss[slot] += delta
-                    if loss[slot] > 0:
-                        loss[slot] = 0. # reset loss monitor as it recovered before  sell threshold
-                if win[slot] > BUY_THRESHOLD: # reset win monitor because dip exceeded threshold
-                    loss[slot] = 0.
-#                    if lasttarget[slot] != "buy": # only one signal without further repeat
-                    df.iat[winix[slot], lix] = lasttarget[slot] = "buy"
-                    winix[slot] += 1 # allow multiple signals if conditions hold
-
-
+        self.tf_aggs = dict()  # feature and target aggregations
+        self.cur_pair = cur_pair
 
     def derive_features(self, time_agg):
-        "derived features in relation to price based on the provided time aggregated dataframe df"
+        """derived features in relation to price based on the provided time aggregated dataframe df
+        with the exception of the derived feature 'delta' that is calculated together with targets
+        """
         # price deltas in 1/1000
         df = self.tf_aggs[time_agg]
         df['height'] = (df['high'] - df['low']) / df['close'] * 1000
@@ -160,10 +96,7 @@ class TargetsFeatures:
         df.loc[df['close'] > df['open'], 'bottom'] = (df['open'] - df['low']) / df['close'] * 1000
         df.loc[df['close'] <= df['open'], 'bottom'] = (df['close'] - df['low']) / df['close'] * 1000
 
-
-
-#    def time_aggregation_rolling(self):
-    def time_aggregation(self):
+    def calc_aggregation(self):
         """Time aggregation through rolling aggregation with the consequence that new data is
         generated every minute and even long time aggregations reflect all minute bumps in their
         features
@@ -189,8 +122,72 @@ class TargetsFeatures:
                     df['vol'] = mdf.vol.rolling(time_agg).mean()
                 self.tf_aggs[time_agg] = df
                 self.derive_features(time_agg)
+            else:
+                self.tf_aggs[time_agg] = pd.DataFrame(self.minute_data.close)  # CPC dummy df
 
+    def calc_features_and_targets(self, minute_dataframe):
+        assert not minute_dataframe.empty, "empty dataframe"
+        self.minute_data = minute_dataframe
+        self.calc_aggregation()  # calculate features and time aggregations of features
+        for time_agg in self.time_aggregations:
+            if isinstance(time_agg, int):
+                self.add_period_specific_targets(time_agg)  # add aggregation targets
+        print(self.cpc_best_path())  # add summary targets for this currency pair
+        # self.calc_performances() # calculate performances based on targets
+        self.tf_vectors = TfVectors(tf=self, currency_pair=self.cur_pair)
 
+    def add_period_specific_targets(self, time_agg):
+        "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
+
+        print(f"{datetime.now()}: add_period_specific_targets {time_agg}")
+        df = self.tf_aggs[time_agg]
+        df['delta'] = 0.
+        df['target'] = TARGETS[HOLD]
+        pix = df.columns.get_loc('delta')  # performance column index
+        lix = df.columns.get_loc('target')
+        cix = df.columns.get_loc('close')
+        win = dict()
+        loss = dict()
+        lossix = dict()
+        winix = dict()
+        lasttarget = dict()
+        for slot in range(0, time_agg):
+            win[slot] = loss[slot] = 0.
+            winix[slot] = lossix[slot] = slot
+            lasttarget[slot] = TARGETS[HOLD]
+        for tix in range(time_agg, len(df), 1):  # tix = time index
+            slot = (tix % time_agg)
+            last_close = df.iat[tix - time_agg, cix]
+            delta = (df.iat[tix, cix] - last_close) / last_close * 1000  # in per mille: 1% == 10
+            df.iat[tix, pix] = delta
+            if delta < 0:
+                if loss[slot] < 0:  # loss monitoring is running
+                    loss[slot] += delta
+                else:  # first time bar of decrease period
+                    lossix[slot] = tix
+                    loss[slot] = delta
+                if win[slot] > 0:  # win monitoring is running
+                    win[slot] += delta
+                    if win[slot] < 0:  # reset win monitor because it is below start price
+                        win[slot] = 0.
+                if loss[slot] < SELL_THRESHOLD:  # reset win monitor because dip exceeded threshold
+                    win[slot] = 0.
+                    df.iat[lossix[slot], lix] = lasttarget[slot] = TARGETS[SELL]
+                    lossix[slot] += 1  # allow multiple signals if conditions hold
+            elif delta > 0:
+                if win[slot] > 0:  # win monitoring is running
+                    win[slot] += delta
+                else:  # first time bar of increase period
+                    winix[slot] = tix
+                    win[slot] = delta
+                if loss[slot] < 0:  # loss monitoring is running
+                    loss[slot] += delta
+                    if loss[slot] > 0:
+                        loss[slot] = 0.  # reset loss monitor as it recovered before  sell threshold
+                if win[slot] > BUY_THRESHOLD:  # reset win monitor because dip exceeded threshold
+                    loss[slot] = 0.
+                    df.iat[winix[slot], lix] = lasttarget[slot] = TARGETS[BUY]
+                    winix[slot] += 1  # allow multiple signals if conditions hold
 
     def cpc_best_path(self):
         """identify best path through all aggregations - use all buy and sell signals.
@@ -222,8 +219,9 @@ class TargetsFeatures:
 
         """
 
-        cpc_df = pd.DataFrame(self.minute_data, columns=['close'])
-        cpc_df[CPC+'_target'] = HOLD
+        # cpc_df = pd.DataFrame(self.minute_data, columns=['close']) # already done
+        cpc_df = self.tf_aggs[CPC]
+        cpc_df[CPC+'_target'] = TARGETS[HOLD]
         target_ix = cpc_df.columns.get_loc(CPC+'_target')
         close_ix = cpc_df.columns.get_loc('close')
         col_ix = dict()
@@ -235,69 +233,67 @@ class TargetsFeatures:
         assert cpc_df.index.is_unique, "unexpected not unique index"
         print(f"{datetime.now()}: best path")
         holding = False
-        pot_transaction = False # becomes true if potential buy and potential sell are detected
+        pot_transaction = False  # becomes true if potential buy and potential sell are detected
         transaction_perf = current_perf = best_perf = 0.
         buy_tix = sell_tix = 0
         last = cpc_df.iat[0, close_ix]
-        for tix in range(len(cpc_df)): # tix = time index
+        for tix in range(len(cpc_df)):  # tix = time index
             this = cpc_df.iat[tix, close_ix]
-            tix_perf = ((this - last)/ last * 1000)
+            tix_perf = ((this - last) / last * 1000)
             last = this
             sell_sig = False
             buy_sig = False
             for six in col_ix:
                 signal = cpc_df.iat[tix, col_ix[six]]
-                if signal == BUY:
+                if signal == TARGETS[BUY]:
                     buy_sig = True
-                if signal == SELL:
+                if signal == TARGETS[SELL]:
                     sell_sig = True
             if holding:
                 current_perf += tix_perf
                 if sell_sig:
-                    if pot_transaction: # use case 2
-                        if (current_perf - FEE) >= transaction_perf: # reset transaction
+                    if pot_transaction:  # use case 2
+                        if (current_perf - FEE) >= transaction_perf:  # reset transaction
                             transaction_perf = current_perf - FEE
                             sell_tix = tix
-                            pot_transaction = True # remains True
+                            pot_transaction = True  # remains True
                         else:
-                            if transaction_perf > 0: # execute transaction
-#                                assert buy_tix < sell_tix, \
-#                                    f"inconsistent tix marks, buy: {buy_tix} sell: {sell_tix}"
+                            if transaction_perf > 0:  # execute transaction
+                                # assert buy_tix < sell_tix, \
+                                # f"inconsistent tix marks, buy: {buy_tix} sell: {sell_tix}"
                                 best_perf += transaction_perf
-                                cpc_df.iat[buy_tix, target_ix] = BUY
-                                cpc_df.iat[sell_tix, target_ix] = SELL
+                                cpc_df.iat[buy_tix, target_ix] = TARGETS[BUY]
+                                cpc_df.iat[sell_tix, target_ix] = TARGETS[SELL]
                             pot_transaction = False
                             holding = False
                             current_perf = transaction_perf = 0.
-                    else: # use case 3 = no potential transaction
+                    else:  # use case 3 = no potential transaction
                         transaction_perf = current_perf - FEE
                         sell_tix = tix
-                        pot_transaction = True # remains True
-#                        assert buy_tix < sell_tix, "inconsistent buy/sell tix marks"
-                if buy_sig: # use case 4, from different time aggs there can be sell and buy!
-                    if current_perf < -FEE: # set new buy_tix but check for a potential tr.
-                        if pot_transaction and (transaction_perf > 0): # execute transaction
-#                            assert buy_tix < sell_tix, \
-#                                f"inconsistent tix marks, buy: {buy_tix} sell: {sell_tix}"
+                        pot_transaction = True  # remains True
+                        # assert buy_tix < sell_tix, "inconsistent buy/sell tix marks"
+                if buy_sig:  # use case 4, from different time aggs there can be sell and buy!
+                    if current_perf < -FEE:  # set new buy_tix but check for a potential tr.
+                        if pot_transaction and (transaction_perf > 0):  # execute transaction
+                            # assert buy_tix < sell_tix, \
+                            # f"inconsistent tix marks, buy: {buy_tix} sell: {sell_tix}"
                             best_perf += transaction_perf
-                            cpc_df.iat[buy_tix, target_ix] = BUY
-                            cpc_df.iat[sell_tix, target_ix] = SELL
+                            cpc_df.iat[buy_tix, target_ix] = TARGETS[BUY]
+                            cpc_df.iat[sell_tix, target_ix] = TARGETS[SELL]
                             pot_transaction = False
                             holding = False
                             transaction_perf = 0.
                         buy_tix = tix
                         current_perf = -FEE
                         holding = True
-            else: # not holding
-                if buy_sig: # use case 1 = not holding with buy signal
+            else:  # not holding
+                if buy_sig:  # use case 1 = not holding with buy signal
                     buy_tix = tix
                     current_perf = -FEE
                     holding = True
                     pot_transaction = False
-        self.tf_aggs[CPC] = cpc_df
+        # self.tf_aggs[CPC] = cpc_df # already done
         return best_perf
-
-
 
     def calc_performances(self):
         """calculate all time aggregation specific performances
@@ -312,7 +308,6 @@ class TargetsFeatures:
         for time_agg in self.time_aggregations:
             perf[time_agg] = 0.
             ta_holding[time_agg] = False
-#            self.tf_aggs[time_agg].loc[:, 'perf'] = 0.
             t_name = str(time_agg) + '_target'
             col_ix[time_agg] = cpc_df.columns.get_loc(t_name)
             assert col_ix[time_agg] > 0, f"did not find column {col_ix[time_agg]} of {time_agg}"
@@ -320,28 +315,22 @@ class TargetsFeatures:
 
         assert cpc_df.index.is_unique, "unexpected not unique index"
         last = cpc_df.iat[0, close_ix]
-        for tix in range(len(cpc_df)): # tix = time index
+        for tix in range(len(cpc_df)):  # tix = time index
             this = cpc_df.iat[tix, close_ix]
-            tix_perf = ((this - last)/ last * 1000)
+            tix_perf = ((this - last) / last * 1000)
             last = this
             for ta_ix in perf:
                 signal = cpc_df.iat[tix, col_ix[ta_ix]]
                 if ta_holding[ta_ix]:
                     perf[ta_ix] += tix_perf
-#                    self.tf_aggs[time_agg].at[tic, 'perf'] = perf[time_agg]
-                if (signal == BUY) and (not ta_holding[ta_ix]):
+                if (signal == TARGETS[BUY]) and (not ta_holding[ta_ix]):
                     perf[ta_ix] -= FEE
-#                    self.tf_aggs[time_agg].at[tic, 'perf'] = perf[time_agg]
                     ta_holding[ta_ix] = True
-                if (signal == SELL) and ta_holding[ta_ix]:
+                if (signal == TARGETS[SELL]) and ta_holding[ta_ix]:
                     perf[ta_ix] -= FEE
-#                    self.tf_aggs[time_agg].at[tic, 'perf'] = perf[time_agg]
                     ta_holding[ta_ix] = False
         self.performance = perf
 
-
-
-import pickle
 
 class TfVectors:
     """Container class for targets and features of a currency pair
@@ -367,18 +356,20 @@ class TfVectors:
 #    def build_classifier_vectors(self):
     def __init__(self, tf=None, filename=None, currency_pair=None):
         """Builds a target and feature vector sequence with DHTBV feature sequences of
-        n time steps (tics) as configured in time_aggregations in T units
+        n time steps (tics) as configured in time_aggregations in T units.
+        While TargetFeatures calculates features and targets per minute,
+        the most important step in TfVectors is
+        1) the concatenation of feature vectors per sample to provide a history for the classifier
+        2) discarding the original currency values that are not used as features (except 'close')
 
         Result:
             a self.vecs dict with keys as in time_aggregations plus 'CPC' that
             are referring to DataFrames with feature vectors as rows. The column name indicates
-            the type of feature, i.e. either 'target' or 'aggregation_tic_D|H|T|B|V'
-
-            There will be a different number of feature vectors per aggregation due to the
-            nan in the beginning rows that have missing history vectors before them.
+            the type of feature, i.e. either 'target' or 'D|H|T|B|V' with aggregation+'T_'
+            as prefix
         """
         self.cur_pair = currency_pair
-        self.vecs = dict() # full fleged feature vectors and their targets
+        self.vecs = dict()  # full fleged feature vectors and their targets
         self.data_version = 1.0
         self.filename = filename
         if tf is not None:
@@ -388,15 +379,16 @@ class TfVectors:
             for ta in tf.time_aggregations:
                 print(f"{datetime.now()}: build classifier vectors {ta}")
                 t_name = str(ta) + '_target'
-                self.vecs[ta] = pd.DataFrame(tf.minute_data, columns=['close', 'buy', 'sell'])
-                self.vecs[ta]['buy'] = (tf.tf_aggs[CPC][t_name] == 'buy').astype(float)
-                self.vecs[ta]['sell'] = (tf.tf_aggs[CPC][t_name] == 'sell').astype(float)
+                self.vecs[ta] = pd.DataFrame(tf.minute_data, columns=['close', 'target'])
+                self.vecs[ta]['target'] = tf.tf_aggs[CPC][t_name].astype(int)
+
                 for tics in range(tf.time_aggregations[ta]):
                     tgt = str(ta) + 'T_' + str(tics) + '_'
                     if isinstance(ta, int):
                         offset = tics*ta
                     else:
                         offset = tics
+                    # now add feature columns according to aggregation
                     self.vecs[ta][tgt + 'D'] = tf.tf_aggs[ta].delta.shift(offset)
                     self.vecs[ta][tgt + 'H'] = tf.tf_aggs[ta].height.shift(offset)
                     self.vecs[ta][tgt + 'T'] = tf.tf_aggs[ta].top.shift(offset)
@@ -411,20 +403,18 @@ class TfVectors:
                 self.data_version, self.cur_pair, self.aggregations = pickle.load(df_f)
                 self.vecs = pickle.load(df_f)
                 print(f"{datetime.now()}: processing {self.cur_pair}")
-                print("{}: read tf vectors with {} tics x {} aggregations from {}".format( \
+                print("{}: read tf vectors with {} tics x {} aggregations from {}".format(
                          datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
                 df_f.close()
             elif filename.endswith(JSON_EXT):
-#                df_f = open(filename, 'r')
-                with open(filename) as df_f:
-#                    self.data_version, self.cur_pair, self.aggregations = json.load(df_f)
+                with open(filename, 'r') as df_f:
                     for line in df_f:
                         self.data_version, self.cur_pair, self.aggregations = json.loads(line)
                         break
                     for ta in self.aggregations:
                         self.vecs[ta] = pd.read_json(df_f)
                 print(f"{datetime.now()}: processing {self.cur_pair}")
-                print("{}: read tf vectors with {} tics x {} aggregations from {}".format( \
+                print("{}: read tf vectors with {} tics x {} aggregations from {}".format(
                          datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
                 df_f.close()
             elif filename.endswith(MSG_EXT):
@@ -434,13 +424,35 @@ class TfVectors:
                 for ta in self.aggregations:
                     ext_fname = re.sub(MSG_EXT, '_'+str(ta)+MSG_EXT, filename)
                     self.vecs[ta] = pd.read_msgpack(ext_fname)
-#                for ta in self.aggregations:
-#                    self.vecs[ta] = pd.read_msgpack(df_f)
-                print(f"{datetime.now()}: processing {self.cur_pair}")
-                print("{}: read tf vectors with {} tics x {} aggregations from {}".format( \
+                print("{}: read tf vectors with {} tics x {} aggregations from {}".format(
                          datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
             else:
                 print(f"TfVectors init from file {filename}: unknown file extension")
+        self.cut_back_to_same_sample_tics()
+
+    def cut_back_to_same_sample_tics(self):
+        """
+            There will be a different number of feature vectors per aggregation due to the
+            nan in the beginning rows that have missing history vectors before them.
+            This leads to issues of different array lengths when constructing the CPC features
+            out of the time aggregation specific probability result vectors, which is corrected
+            with this function.
+        """
+        df = None
+        for ta in self.aggregations:
+            if df is None:
+                df = self.vecs[ta]
+            elif len(self.vecs[ta]) < len(df):
+                df = self.vecs[ta]
+#            print("agg {} with {} tics, first tic: {}  last tic: {}".format( \
+#                  ta, len(self.vecs[ta]), \
+#                  self.vecs[ta].index[0], self.vecs[ta].index[len(self.vecs[ta])-1]))
+        for ta in self.aggregations:
+            # h=a[a.index.isin(f.index)]
+            self.vecs[ta] = self.vecs[ta][self.vecs[ta].index.isin(df.index)]
+#            print("agg {} with {} tics, first tic: {}  last tic: {}".format( \
+#                  ta, len(self.vecs[ta]), \
+#                  self.vecs[ta].index[0], self.vecs[ta].index[len(self.vecs[ta])-1]))
 
     def vec(self, key):
         "Returns the dataframe of the given key"
@@ -457,8 +469,8 @@ class TfVectors:
     def save(self, fname):
         if fname.endswith(PICKLE_EXT):
             "saves the object via pickle"
-            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format( \
-                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],\
+            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format(
+                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
                      self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
             self.filename = fname
             df_f = open(fname, 'wb')
@@ -468,8 +480,8 @@ class TfVectors:
             print(f"{datetime.now()}: tf vectors saved")
         elif fname.endswith(JSON_EXT):
             "saves the object via json"
-            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format( \
-                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],\
+            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format(
+                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
                      self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
             self.filename = fname
             df_f = open(fname, 'w')
@@ -481,8 +493,8 @@ class TfVectors:
             print(f"{datetime.now()}: tf vectors saved")
         elif fname.endswith(MSG_EXT):
             "saves the object via msgpack"
-            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format( \
-                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],\
+            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format(
+                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
                      self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
             self.filename = fname
             df_f = open(fname, 'wb')
@@ -507,10 +519,10 @@ class TfVectors:
         b_seq = dict()
         s_seq = dict()
         h_seq = dict()
-        seq = {'buy': b_seq, 'sell': s_seq, 'hold': h_seq}
+        seq = {BUY: b_seq, SELL: s_seq, HOLD: h_seq}
         b_count = s_count = h_count = 0
-        b_col = c_df.columns.get_loc('buy')
-        s_col = c_df.columns.get_loc('sell')
+        b_col = c_df.columns.get_loc(TARGETS[BUY])
+        s_col = c_df.columns.get_loc(TARGETS[SELL])
         for t_ix in range(len(c_df)):
             b_sig = c_df.iat[t_ix, b_col]
             if b_sig > 0:
@@ -546,111 +558,218 @@ class TfVectors:
                     h_count = 0
         return seq
 
-
-    def split_data(self, key, train_ratio=0.6, val_ratio=0.2, hold_ratio=1):
+    def timeslice_targets(self, key, train_ratio=0.6, val_ratio=0.2, days=30):
         """Splits the data set into training set, validation set and test set such that
-        training set receives at least the specified ratio of buy and sell samples and
-        validation set also receives at least the specified ratio of buy and sell samples.
-        sequences of buy or sell samples will be reduced every n of the sequence according
-        to the aggregation value, e.g. if 1:10 is specified then every 10th buy or sell sample
-        is used from a consecutive sequence.
-        hold_ratio is the ratio of hold / (sell + buy)
+        training, validation and test sets are created that receive their time slice share
+        of samples according to the given ratio.
+        Days is the number of days of a single time slice of samples.
 
         Returns:
         ========
-        dict with dataframes for a training, a validation and a test set
+        The dataframe receives a column 'slice' that identifies the assignment of samples to
+        training, validation, or test set
 
-        Attention for possible label leakage:
-        =====================================
-        buy, sell and hold samples can overlap in time range
         """
-        c_df = self.vecs[key]
-        b_count = s_count = h_count = 0
-        bt_count = st_count = 0
-        bv_count = sv_count = seq_count = 0
-#        agg = max(self.aggregations[key], 1) # use only every agg sample in signal sequences
-        agg = 4 # use only every agg sample in signal sequences
-        b_col = c_df.columns.get_loc('buy')
-        s_col = c_df.columns.get_loc('sell')
-        c_df['select'] = '-'
-        sel_col = c_df.columns.get_loc('select')
+
+        c_df = pd.DataFrame(self.vecs[key].target) #only use targets for filter logic
+        c_df['slice'] = 0
+        slc_col = c_df.columns.get_loc('slice')
+        slice_end = c_df.index[0] + pd.Timedelta(days=days)
+        slice_cnt = 1
+        for t_ix in range(len(c_df)):
+            if c_df.index[t_ix] < slice_end:
+                c_df.iat[t_ix, slc_col] = slice_cnt
+            else:
+                slice_cnt += 1
+                slice_end = c_df.index[t_ix] + pd.Timedelta(days=days)
+
+        # now assign slices to training, validation and test set
+        slices = {k: LBL[NA] for k in range(slice_cnt)}
+        train_lvl = val_lvl = test_lvl = 0
+        test_ratio = 1 - train_ratio - val_ratio
+        ix = 0
+        for ix in range(slice_cnt):
+            train_lvl += train_ratio
+            val_lvl += val_ratio
+            test_lvl += test_ratio
+            if train_lvl >= 0:
+                slices[ix] = LBL[TRAIN]
+                train_lvl -= 1
+            elif val_lvl >= 0:
+                slices[ix] = LBL[VAL]
+                val_lvl -= 1
+            elif test_lvl >= 0:
+                slices[ix] = LBL[TEST]
+                test_lvl -= 1
+            assert slices[ix] != LBL[NA], "missing slice assignment"
+
+        for k in range(slice_cnt):
+            c_df.loc[(c_df['slice'] == k), 'slice'] = slices[k]
+        return c_df
+
+    def reduce_target_sequences(self, c_df, key):
+        """
+        Sequences of buy or sell samples will be reduced every n of the sequence according
+        to the seq_red value(local variable).
+
+        Returns:
+        ========
+        dataframe with reduced target sequences
+
+        """
+
+        def reduce_seq_targets(signal, target, c_df, t_ix, t_col, last, seq_count):
+            if signal == target:
+                if last == signal:
+                    seq_count += 1
+                else:
+                    seq_count = 0
+                    last = signal
+                if (seq_count % seq_red) != 0:
+                    c_df.iat[t_ix, t_col] = TARGETS[NA] # change to non valid target
+            return last, seq_count
+
+        if isinstance(key, int):
+            seq_red = key # use only every aggregation sample in signal sequences
+        else:
+            seq_red = 4 # use only every seq_red sample in signal sequences
+        t_col = c_df.columns.get_loc('target')
+        seq_count = 0
         last = 'x'
         for t_ix in range(len(c_df)):
-            b_sig = c_df.iat[t_ix, b_col]
-            if b_sig > 0:
-                if last == 'buy':
-                    seq_count += 1
-                else:
-                    seq_count = 0
-                    last = 'buy'
-                if (seq_count % agg) == 0:
-                    c_df.iat[t_ix, sel_col] = 'buy_select'
-                    b_count += 1
+            sig = c_df.iat[t_ix, t_col]
+            last, seq_count = reduce_seq_targets(sig, TARGETS[BUY], c_df,
+                                                   t_ix, t_col, last, seq_count)
+            last, seq_count = reduce_seq_targets(sig, TARGETS[SELL], c_df,
+                                                   t_ix, t_col, last, seq_count)
+            last, seq_count = reduce_seq_targets(sig, TARGETS[HOLD], c_df,
+                                                   t_ix, t_col, last, seq_count)
 
-            s_sig = c_df.iat[t_ix, s_col]
-            if s_sig > 0:
-                if last == 'sell':
-                    seq_count += 1
-                else:
-                    seq_count = 0
-                    last = 'sell'
-                if (seq_count % agg) == 0:
-                    c_df.iat[t_ix, sel_col] = 'sell_select'
-                    s_count += 1
+    def balance_targets(self, l_df):
+        t_col = l_df.columns.get_loc('target')
+        # l_df = l_df.drop(['slice'], axis = 1) # not required as this is only a temp df
+        h_count = len(l_df[l_df.target == TARGETS[HOLD]])
+        s_count = len(l_df[l_df.target == TARGETS[SELL]])
+        b_count = len(l_df[l_df.target == TARGETS[BUY]])
+        smallest = min([h_count, b_count, s_count])
+        h_ratio = smallest / h_count
+        s_ratio = smallest / s_count
+        b_ratio = smallest / b_count
 
-            if (b_sig == 0) and (s_sig == 0):
-                if last == 'hold':
-                    seq_count += 1
+        h_lvl = b_lvl = s_lvl = 0.0
+        for t_ix in range(len(l_df)):
+            this = l_df.iat[t_ix, t_col]
+            if this == TARGETS[BUY]:
+                if b_lvl <= 0:
+                    b_lvl += 1 # keep that target
                 else:
-                    seq_count = 0
-                    last = 'hold'
-                if (seq_count % agg) == 0:
-                    c_df.iat[t_ix, sel_col] = 'hold_select'
-                    h_count += 1
+                    l_df.iat[t_ix, t_col] = TARGETS[NA] # dump that target
+                b_lvl -= b_ratio
+            elif this == TARGETS[SELL]:
+                if s_lvl <= 0:
+                    s_lvl += 1 # keep that target
+                else:
+                    l_df.iat[t_ix, t_col] = TARGETS[NA] # dump that target
+                s_lvl -= s_ratio
+            elif this == TARGETS[HOLD]:
+                if h_lvl <= 0:
+                    h_lvl += 1 # keep that target
+                else:
+                    l_df.iat[t_ix, t_col] = TARGETS[NA] # dump that target
+                h_lvl -= h_ratio
+        l_df = l_df[(l_df.target == TARGETS[BUY])| \
+                    (l_df.target == TARGETS[SELL])| \
+                    (l_df.target == TARGETS[HOLD])]
+        return l_df
 
-        h_ratio = math.floor((h_count / (b_count + s_count)) / hold_ratio)
-        h_count = 0
-        for t_ix in range(len(c_df)):
-            this = c_df.iat[t_ix, sel_col]
-            if this == 'buy_select':
-                if (bt_count / b_count) < train_ratio:
-                    c_df.iat[t_ix, sel_col] = 'train'
-                    bt_count += 1
-                elif (bv_count / b_count) < val_ratio:
-                    c_df.iat[t_ix, sel_col] = 'val'
-                    bv_count += 1
-                else:
-                    c_df.iat[t_ix, sel_col] = 'test'
-            elif this == 'sell_select':
-                if (st_count / s_count) < train_ratio:
-                    c_df.iat[t_ix, sel_col] = 'train'
-                    st_count += 1
-                elif (sv_count / s_count) < val_ratio:
-                    c_df.iat[t_ix, sel_col] = 'val'
-                    sv_count += 1
-                else:
-                    c_df.iat[t_ix, sel_col] = 'test'
-            elif this == 'hold_select':
-                if (h_count % h_ratio) == 0:
-                    if ((bt_count + st_count) / (b_count + s_count)) < train_ratio:
-                        c_df.iat[t_ix, sel_col] = 'train'
-                    elif ((bv_count + sv_count) / (b_count + s_count)) < val_ratio:
-                        c_df.iat[t_ix, sel_col] = 'val'
-                    else:
-                        c_df.iat[t_ix, sel_col] = 'test'
-                h_count += 1
+    def extract_subset(self, key, set_df, balance):
+        subset_df = pd.DataFrame(set_df)
+        self.reduce_target_sequences(subset_df, key)
+        subset_df = subset_df[(subset_df.target == TARGETS[BUY])| \
+                         (subset_df.target == TARGETS[SELL])| \
+                         (subset_df.target == TARGETS[HOLD])]
+        if balance:
+            subset_df = self.balance_targets(subset_df)
+        return subset_df
 
-        train_df = c_df.loc[c_df['select'] == 'train']
-        val_df = c_df.loc[c_df['select'] == 'val']
-        test_df = c_df.loc[c_df['select'] == 'test']
-        c_df.drop(['select'], axis = 1, inplace = True)
-        train_df.drop(['select'], axis = 1, inplace = True)
-        val_df.drop(['select'], axis = 1, inplace = True)
-        test_df.drop(['select'], axis = 1, inplace = True)
-        seq = {'training': train_df, 'validation': val_df, 'test': test_df}
+    def report_setsize(self, setname, df):
+        hc = len(df[df.target == TARGETS[HOLD]])
+        sc = len(df[df.target == TARGETS[SELL]])
+        bc = len(df[df.target == TARGETS[BUY]])
+        tc = hc + sc + bc
+        print(f"buy {bc} sell {sc} hold {hc} total {tc} on {setname}")
+
+    def timeslice_and_select_targets(self, key, train_ratio, val_ratio, balance, days):
+        """Splits the data set into training set, validation set and test set such that
+        training set receives the specified ratio of buy and sell samples and
+        validation set also receives at least the specified ratio of buy and sell samples.
+        sequences of buy or sell samples will be reduced every n of the sequence according
+        to the seq_red value(local variable).
+        days is the number of days of a slice
+
+        Returns:
+        ========
+        dict with dataframes containing only targets for a training, a validation and a test set
+
+        """
+
+        c_df = self.timeslice_targets(key, train_ratio, val_ratio, days)
+        train_df = c_df[c_df.slice == LBL[TRAIN]]
+        val_df = c_df[c_df.slice == LBL[VAL]]
+        test_df = c_df[c_df.slice == LBL[TEST]]
+
+        self.report_setsize(f"{self.cur_pair} {str(key)} total", c_df)
+        self.report_setsize(TRAIN, train_df)
+        self.report_setsize(VAL, val_df)
+        self.report_setsize(TEST, test_df)
+
+        train_df = self.extract_subset(key, train_df, balance)
+        self.report_setsize(f"{TRAIN} subset", train_df)
+
+        val_df = self.extract_subset(key, val_df, balance)
+        self.report_setsize(f"{VAL} subset", val_df)
+
+        seq = {TRAIN: train_df, VAL: val_df, TEST: test_df}
         return seq
 
 
+    def to_sklearn(self, df, np_data=None):
+        """Load and return the crypto dataset (classification).
+        """
+
+        fn_list = list(df.keys())
+        fn_list.remove('target')
+        fn_list.remove('close')
+        if np_data is None:
+#            data = df[fn_list].to_numpy(dtype=float) # incompatible with pandas 0.19.2
+            data = df[fn_list].values
+        else:
+            data = np_data
+#        target = df['target'].to_numpy(dtype=float) # incompatible with pandas 0.19.2
+#        tics = df.index.to_numpy(dtype=np.datetime64) # incompatible with pandas 0.19.2
+        target = df['target'].values # incompatible with pandas 0.19.2
+        tics = df.index.values # incompatible with pandas 0.19.2
+        feature_names = np.array(fn_list)
+        target_names = np.array(TARGETS.keys())
+
+        return Bunch(data=data, target=target,
+                     target_names=target_names,
+                     tics=tics,
+                     descr=self.cur_pair,
+                     feature_names=feature_names)
+
+
+    def timeslice_data_to_sklearn(self, key, train_ratio, val_ratio, balance, days):
+        """Load and return the crypto dataset (classification).
+        """
+
+        seq = self.timeslice_and_select_targets(key, train_ratio, val_ratio, balance, days)
+        for elem in seq:
+            # h=a[a.index.isin(f.index)] use only the data that is also in the target df
+            data_df = self.vecs[key][self.vecs[key].index.isin(seq[elem].index)]
+            seq[elem] = self.to_sklearn(data_df)
+            seq[elem].descr = self.cur_pair + " aggregation: " + str(key)
+        return seq
 
 #if __name__ == "__main__":
 #    import sys

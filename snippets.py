@@ -117,6 +117,30 @@ print(f"panda version {pd.__version__}")
 #rolling4()
 rolling6()
 
+# <codecell> filter row subset df
+
+a = pd.DataFrame(np.array([[1,2,3], [11,12,13], [21,22,23], [31,32,33]]),\
+                 index = pd.date_range('2012-10-08 18:15:05', periods=4, freq='T'),
+                 columns=['one', 'two', 'three'])
+print(a)
+b = pd.DataFrame(np.array([0,1,0,1]),\
+                 index = pd.date_range('2012-10-08 18:15:05', periods=4, freq='T'),
+                 columns=['x'])
+print(b)
+c=a[a.one==11]
+print(c)
+e=b[b.x==1]
+print(e)
+#d=a.drop(b[b.filter==1].index)
+#print(d)
+f=a[b.x == 1] # returns KeyError: False if column name is filter (filter is also a dataframe method!)
+print(f)
+g=pd.DataFrame(a.one)
+print(g) # inlcudes full index
+#h=a[f.index] # results in KeyError as it trys to find timestamps as column name
+h=a[a.index.isin(f.index)]
+print(h)
+
 # <codecell> split df
 
 a = pd.DataFrame(np.arange(6), columns=['created'],\
@@ -189,7 +213,7 @@ def check_append():
     df[3] = {'key': 'abc', 'hugo': 5, 'erich': 4.}
     print(df)
 
-def check_iloc():
+def check_loc():
     df = pd.DataFrame(columns=["a","b","c","d"])
     df.set_index(['a', 'b'], inplace = True)
 
@@ -220,7 +244,9 @@ def check_loc3():
     print(df)
     df.loc[4 ,['a', 'b']] = ['mimi', 514]
     print(df)
-    print("index was reset")
+    ndf = df[(df.a == 'mimi')|(df.a == 'erich')]
+    print(ndf)
+    print(df)
 
 def check_loc4():
     df = pd.DataFrame(np.arange(6).reshape(3,2), columns=['A','B'])

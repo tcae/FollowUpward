@@ -66,11 +66,9 @@ def test_fl():
     print("tests started")
     agg = {'CPC': 0, 1: 4, 2: 4}
     df = generate_minute_data()
-    cp = t_f.TargetsFeatures(minute_dataframe=df, aggregation=agg, cur_pair=pair)
-    if cp.missed_buy_end > 0:
-        print('info: missed {} buy signals at the end'.format(cp.missed_buy_end))
-    if cp.missed_sell_start > 0:
-        print('info: missed {} sell signals at the start'.format(cp.missed_sell_start))
+    cp = t_f.TargetsFeatures( aggregation=agg, cur_pair=pair)
+    cp.calc_features_and_targets(df)
+    cp.calc_performances()
     test = cp.performance
     print(test)
 #    print(cp.cpc_performance)
