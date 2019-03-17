@@ -281,11 +281,25 @@ def check_dict():
 
 check_dict()
 # my_time = pd.Timestamp('2009-01-01 05:45:00') - pd.to_datetime('2008-01-01 04:23:00')
-my_time = pd.Timestamp('2009-01-01') - pd.to_datetime('2008-01-01')
+my_time = pd.Timestamp('2009-01-02') - pd.to_datetime('2009-01-01')
 
 min = pd.Timedelta(my_time,'m')
 # min = np.timedelta64(my_time, 'm')
 print(f"{min.days} {int(min.seconds/60)}")
 print(f"{min.days*24*60 + int(min.seconds/60)}")
-print(timedelta_minutes('2008-01-01', '2009-01-01'))
+print(timedelta_minutes('2009-01-01', '2009-01-02'))
+print((np.datetime64('2009-01-02', 'm') - np.datetime64('2009-01-01', 'm')) > np.timedelta64(2, 'm'))
 
+# <codecell> numpy
+
+import numpy as np
+
+class MyTest:
+    def __init__(self, x):
+        self.x = 3
+        self.y = self.x *2
+
+# x = np.array([2,3,1,0])
+x = np.zeros((2,3), dtype=MyTest)
+x[1,2] = MyTest(2)
+print(x)

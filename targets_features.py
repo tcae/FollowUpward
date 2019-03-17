@@ -605,7 +605,11 @@ class TfVectors:
 
         for k in range(slice_cnt):
             c_df.loc[(c_df['slice'] == k), 'slice'] = slices[k]
-        return c_df
+        train_df = c_df[c_df.slice == LBL[TRAIN]]
+        val_df = c_df[c_df.slice == LBL[VAL]]
+        test_df = c_df[c_df.slice == LBL[TEST]]
+        seq = {TRAIN: train_df, VAL: val_df, TEST: test_df}
+        return seq
 
     def reduce_target_sequences(self, c_df, key):
         """
@@ -682,7 +686,7 @@ class TfVectors:
                     (l_df.target == TARGETS[HOLD])]
         return l_df
 
-    def extract_subset(self, key, set_df, balance):
+    def reduce_sequences_balance_targets(self, key, set_df, balance):
         subset_df = pd.DataFrame(set_df)
         self.reduce_target_sequences(subset_df, key)
         subset_df = subset_df[(subset_df.target == TARGETS[BUY])| \
@@ -713,27 +717,22 @@ class TfVectors:
 
         """
 
-        c_df = self.timeslice_targets(key, train_ratio, val_ratio, days)
-        train_df = c_df[c_df.slice == LBL[TRAIN]]
-        val_df = c_df[c_df.slice == LBL[VAL]]
-        test_df = c_df[c_df.slice == LBL[TEST]]
+        seq = self.timeslice_targets(key, train_ratio, val_ratio, days)
 
-        self.report_setsize(f"{self.cur_pair} {str(key)} total", c_df)
-        self.report_setsize(TRAIN, train_df)
-        self.report_setsize(VAL, val_df)
-        self.report_setsize(TEST, test_df)
+        self.report_setsize(TRAIN, seq[TRAIN])
+        self.report_setsize(VAL, seq[VAL])
+        self.report_setsize(TEST, seq[TEST])
 
-        train_df = self.extract_subset(key, train_df, balance)
+        train_df = self.reduce_sequences_balance_targets(key, seq[TRAIN], balance)
         self.report_setsize(f"{TRAIN} subset", train_df)
 
-        val_df = self.extract_subset(key, val_df, balance)
+        val_df = self.reduce_sequences_balance_targets(key, seq[VAL], balance)
         self.report_setsize(f"{VAL} subset", val_df)
 
-        seq = {TRAIN: train_df, VAL: val_df, TEST: test_df}
         return seq
 
 
-    def to_sklearn(self, df, np_data=None):
+    def to_scikitlearn(self, df, np_data=None, descr=None):
         """Load and return the crypto dataset (classification).
         """
 
@@ -747,19 +746,22 @@ class TfVectors:
             data = np_data
 #        target = df['target'].to_numpy(dtype=float) # incompatible with pandas 0.19.2
 #        tics = df.index.to_numpy(dtype=np.datetime64) # incompatible with pandas 0.19.2
-        target = df['target'].values # incompatible with pandas 0.19.2
-        tics = df.index.values # incompatible with pandas 0.19.2
+        target = df['target'].values # compatible with pandas 0.19.2
+        close = df['close'].values # compatible with pandas 0.19.2
+        tics = df.index.values # compatible with pandas 0.19.2
         feature_names = np.array(fn_list)
         target_names = np.array(TARGETS.keys())
+        if descr is None:
+            descr=self.cur_pair
 
-        return Bunch(data=data, target=target,
+        return Bunch(data=data, target=target, close=close,
                      target_names=target_names,
                      tics=tics,
-                     descr=self.cur_pair,
+                     descr=descr,
                      feature_names=feature_names)
 
 
-    def timeslice_data_to_sklearn(self, key, train_ratio, val_ratio, balance, days):
+    def timeslice_data_to_scikitlearn(self, key, train_ratio, val_ratio, balance, days):
         """Load and return the crypto dataset (classification).
         """
 
@@ -767,8 +769,8 @@ class TfVectors:
         for elem in seq:
             # h=a[a.index.isin(f.index)] use only the data that is also in the target df
             data_df = self.vecs[key][self.vecs[key].index.isin(seq[elem].index)]
-            seq[elem] = self.to_sklearn(data_df)
-            seq[elem].descr = self.cur_pair + " aggregation: " + str(key)
+            seq[elem] = self.to_scikitlearn(data_df)
+            seq[elem].descr = self.cur_pair + " aggregation: " + str(key) + " " + elem
         return seq
 
 #if __name__ == "__main__":
