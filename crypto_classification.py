@@ -214,10 +214,17 @@ class EvalPerf:
         self.performance = 0
 
     def buy_with_probability(self, buy_prob, close_price):
-        if not self.open_transaction:
+        if self.open_transaction:
+            if self.highest < close_price:
+                self.highest = close_price
+        else:
             if buy_prob >= self.bpt:
                 self.open_transaction = True
                 self.open_buy = close_price * (1 + t_f.FEE / 1000)
+                self.highest = close_price
+
+    def hold_with_probability(self, sell_prob, close_price):
+        return # no action
 
     def sell_with_probability(self, sell_prob, close_price):
         if self.open_transaction:
@@ -226,6 +233,7 @@ class EvalPerf:
                 gain = (close_price * (1 - t_f.FEE / 1000) - self.open_buy) /self.open_buy * 100
                 self.performance += gain # in %
                 self.transactions += 1
+                self.highest = 0
 
 
 class PerfMatrix:
@@ -280,7 +288,7 @@ class PerfMatrix:
         bpt = float((hbp+5)/10)
         spt = float((hsp+5)/10)
         t = self.perf[hbp, hsp].transactions
-        return "best performance {:<8.2F}% with buy threshold {:.2} / sell threshold {:.2} at {} transactions".format(best, bpt, spt, t)
+        return "best performance {:<8.2F}% with buy threshold {:.2f} / sell threshold {:.2f} at {} transactions".format(best, bpt, spt, t)
 
     def add_buy_signal(self, prob, close_price):
         assert (prob >=0) and (prob <= 1), \
@@ -288,6 +296,13 @@ class PerfMatrix:
         for bp in range(5):
             for sp in range(5):
                 self.perf[bp, sp].buy_with_probability(prob, close_price)
+
+    def add_hold_signal(self, prob, close_price):
+        assert (prob >=0) and (prob <= 1), \
+                print(f"unexpected probability {prob}")
+        for bp in range(5):
+            for sp in range(5):
+                self.perf[bp, sp].hold_with_probability(prob, close_price)
 
     def add_sell_signal(self, prob, close_price):
         assert (prob >=0) and (prob <= 1), \
@@ -325,6 +340,10 @@ class PerfMatrix:
                     self.add_buy_signal(pred[sample, high_prob_cl], skl_close[sample])
                 elif high_prob_cl == t_f.TARGETS[t_f.SELL]:
                     self.add_sell_signal(pred[sample, high_prob_cl], skl_close[sample])
+                elif high_prob_cl == t_f.TARGETS[t_f.HOLD]:
+                    self.add_hold_signal(pred[sample, high_prob_cl], skl_close[sample])
+                else:
+                    print("unexpected missing classification result")
         print(self)
         self.print_result_distribution()
 
@@ -349,7 +368,8 @@ class Cpc:
 
         start_time = timeit.default_timer()
         # Create a classifier: a support vector classifier
-        self.classifier = svm.SVC(kernel='rbf', degree=3, gamma=0.001, probability=True,
+        # changed gamma from 0.001 to 1/#features = 0.02 for less generalization
+        self.classifier = svm.SVC(kernel='rbf', degree=3, gamma=0.02, probability=True,
                                   cache_size=400, class_weight='balanced', shrinking=True)
         # classifier = MLPClassifier(solver='adam',
         #                    hidden_layer_sizes=(20, 10, 3), random_state=1)
@@ -361,7 +381,8 @@ class Cpc:
         # plot_learning_curve(classifier, title, X, y, (0.2, 1.01), cv=cv, n_jobs=1)
 
         self.classifier.fit(train_data.data, train_data.target)
-        print(f"{train_data.descr} SVM adaptation: {timeit.default_timer() - start_time}")
+        tdiff = (timeit.default_timer() - start_time) / 60
+        print(f"{train_data.descr} SVM adaptation time: {tdiff:.0f} min")
 
     def eval_classifier_with_data(self, val_data):
         """
@@ -377,7 +398,8 @@ class Cpc:
         expected = val_data.target
         predicted = self.classifier.predict(val_data.data)
         # proba = classifier.predict_proba(sample_sets['validation'].data)
-        print(f"{val_data.descr} SVM evaluation: {timeit.default_timer() - start_time}")
+        tdiff = timeit.default_timer() - start_time
+        print(f"{val_data.descr} SVM evaluation time: {tdiff:.0f}s")
 
         print(f"Classification report for {val_data.descr} classifier %s:\n%s\n"
               % (self.classifier, metrics.classification_report(expected, predicted)))
@@ -425,90 +447,103 @@ class CpcSet:
                     predictions = np.concatenate((predictions, pred), axis=1)
         return predictions
 
-    def adapt_ensemble(self, train_ratio, val_ratio, balance, days):
+    def adapt_ensemble_with_targetsubset(self, tfv, targetsubset, setname, balance):
         """
         """
         start_time = timeit.default_timer()
+        self.cpc = dict(t_f.TIME_AGGS) # use a ta dict to manage the cpc set
+        for ta in self.cpc:
+            self.cpc[ta] = Cpc(ta)
+            if isinstance(ta, int):
+                tfv_ta = tfv.vec(ta)
+                if balance:
+                    subset_df = tfv.reduce_sequences_balance_targets(ta, targetsubset, balance)
+                else:
+                    subset_df = targetsubset
+                subset_df = targets_to_features(tfv_ta, subset_df)
+                descr = f"{self.currency_pair} {ta} {setname}"
+                tfv.report_setsize(descr, subset_df)
+                skldata = tfv.to_scikitlearn(subset_df, np_data=None, descr=descr)
+                self.cpc[ta].adapt_classifier_with_data(skldata)
+
+        if t_f.CPC in self.cpc:
+            combo_cpc = self.cpc[t_f.CPC]
+            if balance:
+                subset_df = tfv.reduce_sequences_balance_targets(t_f.CPC, targetsubset, balance)
+            else:
+                subset_df = targetsubset
+            predictions = self.combined_probs(tfv, subset_df)
+            tfv_ta = tfv.vec(t_f.CPC)
+            subset_df = targets_to_features(tfv_ta, subset_df)
+            descr = f"{self.currency_pair} {t_f.CPC} {setname}"
+            tfv.report_setsize(descr, subset_df)
+            skldata = tfv.to_scikitlearn(subset_df, np_data=predictions, descr=descr)
+            combo_cpc.adapt_classifier_with_data(skldata)
+
+        tdiff = (timeit.default_timer() - start_time) / 60
+        print(f"adapt_ensemble time: {tdiff:.1f} min")
+        self.save()
+
+    def adapt_ensemble(self, train_ratio, val_ratio, balance, days):
+        """
+        """
         # The crypto dataset
         fname = self.data_path + '/' + self.currency_pair + t_f.MSG_EXT
         tfv = t_f.TfVectors(filename=fname)
-        self.cpc = tfv.aggregations # use a ta dict to manage the cpc set
-        seq = tfv.timeslice_targets(t_f.CPC, train_ratio, val_ratio, days)
+        for ta in t_f.TIME_AGGS:
+            assert ta in tfv.aggregations, print(f"missing {ta} feature set")
+        self.cpc = dict(t_f.TIME_AGGS) # use a ta dict to manage the cpc set
+        seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio, val_ratio, days)
+        self.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance)
+
+    def eval_ensemble_with_targetsubset(self, tfv, targetsubset, setname, balance):
+        """
+        """
+        start_time = timeit.default_timer()
         for ta in self.cpc:
-            cpc = Cpc(ta)
             if isinstance(ta, int):
                 tfv_ta = tfv.vec(ta)
-                # subset_df = tfv.reduce_sequences_balance_targets(ta, seq[t_f.TRAIN], balance)
-                # subset_df = targets_to_features(tfv_ta, subset_df)
-                subset_df = targets_to_features(tfv_ta, seq[t_f.TRAIN])
-                descr = f"{self.currency_pair} {ta} {t_f.TRAIN}"
+                if balance:
+                    subset_df = tfv.reduce_sequences_balance_targets(ta, targetsubset, balance)
+                else:
+                    subset_df = targetsubset
+                subset_df = targets_to_features(tfv_ta, subset_df)
+                descr = f"{self.currency_pair} {ta} {setname}"
                 tfv.report_setsize(descr, subset_df)
                 skldata = tfv.to_scikitlearn(subset_df, np_data=None, descr=descr)
-                cpc.adapt_classifier_with_data(skldata)
+                self.cpc[ta].eval_classifier_with_data(skldata)
 
-                # subset_df = tfv.reduce_sequences_balance_targets(ta, seq[t_f.VAL], balance)
-                # subset_df = targets_to_features(tfv_ta, subset_df)
-                subset_df = targets_to_features(tfv_ta, seq[t_f.VAL])
-                descr = f"{self.currency_pair} {ta} {t_f.VAL}"
-                tfv.report_setsize(descr, subset_df)
-                skldata = tfv.to_scikitlearn(subset_df, np_data=None, descr=descr)
-                cpc.eval_classifier_with_data(skldata)
-            self.cpc[ta] = cpc
-
-        combo_cpc = self.cpc[t_f.CPC]
-        # subset_df = tfv.reduce_sequences_balance_targets(t_f.CPC, seq[t_f.TRAIN], balance)
-        # predictions = self.combined_probs(tfv, subset_df)
-        predictions = self.combined_probs(tfv, seq[t_f.TRAIN])
-        tfv_ta = tfv.vec(t_f.CPC)
-        subset_df = targets_to_features(tfv_ta, subset_df)
-        descr = f"{self.currency_pair} {t_f.CPC} {t_f.TRAIN}"
-        tfv.report_setsize(descr, subset_df)
-        skldata = tfv.to_scikitlearn(subset_df, np_data=predictions, descr=descr)
-        combo_cpc.adapt_classifier_with_data(skldata)
-
-        # subset_df = tfv.reduce_sequences_balance_targets(t_f.CPC, seq[t_f.VAL], balance)
-        # predictions = self.combined_probs(tfv, subset_df)
-        predictions = self.combined_probs(tfv, seq[t_f.VAL])
-        subset_df = targets_to_features(tfv_ta, subset_df)
-        descr = f"{self.currency_pair} {t_f.CPC} {t_f.VAL}"
-        tfv.report_setsize(descr, subset_df)
-        skldata = tfv.to_scikitlearn(subset_df, np_data=predictions, descr=descr)
-        combo_cpc.eval_classifier_with_data(skldata)
-
-        print(f"adapt_ensemble: {timeit.default_timer() - start_time}")
-        self.save()
+        if t_f.CPC in self.cpc:
+            combo_cpc = self.cpc[t_f.CPC]
+            tfv_ta = tfv.vec(t_f.CPC)
+            if balance:
+                subset_df = tfv.reduce_sequences_balance_targets(t_f.CPC, targetsubset, balance)
+            else:
+                subset_df = targetsubset
+            predictions = self.combined_probs(tfv, subset_df)
+            subset_df = targets_to_features(tfv_ta, subset_df)
+            descr = f"{self.currency_pair} {t_f.CPC} {setname}"
+            tfv.report_setsize(descr, subset_df)
+            skldata = tfv.to_scikitlearn(subset_df, np_data=predictions, descr=descr)
+            combo_cpc.eval_classifier_with_data(skldata)
+        tdiff = (timeit.default_timer() - start_time) / 60
+        print(f"eval_ensemble time: {tdiff:.1f} min")
 
     def eval_ensemble(self, train_ratio, val_ratio, balance, days):
         """
         """
-        start_time = timeit.default_timer()
         # The crypto dataset
         fname = self.data_path + '/' + self.currency_pair + t_f.MSG_EXT
         tfv = t_f.TfVectors(filename=fname)
-        seq = tfv.timeslice_targets(t_f.CPC, train_ratio, val_ratio, days)
-        for ta in self.cpc:
-            if isinstance(ta, int):
-                tfv_ta = tfv.vec(ta)
-                subset_df = targets_to_features(tfv_ta, seq[t_f.VAL])
-                descr = f"{self.currency_pair} {ta} {t_f.VAL}"
-                skldata = tfv.to_scikitlearn(subset_df, np_data=None, descr=descr)
-                self.cpc[ta].eval_classifier_with_data(skldata)
-
-        combo_cpc = self.cpc[t_f.CPC]
-        tfv_ta = tfv.vec(t_f.CPC)
-        predictions = self.combined_probs(tfv, seq[t_f.VAL])
-        subset_df = targets_to_features(tfv_ta, seq[t_f.VAL])
-        descr = f"{self.currency_pair} {t_f.CPC} {t_f.VAL}"
-        skldata = tfv.to_scikitlearn(subset_df, np_data=predictions, descr=descr)
-        combo_cpc.eval_classifier_with_data(skldata)
-        print(f"eval_ensemble: {timeit.default_timer() - start_time}")
+        seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio, val_ratio, days)
+        self.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance)
 
     def ensemble_performance_with_features(self, tfv):
         """Ignores targets of tfv and just evaluates the tfv features in respect
         to their close price performance
         """
         start_time = timeit.default_timer()
-        pm = t_f.TIME_AGGS # use a ta dict to manage the PerfMatrix of each cpc
+        pm = dict(self.cpc) # use a ta dict to manage the PerfMatrix of each cpc
         predictions = None
         for ta in self.cpc:
             pm[ta] = PerfMatrix()
@@ -523,45 +558,57 @@ class CpcSet:
                 else:
                     predictions = np.concatenate((predictions, pred), axis=1)
 
-        combo_cpc = self.cpc[t_f.CPC]
-        tfv_ta = tfv.vec(t_f.CPC)
-        descr = f"{self.currency_pair} {t_f.CPC}"
-        skldata = tfv.to_scikitlearn(tfv_ta, np_data=predictions, descr=descr)
-        pred = combo_cpc.classifier.predict_proba(skldata.data)
-        pm[t_f.CPC].assess_prediction(pred, skldata.close, skldata.tics)
-        print(f"ensemble_performance_with_features: {timeit.default_timer() - start_time}")
+        if t_f.CPC in self.cpc:
+            combo_cpc = self.cpc[t_f.CPC]
+            tfv_ta = tfv.vec(t_f.CPC)
+            descr = f"{self.currency_pair} {t_f.CPC}"
+            skldata = tfv.to_scikitlearn(tfv_ta, np_data=predictions, descr=descr)
+            pred = combo_cpc.classifier.predict_proba(skldata.data)
+            pm[t_f.CPC].assess_prediction(pred, skldata.close, skldata.tics)
+        tdiff = (timeit.default_timer() - start_time) / 60
+        print(f"ensemble_performance_with_features time: {tdiff:.1f} min")
 
-    def ensemble_performance_with_targetsubset(self, tfv, subset_df):
+    def ensemble_performance_with_targetsubset(self, tfv, subset_df, setname):
         """Take target subset of tfv and just evaluates the tfv features in respect
         to their close price performance
         """
         start_time = timeit.default_timer()
-        pm = t_f.TIME_AGGS # use a ta dict to manage the PerfMatrix of each cpc
+        pm = dict(self.cpc) # use a ta dict to manage the PerfMatrix of each cpc
         predictions = None
         for ta in self.cpc:
             pm[ta] = PerfMatrix()
             if isinstance(ta, int):
                 tfv_ta = tfv.vec(ta)
+                start_time2 = timeit.default_timer()
                 tfv_ta_subset = targets_to_features(tfv_ta, subset_df)
-                descr = f"{self.currency_pair} {ta}"
+                descr = f"{self.currency_pair} {ta} {setname}"
+                tfv.report_setsize(descr, tfv_ta_subset)
                 skldata = tfv.to_scikitlearn(tfv_ta_subset, np_data=None, descr=descr)
                 pred = self.cpc[ta].classifier.predict_proba(skldata.data)
                 print(f"assessing {descr}")
                 pm[ta].assess_prediction(pred, skldata.close, skldata.tics)
+                tdiff = (timeit.default_timer() - start_time2) / 60
+                print(f"single classifier performance_with_targetsubset time: {tdiff:.1f} min")
                 if predictions is None:
                     predictions = pred
                 else:
                     predictions = np.concatenate((predictions, pred), axis=1)
 
-        combo_cpc = self.cpc[t_f.CPC]
-        tfv_ta = tfv.vec(t_f.CPC)
-        tfv_ta_subset = targets_to_features(tfv_ta, subset_df)
-        descr = f"{self.currency_pair} {t_f.CPC}"
-        skldata = tfv.to_scikitlearn(tfv_ta_subset, np_data=predictions, descr=descr)
-        pred = combo_cpc.classifier.predict_proba(skldata.data)
-        print(f"assessing {descr}")
-        pm[t_f.CPC].assess_prediction(pred, skldata.close, skldata.tics)
-        print(f"ensemble_performance_with_targetsubset: {timeit.default_timer() - start_time}")
+        if t_f.CPC in self.cpc:
+            combo_cpc = self.cpc[t_f.CPC]
+            tfv_ta = tfv.vec(t_f.CPC)
+            start_time2 = timeit.default_timer()
+            tfv_ta_subset = targets_to_features(tfv_ta, subset_df)
+            descr = f"{self.currency_pair} {t_f.CPC} {setname}"
+            tfv.report_setsize(descr, tfv_ta_subset)
+            skldata = tfv.to_scikitlearn(tfv_ta_subset, np_data=predictions, descr=descr)
+            pred = combo_cpc.classifier.predict_proba(skldata.data)
+            print(f"assessing {descr}")
+            pm[t_f.CPC].assess_prediction(pred, skldata.close, skldata.tics)
+            tdiff = (timeit.default_timer() - start_time2) / 60
+            print(f"single classifier performance_with_targetsubset time: {tdiff:.1f} min")
+        tdiff = (timeit.default_timer() - start_time) / 60
+        print(f"ensemble_performance_with_targetsubset time: {tdiff:.1f} min")
 
     def ensemble_performance(self, train_ratio, val_ratio, days):
         """
@@ -570,8 +617,9 @@ class CpcSet:
         # The crypto dataset
         fname = self.data_path + '/' + self.currency_pair + t_f.MSG_EXT
         tfv = t_f.TfVectors(filename=fname)
-        seq = tfv.timeslice_targets(t_f.CPC, train_ratio, val_ratio, days)
-        print(f"ensemble_performance: loaded data in {timeit.default_timer() - start_time}s")
+        seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio, val_ratio, days)
+        tdiff = (timeit.default_timer() - start_time) / 60
+        print(f"ensemble_performance time: loaded data in {tdiff:.1f} min")
         print(f"performance {tfv.cur_pair} {t_f.TRAIN}")
         self.ensemble_performance_with_targetsubset(tfv, seq[t_f.TRAIN])
         print(f"performance {tfv.cur_pair} {t_f.VAL}")
@@ -583,17 +631,46 @@ class CpcSet:
     def eval_combo_with_features(self, tfv):
         """not yet ready
         """
-        start_time = timeit.default_timer()
-        combo_cpc = self.cpc[t_f.CPC]
-        tfv_ta = tfv.vec(t_f.CPC)
-        predictions = self.combined_probs(tfv, tfv_ta)
-        descr = f"{self.currency_pair} {t_f.CPC}"
-        skldata = tfv.to_scikitlearn(tfv_ta, np_data=predictions, descr=descr)
-        combo_cpc.eval_classifier_with_data(skldata)
-        print(f"eval_combo_with_features: {timeit.default_timer() - start_time}")
+        if t_f.CPC in self.cpc:
+            start_time = timeit.default_timer()
+            combo_cpc = self.cpc[t_f.CPC]
+            tfv_ta = tfv.vec(t_f.CPC)
+            predictions = self.combined_probs(tfv, tfv_ta)
+            descr = f"{self.currency_pair} {t_f.CPC}"
+            skldata = tfv.to_scikitlearn(tfv_ta, np_data=predictions, descr=descr)
+            combo_cpc.eval_classifier_with_data(skldata)
+            tdiff = (timeit.default_timer() - start_time) / 60
+            print(f"eval_combo_with_features time: {tdiff:.1f} min")
+        else:
+            print("missing combo classifier - cannot eval_combo_with_features")
 
-
-cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
-cpcs.adapt_ensemble(train_ratio=0.6, val_ratio=0.3, balance=True, days=30)
-# cpcs.eval_ensemble(train_ratio=0.6, val_ratio=0.3, balance=True, days=30)
-cpcs.ensemble_performance(train_ratio=0.6, val_ratio=0.3, days=30)
+start_time = timeit.default_timer()
+unit_test = False
+if not unit_test:
+    t_f.TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10}
+    cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
+    # The crypto dataset
+    fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
+    tfv = t_f.TfVectors(filename=fname)
+    seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio=0.6, val_ratio=0.4, days=30)
+    cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=False)
+    cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=False)
+    print(f"performance with hold or sell as sell {tfv.cur_pair} {t_f.TRAIN}")
+    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN)
+    print(f"performance with hold as sell at highest buy {tfv.cur_pair} {t_f.VAL}")
+    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL)
+    # print(f"performance {tfv.cur_pair} {t_f.TEST}")
+    # cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST], t_f.TEST)
+else:
+    t_f.TIME_AGGS = {1: 10, 5: 10}
+    cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
+    # The crypto dataset
+    fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
+    tfv = t_f.TfVectors(filename=fname)
+    seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio=0.4, val_ratio=0.4, days=30)
+    cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=True)
+    cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=True)
+    print(f"performance {tfv.cur_pair} {t_f.TEST}")
+    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST], t_f.TEST)
+tdiff = (timeit.default_timer() - start_time) / (60*60)
+print(f"total time: {tdiff:.2f} hours")

@@ -8,7 +8,7 @@ Created on Mon Jan  7 21:43:26 2019
 # import numpy as np
 import pandas as pd
 from datetime import datetime
-import math
+# import math
 import json
 import re
 from sklearn.utils import Bunch
@@ -28,6 +28,7 @@ BUY_THRESHOLD = 10  # in per mille
 SELL_THRESHOLD = -2  # in per mille
 VOL_BASE_PERIOD = '1D'
 CPC = 'CPC'
+ALL_SAMPLES = 1
 HOLD = '-'
 BUY = 'buy'
 SELL = 'sell'
@@ -37,7 +38,8 @@ VAL = 'validation'
 TEST = 'test'
 TARGETS = {HOLD: 0, BUY: 1, SELL: 2, NA: 11}  # dict with int encoding of target labels
 TIME_AGGS = {CPC: 0, 1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10}
-LBL = {NA:0, TRAIN:-1, VAL:-2, TEST:-3}
+# TIME_AGGS = {1: 10, 5: 10}
+LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
 
 
 def time_in_index(dataframe_with_timeseriesindex, tic):
@@ -83,6 +85,8 @@ class TargetsFeatures:
         self.performance = self.time_aggregations.copy()
         self.tf_aggs = dict()  # feature and target aggregations
         self.cur_pair = cur_pair
+        self.tf_vectors = None
+        self.minute_data = None
 
     def derive_features(self, time_agg):
         """derived features in relation to price based on the provided time aggregated dataframe df
@@ -404,7 +408,7 @@ class TfVectors:
                 self.vecs = pickle.load(df_f)
                 print(f"{datetime.now()}: processing {self.cur_pair}")
                 print("{}: read tf vectors with {} tics x {} aggregations from {}".format(
-                         datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
+                    datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
                 df_f.close()
             elif filename.endswith(JSON_EXT):
                 with open(filename, 'r') as df_f:
@@ -415,7 +419,7 @@ class TfVectors:
                         self.vecs[ta] = pd.read_json(df_f)
                 print(f"{datetime.now()}: processing {self.cur_pair}")
                 print("{}: read tf vectors with {} tics x {} aggregations from {}".format(
-                         datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
+                    datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
                 df_f.close()
             elif filename.endswith(MSG_EXT):
                 df_f = open(filename, 'rb')
@@ -425,7 +429,7 @@ class TfVectors:
                     ext_fname = re.sub(MSG_EXT, '_'+str(ta)+MSG_EXT, filename)
                     self.vecs[ta] = pd.read_msgpack(ext_fname)
                 print("{}: read tf vectors with {} tics x {} aggregations from {}".format(
-                         datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
+                    datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
             else:
                 print(f"TfVectors init from file {filename}: unknown file extension")
         self.cut_back_to_same_sample_tics()
@@ -468,10 +472,10 @@ class TfVectors:
 
     def save(self, fname):
         if fname.endswith(PICKLE_EXT):
-            "saves the object via pickle"
+            # "saves the object via pickle"
             print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format(
-                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
-                     self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
+                datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
+                self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
             self.filename = fname
             df_f = open(fname, 'wb')
             pickle.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
@@ -479,10 +483,10 @@ class TfVectors:
             df_f.close()
             print(f"{datetime.now()}: tf vectors saved")
         elif fname.endswith(JSON_EXT):
-            "saves the object via json"
+            # "saves the object via json"
             print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format(
-                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
-                     self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
+                datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
+                self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
             self.filename = fname
             df_f = open(fname, 'w')
             json.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
@@ -492,10 +496,10 @@ class TfVectors:
             df_f.close()
             print(f"{datetime.now()}: tf vectors saved")
         elif fname.endswith(MSG_EXT):
-            "saves the object via msgpack"
+            # "saves the object via msgpack"
             print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format(
-                     datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
-                     self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
+                datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
+                self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
             self.filename = fname
             df_f = open(fname, 'wb')
             pickle.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
@@ -643,11 +647,11 @@ class TfVectors:
         for t_ix in range(len(c_df)):
             sig = c_df.iat[t_ix, t_col]
             last, seq_count = reduce_seq_targets(sig, TARGETS[BUY], c_df,
-                                                   t_ix, t_col, last, seq_count)
+                                                 t_ix, t_col, last, seq_count)
             last, seq_count = reduce_seq_targets(sig, TARGETS[SELL], c_df,
-                                                   t_ix, t_col, last, seq_count)
+                                                 t_ix, t_col, last, seq_count)
             last, seq_count = reduce_seq_targets(sig, TARGETS[HOLD], c_df,
-                                                   t_ix, t_col, last, seq_count)
+                                                 t_ix, t_col, last, seq_count)
 
     def balance_targets(self, l_df):
         t_col = l_df.columns.get_loc('target')
@@ -656,6 +660,10 @@ class TfVectors:
         s_count = len(l_df[l_df.target == TARGETS[SELL]])
         b_count = len(l_df[l_df.target == TARGETS[BUY]])
         smallest = min([h_count, b_count, s_count])
+        if smallest == 0:
+            print("warning: cannot balance as not all classes have representatives")
+            self.report_setsize("val or train", l_df)
+            return l_df
         h_ratio = smallest / h_count
         s_ratio = smallest / s_count
         b_ratio = smallest / b_count
@@ -752,7 +760,7 @@ class TfVectors:
         feature_names = np.array(fn_list)
         target_names = np.array(TARGETS.keys())
         if descr is None:
-            descr=self.cur_pair
+            descr =self.cur_pair
 
         return Bunch(data=data, target=target, close=close,
                      target_names=target_names,
@@ -778,4 +786,3 @@ class TfVectors:
 #    fib(int(sys.argv[1]))
 #    currency_data = FeaturesTargets()
 #    print(currency_data.performances())
-

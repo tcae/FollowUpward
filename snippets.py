@@ -157,6 +157,8 @@ b = a[cl]
 print(b)
 
 # <codecell> dict construct
+import numpy as np
+import pandas as pd
 
 a = pd.DataFrame(np.arange(6), columns=['created'],\
                  index = pd.date_range('2012-10-08 18:15:05', periods=6, freq='T'))
@@ -173,6 +175,8 @@ print(np.array(a.columns))
 
 key_list = [key for key in features]
 print(key_list)
+print('s1' in a)
+print('sx' in a)
 
 # <codecell> re
 import re
