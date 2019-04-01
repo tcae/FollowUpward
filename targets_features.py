@@ -23,9 +23,9 @@ PICKLE_EXT = ".pydata"  # pickle file extension
 JSON_EXT = ".json"  # msgpack file extension
 MSG_EXT = ".msg"  # msgpack file extension
 
-FEE = 1  # in per mille, transaction fee is 0.1%
-BUY_THRESHOLD = 10  # in per mille
-SELL_THRESHOLD = -2  # in per mille
+FEE = 1/1000  # in per mille, transaction fee is 0.1%
+BUY_THRESHOLD = 10/1000  # in per mille
+SELL_THRESHOLD = -2/1000  # in per mille
 VOL_BASE_PERIOD = '1D'
 CPC = 'CPC'
 ALL_SAMPLES = 1
@@ -44,6 +44,25 @@ LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
 
 def time_in_index(dataframe_with_timeseriesindex, tic):
     return True in dataframe_with_timeseriesindex.index.isin([tic])
+
+def load_sample_set_split_config(config_fname):
+    # fname = '/Users/tc/tf_models/crypto' + '/' + 'sample_set_split.config'
+    try:
+        cdf = pd.read_csv(config_fname, skipinitialspace=True, \
+                          converters={'set_start': np.datetime64})
+        print(f"sample set split loaded from {config_fname}")
+        cdf.sort_values(by=['set_start'], inplace=True)
+        cdf = cdf.reset_index(drop=True)
+        cdf['set_stop'] = cdf.set_start.shift(-1)
+        cdf['set_start'] = cdf.set_start.dt.tz_localize(None)
+        cdf['set_stop'] = cdf.set_stop.dt.tz_localize(None)
+        cdf['diff'] = cdf['set_stop'] - cdf['set_start']
+        print(cdf)
+        # print(cdf.dtypes)
+        return cdf
+    except IOError:
+        print(f"pd.read_csv({config_fname}) IO error")
+        return None
 
 
 class TargetsFeatures:
@@ -83,7 +102,7 @@ class TargetsFeatures:
     def __init__(self, aggregation=TIME_AGGS, cur_pair=None):
         self.time_aggregations = aggregation  # aggregation in minutes of trailing DHTBV values
         self.performance = self.time_aggregations.copy()
-        self.tf_aggs = dict()  # feature and target aggregations
+        self.tf_aggs = self.time_aggregations.copy()  # feature and target aggregations
         self.cur_pair = cur_pair
         self.tf_vectors = None
         self.minute_data = None
@@ -119,10 +138,10 @@ class TargetsFeatures:
                                  / df.volume.rolling(VOL_BASE_PERIOD).median()
                 else:
                     df = pd.DataFrame()
-                    df['close'] = mdf.close
+                    df['open'] = mdf.open.shift(time_agg-1)
                     df['high'] = mdf.high.rolling(time_agg).max()
                     df['low'] = mdf.low.rolling(time_agg).min()
-                    df['open'] = mdf.open.shift(time_agg-1)
+                    df['close'] = mdf.close
                     df['vol'] = mdf.vol.rolling(time_agg).mean()
                 self.tf_aggs[time_agg] = df
                 self.derive_features(time_agg)
@@ -136,7 +155,8 @@ class TargetsFeatures:
         for time_agg in self.time_aggregations:
             if isinstance(time_agg, int):
                 self.add_period_specific_targets(time_agg)  # add aggregation targets
-        print(self.cpc_best_path())  # add summary targets for this currency pair
+        best_perf = self.cpc_best_path()
+        print(f"best potential performance among all aggregations: {best_perf:%}")
         # self.calc_performances() # calculate performances based on targets
         self.tf_vectors = TfVectors(tf=self, currency_pair=self.cur_pair)
 
@@ -162,7 +182,7 @@ class TargetsFeatures:
         for tix in range(time_agg, len(df), 1):  # tix = time index
             slot = (tix % time_agg)
             last_close = df.iat[tix - time_agg, cix]
-            delta = (df.iat[tix, cix] - last_close) / last_close * 1000  # in per mille: 1% == 10
+            delta = (df.iat[tix, cix] - last_close) / last_close  # * 1000 no longer in per mille
             df.iat[tix, pix] = delta
             if delta < 0:
                 if loss[slot] < 0:  # loss monitoring is running
@@ -243,7 +263,7 @@ class TargetsFeatures:
         last = cpc_df.iat[0, close_ix]
         for tix in range(len(cpc_df)):  # tix = time index
             this = cpc_df.iat[tix, close_ix]
-            tix_perf = ((this - last) / last * 1000)
+            tix_perf = ((this - last) / last) # no longer in per mille * 1000)
             last = this
             sell_sig = False
             buy_sig = False
@@ -321,7 +341,7 @@ class TargetsFeatures:
         last = cpc_df.iat[0, close_ix]
         for tix in range(len(cpc_df)):  # tix = time index
             this = cpc_df.iat[tix, close_ix]
-            tix_perf = ((this - last) / last * 1000)
+            tix_perf = ((this - last) / last) # no longer in per mille * 1000)
             last = this
             for ta_ix in perf:
                 signal = cpc_df.iat[tix, col_ix[ta_ix]]
@@ -379,7 +399,7 @@ class TfVectors:
         if tf is not None:
             if currency_pair is not None:
                 print(f"{datetime.now()}: processing {self.cur_pair}")
-            self.aggregations = tf.time_aggregations
+            self.aggregations = tf.time_aggregations.copy()
             for ta in tf.time_aggregations:
                 print(f"{datetime.now()}: build classifier vectors {ta}")
                 t_name = str(ta) + '_target'
@@ -562,6 +582,56 @@ class TfVectors:
                     h_count = 0
         return seq
 
+    def timeslice_targets_as_configured(self, key, config_fname):
+        """Splits the data set into training set, validation set and test set as configured
+        in the given file.
+
+        Returns:
+        ========
+        The dataframe receives a column 'slice' that identifies the assignment of samples to
+        training, validation, or test set
+
+        """
+        sdf = load_sample_set_split_config(config_fname)
+        c_df = pd.DataFrame(self.vecs[key].target) #only use targets for filter logic
+#        c_df.index.tz_convert(None) # remove timezone info and use UTC
+#        sdf.set_start.tz_convert(None) # remove timezone info and use UTC
+#        sdf.set_stop.tz_convert(None) # remove timezone info and use UTC
+
+#        sdf.set_stop.tz = sdf.set_start.tz = c_df.index.tz
+        c_df['slice'] = 0
+        # c_df.loc[(sdf['set_start'] <= c_df.index)
+        #          & (sdf['set_stop'] > c_df.index)
+        #          & (sdf['sample_set'] in LBL), 'slice'] = LBL[sdf['sample_set']]
+        sdf_ix = 0
+        sdf_start = sdf.loc[sdf_ix, 'set_start']
+        sdf_stop = sdf.loc[sdf_ix, 'set_stop']
+        slc_col = c_df.columns.get_loc('slice')
+#        print(f"c_df.index[0]: {c_df.index.timetz} sdf.set_start: {sdf.set_start.dt.timetz} sdf.set_stop: {sdf.set_stop.dt.timetz}")
+        for t_ix in range(len(c_df)):
+            dt_stamp = np.datetime64(c_df.index[t_ix])
+            while sdf_stop <= dt_stamp:
+                sdf_ix += 1
+                sdf_start = sdf.loc[sdf_ix, 'set_start']
+                sdf_stop = sdf.loc[sdf_ix, 'set_stop']
+            if (sdf_start <= dt_stamp) and (sdf_stop > dt_stamp):
+                sdf_lbl = sdf.loc[sdf_ix, 'sample_set']
+                if sdf_lbl  in LBL:
+                    sdf_tag = LBL[sdf_lbl]
+                else:
+                    print(f"warning: unknwon config label {sdf_lbl}")
+                c_df.iat[t_ix, slc_col] = sdf_tag
+
+        train_df = c_df[c_df.slice == LBL[TRAIN]]
+        val_df = c_df[c_df.slice == LBL[VAL]]
+        test_df = c_df[c_df.slice == LBL[TEST]]
+        seq = {TRAIN: train_df, VAL: val_df, TEST: test_df}
+
+        self.report_setsize(TRAIN, seq[TRAIN])
+        self.report_setsize(VAL, seq[VAL])
+        self.report_setsize(TEST, seq[TEST])
+        return seq
+
     def timeslice_targets(self, key, train_ratio=0.6, val_ratio=0.2, days=30):
         """Splits the data set into training set, validation set and test set such that
         training, validation and test sets are created that receive their time slice share
@@ -578,6 +648,8 @@ class TfVectors:
         c_df = pd.DataFrame(self.vecs[key].target) #only use targets for filter logic
         c_df['slice'] = 0
         slc_col = c_df.columns.get_loc('slice')
+
+        # first slice set according to number of days
         slice_end = c_df.index[0] + pd.Timedelta(days=days)
         slice_cnt = 1
         for t_ix in range(len(c_df)):
@@ -613,6 +685,10 @@ class TfVectors:
         val_df = c_df[c_df.slice == LBL[VAL]]
         test_df = c_df[c_df.slice == LBL[TEST]]
         seq = {TRAIN: train_df, VAL: val_df, TEST: test_df}
+
+        self.report_setsize(TRAIN, seq[TRAIN])
+        self.report_setsize(VAL, seq[VAL])
+        self.report_setsize(TEST, seq[TEST])
         return seq
 
     def reduce_target_sequences(self, c_df, key):
@@ -726,10 +802,6 @@ class TfVectors:
         """
 
         seq = self.timeslice_targets(key, train_ratio, val_ratio, days)
-
-        self.report_setsize(TRAIN, seq[TRAIN])
-        self.report_setsize(VAL, seq[VAL])
-        self.report_setsize(TEST, seq[TEST])
 
         train_df = self.reduce_sequences_balance_targets(key, seq[TRAIN], balance)
         self.report_setsize(f"{TRAIN} subset", train_df)

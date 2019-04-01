@@ -647,20 +647,23 @@ class CpcSet:
 start_time = timeit.default_timer()
 unit_test = False
 if not unit_test:
-    t_f.TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10}
+    t_f.TIME_AGGS = {1: 10, 5: 10, 15: 10}  # , 60: 10}
     cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
     # The crypto dataset
-    fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
+    # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
+    fname = cpcs.data_path + '/' + 'bnb_usdt' + t_f.MSG_EXT
     tfv = t_f.TfVectors(filename=fname)
-    seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio=0.6, val_ratio=0.4, days=30)
-    cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=False)
-    cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=False)
-    print(f"performance with hold or sell as sell {tfv.cur_pair} {t_f.TRAIN}")
-    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN)
-    print(f"performance with hold as sell at highest buy {tfv.cur_pair} {t_f.VAL}")
-    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL)
-    # print(f"performance {tfv.cur_pair} {t_f.TEST}")
-    # cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST], t_f.TEST)
+    cfname = "/Users/tc/tf_models/crypto/sample_set_split.config"
+    seq = tfv.timeslice_targets_as_configured(t_f.ALL_SAMPLES, cfname)
+    # seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio=0.6, val_ratio=0.4, days=30)
+    # cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=False)
+    # cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=False)
+    # print(f"performance with hold or sell as sell {tfv.cur_pair} {t_f.TRAIN}")
+    # cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN)
+    # print(f"performance with hold as sell at highest buy {tfv.cur_pair} {t_f.VAL}")
+    # cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL)
+    print(f"performance {tfv.cur_pair} {t_f.TEST} using a {PAIR} SVM 0.02gamma classifier")
+    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST], t_f.TEST)
 else:
     t_f.TIME_AGGS = {1: 10, 5: 10}
     cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')

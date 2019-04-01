@@ -28,8 +28,9 @@ def tdelta(first: str, last: str) -> int:
     min_res = my_min.days*24*60 + int(my_min.seconds/60)
     return min_res
 
-
-CUR_CAND = ['xrp_usdt', 'btc_usdt', 'eth_usdt', 'bnb_usdt', 'eos_usdt', 'ltc_usdt', 'neo_usdt', 'trx_usdt']
+USDT_SUFFIX = 'usdt'
+BTC_SUFFIX = 'btc'
+CUR_CAND = ['xrp_', 'eth_', 'bnb_', 'eos_', 'ltc_', 'neo_', 'trx_']
 DATA_KEYS = ['open', 'high', 'low', 'close', 'volume']  # , 'price'
 # classifier_input = dict()
 
@@ -39,23 +40,78 @@ def initialize(context):
     context.handle_count = 0
     print("init")
 
+def load_pair(data, pair):
+    sy = symbol(pair)
+    startdate = symbol(pair).start_date
+    enddate = symbol(pair).end_minute
+    min_count = tdelta(startdate, enddate)
+    c_data = data.history(sy, DATA_KEYS, min_count, '1T')
+    print(f"{datetime.now()}: reading {pair} first: {startdate} last: {enddate} minutes: {min_count} len df: {len(c_data)}")
+    assert not c_data.empty, "{datetime.now()}: empty dataframe from Catalyst"
+    return c_data
+
+def check_diff(cur_btc_usdt, cur_usdt):
+    """ cur_usdt should be a subset of cur_btc_usdt. This function checks the average deviation.
+    """
+    print(f"c-u first: {cur_usdt.index[0]}  last: {cur_usdt.index[len(cur_usdt)-1]}")
+    print(f"c-b-u first: {cur_btc_usdt.index[0]}  last: {cur_btc_usdt.index[len(cur_btc_usdt)-1]}")
+    diff = cur_btc_usdt[cur_btc_usdt.index.isin(cur_usdt.index)]
+    for key in DATA_KEYS:
+        if key != 'volume':
+            diff[key] = (cur_btc_usdt[key] - cur_usdt[key]) / cur_usdt[key]
+        else:
+            diff[key] = cur_btc_usdt[key] - cur_usdt[key]
+        diff_average = diff[key].sum() / len(cur_usdt)
+        if key != 'volume':
+            print(f"check_diff {key}: {diff_average:%}")
+        else:
+            print(f"check_diff {key}: {diff_average}")
+
 
 def handle_data(context, data: BarData):
     "called every minute by Catalyst framework"
 
     if context.handle_count < 1:
+        btcusdt = load_pair(data, 'btc_usdt')
+        tf = t_f.TargetsFeatures(cur_pair='btc_usdt')
+        tf.calc_features_and_targets(btcusdt)
+        tf.calc_performances()
+        test = tf.performance
+        for p in test:
+            print(f"performance potential for aggregation {p}: {test[p]:%}")
+        tf.tf_vectors.save(t_f.DATA_PATH + '/btc_usdt.msg')
+
         for pair in CUR_CAND:
-            sy = symbol(pair)
-            print(f"{datetime.now()}: reading {pair}")
-            startdate = symbol(pair).start_date
-            enddate = symbol(pair).end_minute
-            min_count = tdelta(startdate, enddate)
-            c_data = data.history(sy, DATA_KEYS, min_count, '1T')
-            assert not c_data.empty, "{datetime.now()}: empty dataframe from Catalyst"
-            tf = t_f.TargetsFeatures(c_data, cur_pair=pair)
+            cb_pair = pair + BTC_SUFFIX
+            cbtc = load_pair(data, cb_pair)
+            cbtcusdt = pd.DataFrame(btcusdt)
+            cbtcusdt = cbtcusdt[cbtcusdt.index.isin(cbtc.index)]
+            for key in DATA_KEYS:
+                if key != 'volume':
+                    cbtcusdt[key] = cbtc[key] * btcusdt[key]
+            cbtcusdt['volume'] = cbtc.volume
+            cbu_pair = pair + BTC_SUFFIX + '_' + USDT_SUFFIX
+            tf = t_f.TargetsFeatures(cur_pair=cbu_pair)
+            tf.calc_features_and_targets(cbtcusdt)
+            tf.calc_performances()
             test = tf.performance
-            print(test)
-            tf.tf_vectors.save(t_f.DATA_PATH + '/' + pair + '.msg')
+            for p in test:
+                print(f"performance potential for aggregation {p}: {test[p]:%}")
+            tf.tf_vectors.save(t_f.DATA_PATH + '/' + cbu_pair + '.msg')
+
+            cu_pair = pair + USDT_SUFFIX
+            cusdt = load_pair(data, cu_pair)
+            tf = t_f.TargetsFeatures(cur_pair=cu_pair)
+            tf.calc_features_and_targets(cusdt)
+            tf.calc_performances()
+            test = tf.performance
+            for p in test:
+                print(f"performance potential for aggregation {p}: {test[p]:%}")
+            tf.tf_vectors.save(t_f.DATA_PATH + '/' + cu_pair + '.msg')
+
+            cbtcusdt.loc[cusdt.index,:] = cusdt[:]  # take values of cusdt where available
+            # check_diff(cbtcusdt, cusdt)
+
             print(f"{datetime.now()}: processing {pair} is ready")
 
     context.handle_count += 1
@@ -68,8 +124,8 @@ def handle_data(context, data: BarData):
 daily_perf = run_algorithm(initialize=initialize,
                            handle_data=handle_data,
                            # analyze=analyze,
-                           start=datetime(2019, 2, 28, 0, 0, 0, 0, pytz.utc),
-                           end=datetime(2019, 2, 28, 0, 0, 0, 0, pytz.utc),
+                           start=datetime(2019, 4, 1, 0, 0, 0, 0, pytz.utc),
+                           end=datetime(2019, 4, 1, 0, 0, 0, 0, pytz.utc),
                            exchange_name='binance',
                            data_frequency='minute',
                            quote_currency='usdt',

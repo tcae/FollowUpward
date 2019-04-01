@@ -73,9 +73,9 @@ def test_fl():
     test = cp.performance
     print(test)
 #    print(cp.cpc_performance)
-    assert test[1] == -0.23782522317685562
-    assert test[2] == 6.2407515870716175
-    assert test['CPC'] == 25.304288700980557
+    assert test[1] == -0.00023782522317685687
+    assert test[2] == 0.006240751587071614
+    assert test['CPC'] == 0.02530428870098055
 
 #    fname = t_f.DATA_PATH + '/' + pair + t_f.PICKLE_EXT
     fname = t_f.DATA_PATH + '/' + pair + t_f.MSG_EXT

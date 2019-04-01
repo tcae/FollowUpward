@@ -251,6 +251,9 @@ def check_loc3():
     ndf = df[(df.a == 'mimi')|(df.a == 'erich')]
     print(ndf)
     print(df)
+    k = pd.DataFrame(df)
+    k['b'] = ndf['b'] + df['b']
+    print(k)
 
 def check_loc4():
     df = pd.DataFrame(np.arange(6).reshape(3,2), columns=['A','B'])
@@ -307,3 +310,74 @@ class MyTest:
 x = np.zeros((2,3), dtype=MyTest)
 x[1,2] = MyTest(2)
 print(x)
+
+# <codecell> datetime config
+
+import pandas as pd
+import targets_features as t_f
+
+fname = '/Users/tc/tf_models/crypto' + '/' + 'sample_set_split.config'
+try:
+    cdf = pd.read_csv(fname, skipinitialspace=True, \
+                      converters={'set_start': np.datetime64})
+    print(f"sample set split loaded from {fname}")
+    cdf.sort_values(by=['set_start'], inplace=True)
+    cdf = cdf.reset_index(drop=True)
+    cdf['set_stop'] = cdf.set_start.shift(-1)
+    cdf['diff'] = cdf['set_stop'] - cdf['set_start']
+    print(cdf)
+    print(cdf['diff'].sum())
+    print(cdf.dtypes)
+except IOError:
+    print(f"pd.read_csv({fname}) IO error")
+
+# <codecell> check_diff
+DATA_KEYS = ['a']
+
+def check_diff(cur_btc_usdt, cur_usdt):
+    """ cur_usdt should be a subset of cur_btc_usdt. This function checks the average deviation.
+    """
+    print(f"c-u first: {cur_usdt.index[0]}  last: {cur_usdt.index[len(cur_usdt)-1]}")
+    print(f"c-b-u first: {cur_btc_usdt.index[0]}  last: {cur_btc_usdt.index[len(cur_btc_usdt)-1]}")
+    # diff = cur_btc_usdt[cur_btc_usdt.index.isin(cur_usdt.index)]
+    diff = dict.fromkeys(DATA_KEYS, 0)
+    for tic in cur_usdt.index:
+        for key in DATA_KEYS:
+            print(f"{tic} {key} {diff[key]} {cur_btc_usdt.loc[tic, key]} {cur_usdt.loc[tic, key]}")
+            if key != 'volume':
+                diff[key] += (cur_btc_usdt.loc[tic, key] - cur_usdt.loc[tic, key]) / cur_usdt.loc[tic, key]
+            else:
+                diff[key] += cur_btc_usdt.loc[tic, key] - cur_usdt.loc[tic, key]
+    for key in DATA_KEYS:
+        diff_average = diff[key] / len(cur_usdt)
+        print(diff[key])
+        if key != 'volume':
+            print(f"check_diff {key}: {diff_average:%}")
+        else:
+            print(f"check_diff {key}: {diff_average}")
+
+def check_diff2(cur_btc_usdt, cur_usdt):
+    """ cur_usdt should be a subset of cur_btc_usdt. This function checks the average deviation.
+    """
+    print(f"c-u first: {cur_usdt.index[0]}  last: {cur_usdt.index[len(cur_usdt)-1]}")
+    print(f"c-b-u first: {cur_btc_usdt.index[0]}  last: {cur_btc_usdt.index[len(cur_btc_usdt)-1]}")
+    diff = cur_btc_usdt[cur_btc_usdt.index.isin(cur_usdt.index)]
+    for key in DATA_KEYS:
+        if key != 'volume':
+            diff[key] = (cur_btc_usdt[key] - cur_usdt[key]) / cur_usdt[key]
+        else:
+            diff[key] = cur_btc_usdt[key] - cur_usdt[key]
+        diff_average = diff[key].sum() / len(cur_usdt)
+        # print(diff[key])
+        if key != 'volume':
+            print(f"check_diff {key}: {diff_average:%}")
+        else:
+            print(f"check_diff {key}: {diff_average}")
+
+adf = pd.DataFrame(np.arange(2,6), columns=['a'],\
+                 index = pd.date_range('2012-10-08 18:15:05', periods=4, freq='T'))
+bdf = pd.DataFrame(np.arange(1,7), columns=['a'],\
+                 index = pd.date_range('2012-10-08 18:15:05', periods=6, freq='T'))
+check_diff2(bdf, adf)
+
+
