@@ -379,5 +379,14 @@ adf = pd.DataFrame(np.arange(2,6), columns=['a'],\
 bdf = pd.DataFrame(np.arange(1,7), columns=['a'],\
                  index = pd.date_range('2012-10-08 18:15:05', periods=6, freq='T'))
 check_diff2(bdf, adf)
+print(bdf)
+bdf.loc[adf.index,:] = adf[:] # replace only values of subset adf in bdf
+print(bdf)
 
+# <codecell> check_diff
+from datetime import datetime
+
+dt = datetime.now()
+print(dt.strftime('%Y-%m-%d_%H:%M'))
+print(datetime.now().strftime('%Y-%m-%d_%H:%M'))
 

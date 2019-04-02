@@ -46,15 +46,21 @@ def load_pair(data, pair):
     enddate = symbol(pair).end_minute
     min_count = tdelta(startdate, enddate)
     c_data = data.history(sy, DATA_KEYS, min_count, '1T')
-    print(f"{datetime.now()}: reading {pair} first: {startdate} last: {enddate} minutes: {min_count} len df: {len(c_data)}")
-    assert not c_data.empty, "{datetime.now()}: empty dataframe from Catalyst"
+    print("{}: reading {} first: {} last: {} minutes: {}".format(
+        datetime.now().strftime(t_f.DT_FORMAT), pair, startdate.strftime(t_f.DT_FORMAT),
+        enddate.strftime(t_f.DT_FORMAT), min_count))
+    assert not c_data.empty, "{datetime.now().strftime(t_f.DT_FORMAT)}: empty dataframe from Catalyst"
     return c_data
 
 def check_diff(cur_btc_usdt, cur_usdt):
     """ cur_usdt should be a subset of cur_btc_usdt. This function checks the average deviation.
     """
-    print(f"c-u first: {cur_usdt.index[0]}  last: {cur_usdt.index[len(cur_usdt)-1]}")
-    print(f"c-b-u first: {cur_btc_usdt.index[0]}  last: {cur_btc_usdt.index[len(cur_btc_usdt)-1]}")
+    print("c-u first: {}  last: {}".format(
+        cur_usdt.index[0].strftime(t_f.DT_FORMAT),
+        cur_usdt.index[len(cur_usdt)-1].strftime(t_f.DT_FORMAT)))
+    print("c-b-u first: {}  last: {}".format(
+        cur_btc_usdt.index[0].strftime(t_f.DT_FORMAT),
+        cur_btc_usdt.index[len(cur_btc_usdt)-1].strftime(t_f.DT_FORMAT)))
     diff = cur_btc_usdt[cur_btc_usdt.index.isin(cur_usdt.index)]
     for key in DATA_KEYS:
         if key != 'volume':
@@ -72,6 +78,29 @@ def handle_data(context, data: BarData):
     "called every minute by Catalyst framework"
 
     if context.handle_count < 1:
+        btcusdt = load_pair(data, 'btc_usdt')
+        t_f.save_asset_dataframe(btcusdt, 'btc_usdt')
+
+        for pair in CUR_CAND:
+            cb_pair = pair + BTC_SUFFIX
+            cbtc = load_pair(data, cb_pair)
+            cbtcusdt = pd.DataFrame(btcusdt)
+            cbtcusdt = cbtcusdt[cbtcusdt.index.isin(cbtc.index)]
+            for key in DATA_KEYS:
+                if key != 'volume':
+                    cbtcusdt[key] = cbtc[key] * btcusdt[key]
+            cbtcusdt['volume'] = cbtc.volume
+            cbu_pair = pair + BTC_SUFFIX + '_' + USDT_SUFFIX
+
+            cu_pair = pair + USDT_SUFFIX
+            cusdt = load_pair(data, cu_pair)
+            t_f.save_asset_dataframe(cusdt, cu_pair)
+
+            cbtcusdt.loc[cusdt.index,:] = cusdt[:]  # take values of cusdt where available
+            # check_diff(cbtcusdt, cusdt)
+            t_f.save_asset_dataframe(cbtcusdt, cbu_pair)
+
+    if False:  # context.handle_count < 1:
         btcusdt = load_pair(data, 'btc_usdt')
         tf = t_f.TargetsFeatures(cur_pair='btc_usdt')
         tf.calc_features_and_targets(btcusdt)
@@ -112,7 +141,7 @@ def handle_data(context, data: BarData):
             cbtcusdt.loc[cusdt.index,:] = cusdt[:]  # take values of cusdt where available
             # check_diff(cbtcusdt, cusdt)
 
-            print(f"{datetime.now()}: processing {pair} is ready")
+            print(f"{datetime.now().strftime(t_f.DT_FORMAT)}: processing {pair} is ready")
 
     context.handle_count += 1
 

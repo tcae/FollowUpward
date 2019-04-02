@@ -644,15 +644,26 @@ class CpcSet:
         else:
             print("missing combo classifier - cannot eval_combo_with_features")
 
+def load_classifier_features(cur_pair):
+    df = t_f.load_asset_dataframe(cur_pair)
+    tf = t_f.TargetsFeatures(cur_pair=cur_pair)
+    tf.calc_features_and_targets(df)
+    tf.calc_performances()
+    test = tf.performance
+    for p in test:
+        print(f"performance potential for aggregation {p}: {test[p]:%}")
+    return tf.tf_vectors
+
 start_time = timeit.default_timer()
 unit_test = False
 if not unit_test:
-    t_f.TIME_AGGS = {1: 10, 5: 10, 15: 10}  # , 60: 10}
+    t_f.TIME_AGGS = {5: 10}  # {1: 10, 5: 10, 15: 10, 60: 10}
     cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
     # The crypto dataset
     # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
-    fname = cpcs.data_path + '/' + 'bnb_usdt' + t_f.MSG_EXT
-    tfv = t_f.TfVectors(filename=fname)
+    # fname = cpcs.data_path + '/' + 'bnb_usdt' + t_f.MSG_EXT
+    # tfv = t_f.TfVectors(filename=fname)
+    tfv = load_classifier_features('bnb_usdt')
     cfname = "/Users/tc/tf_models/crypto/sample_set_split.config"
     seq = tfv.timeslice_targets_as_configured(t_f.ALL_SAMPLES, cfname)
     # seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio=0.6, val_ratio=0.4, days=30)
@@ -668,8 +679,9 @@ else:
     t_f.TIME_AGGS = {1: 10, 5: 10}
     cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
     # The crypto dataset
-    fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
-    tfv = t_f.TfVectors(filename=fname)
+    # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
+    # tfv = t_f.TfVectors(filename=fname)
+    tfv = load_classifier_features(cpcs.currency_pair)
     seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio=0.4, val_ratio=0.4, days=30)
     cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=True)
     cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=True)

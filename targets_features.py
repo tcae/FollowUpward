@@ -23,6 +23,7 @@ PICKLE_EXT = ".pydata"  # pickle file extension
 JSON_EXT = ".json"  # msgpack file extension
 MSG_EXT = ".msg"  # msgpack file extension
 
+DT_FORMAT = '%Y-%m-%d_%H:%M'
 FEE = 1/1000  # in per mille, transaction fee is 0.1%
 BUY_THRESHOLD = 10/1000  # in per mille
 SELL_THRESHOLD = -2/1000  # in per mille
@@ -63,6 +64,23 @@ def load_sample_set_split_config(config_fname):
     except IOError:
         print(f"pd.read_csv({config_fname}) IO error")
         return None
+
+def save_asset_dataframe(df, cur_pair):
+    # "saves the object via msgpack"
+    fname = DATA_PATH +  '/' + cur_pair + '_DataFrame.msg'
+    print("{}: writing {} DataFrame with {} tics ({} - {}) to {}".format(
+        datetime.now().strftime(DT_FORMAT), cur_pair, len(df), df.index[0].strftime(DT_FORMAT),
+        df.index[len(df)-1].strftime(DT_FORMAT), fname))
+    df.to_msgpack(fname)
+
+def load_asset_dataframe(cur_pair):
+    # "saves the object via msgpack"
+    fname = DATA_PATH +  '/' + cur_pair + '_DataFrame.msg'
+    df = pd.read_msgpack(fname)
+    print("{}: load {} DataFrame with {} tics ({} - {}) to {}".format(
+        datetime.now().strftime(DT_FORMAT), cur_pair, len(df), df.index[0].strftime(DT_FORMAT),
+        df.index[len(df)-1].strftime(DT_FORMAT), fname))
+    return df
 
 
 class TargetsFeatures:
