@@ -67,7 +67,7 @@ def test_fl():
     print("tests started")
     agg = {'CPC': 0, 1: 4, 2: 4}
     df = generate_minute_data()
-    cp = t_f.TargetsFeatures(aggregation=agg, cur_pair=pair)
+    cp = t_f.TargetsFeatures(aggregations=agg, target_key='CPC', cur_pair=pair)
     cp.calc_features_and_targets(df)
     cp.calc_performances()
     test = cp.performance

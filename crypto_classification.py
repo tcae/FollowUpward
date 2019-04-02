@@ -484,18 +484,6 @@ class CpcSet:
         print(f"adapt_ensemble time: {tdiff:.1f} min")
         self.save()
 
-    def adapt_ensemble(self, train_ratio, val_ratio, balance, days):
-        """
-        """
-        # The crypto dataset
-        fname = self.data_path + '/' + self.currency_pair + t_f.MSG_EXT
-        tfv = t_f.TfVectors(filename=fname)
-        for ta in t_f.TIME_AGGS:
-            assert ta in tfv.aggregations, print(f"missing {ta} feature set")
-        self.cpc = dict(t_f.TIME_AGGS) # use a ta dict to manage the cpc set
-        seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio, val_ratio, days)
-        self.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance)
-
     def eval_ensemble_with_targetsubset(self, tfv, targetsubset, setname, balance):
         """
         """
@@ -527,16 +515,7 @@ class CpcSet:
             skldata = tfv.to_scikitlearn(subset_df, np_data=predictions, descr=descr)
             combo_cpc.eval_classifier_with_data(skldata)
         tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"eval_ensemble time: {tdiff:.1f} min")
-
-    def eval_ensemble(self, train_ratio, val_ratio, balance, days):
-        """
-        """
-        # The crypto dataset
-        fname = self.data_path + '/' + self.currency_pair + t_f.MSG_EXT
-        tfv = t_f.TfVectors(filename=fname)
-        seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio, val_ratio, days)
-        self.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance)
+        print(f"eval_ensemble_with_targetsubset time: {tdiff:.1f} min")
 
     def ensemble_performance_with_features(self, tfv):
         """Ignores targets of tfv and just evaluates the tfv features in respect
@@ -610,43 +589,9 @@ class CpcSet:
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"ensemble_performance_with_targetsubset time: {tdiff:.1f} min")
 
-    def ensemble_performance(self, train_ratio, val_ratio, days):
-        """
-        """
-        start_time = timeit.default_timer()
-        # The crypto dataset
-        fname = self.data_path + '/' + self.currency_pair + t_f.MSG_EXT
-        tfv = t_f.TfVectors(filename=fname)
-        seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio, val_ratio, days)
-        tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"ensemble_performance time: loaded data in {tdiff:.1f} min")
-        print(f"performance {tfv.cur_pair} {t_f.TRAIN}")
-        self.ensemble_performance_with_targetsubset(tfv, seq[t_f.TRAIN])
-        print(f"performance {tfv.cur_pair} {t_f.VAL}")
-        self.ensemble_performance_with_targetsubset(tfv, seq[t_f.VAL])
-        print(f"performance {tfv.cur_pair} {t_f.TEST}")
-        self.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST])
-
-
-    def eval_combo_with_features(self, tfv):
-        """not yet ready
-        """
-        if t_f.CPC in self.cpc:
-            start_time = timeit.default_timer()
-            combo_cpc = self.cpc[t_f.CPC]
-            tfv_ta = tfv.vec(t_f.CPC)
-            predictions = self.combined_probs(tfv, tfv_ta)
-            descr = f"{self.currency_pair} {t_f.CPC}"
-            skldata = tfv.to_scikitlearn(tfv_ta, np_data=predictions, descr=descr)
-            combo_cpc.eval_classifier_with_data(skldata)
-            tdiff = (timeit.default_timer() - start_time) / 60
-            print(f"eval_combo_with_features time: {tdiff:.1f} min")
-        else:
-            print("missing combo classifier - cannot eval_combo_with_features")
-
-def load_classifier_features(cur_pair):
+def load_classifier_features(aggs, target, cur_pair):
     df = t_f.load_asset_dataframe(cur_pair)
-    tf = t_f.TargetsFeatures(cur_pair=cur_pair)
+    tf = t_f.TargetsFeatures(aggregations=aggs, target_key=target, cur_pair=cur_pair)
     tf.calc_features_and_targets(df)
     tf.calc_performances()
     test = tf.performance
@@ -657,13 +602,14 @@ def load_classifier_features(cur_pair):
 start_time = timeit.default_timer()
 unit_test = False
 if not unit_test:
-    t_f.TIME_AGGS = {5: 10}  # {1: 10, 5: 10, 15: 10, 60: 10}
+    time_aggs = {5: 10}  # {1: 10, 5: 10, 15: 10, 60: 10}
+    target_key = 5
     cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
     # The crypto dataset
     # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
     # fname = cpcs.data_path + '/' + 'bnb_usdt' + t_f.MSG_EXT
     # tfv = t_f.TfVectors(filename=fname)
-    tfv = load_classifier_features('bnb_usdt')
+    tfv = load_classifier_features(time_aggs, target_key, 'bnb_usdt')
     cfname = "/Users/tc/tf_models/crypto/sample_set_split.config"
     seq = tfv.timeslice_targets_as_configured(t_f.ALL_SAMPLES, cfname)
     # seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio=0.6, val_ratio=0.4, days=30)
@@ -676,12 +622,13 @@ if not unit_test:
     print(f"performance {tfv.cur_pair} {t_f.TEST} using a {PAIR} SVM 0.02gamma classifier")
     cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST], t_f.TEST)
 else:
-    t_f.TIME_AGGS = {1: 10, 5: 10}
+    time_aggs = {1: 10, 5: 10}
+    target_key = 5
     cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
     # The crypto dataset
     # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
     # tfv = t_f.TfVectors(filename=fname)
-    tfv = load_classifier_features(cpcs.currency_pair)
+    tfv = load_classifier_features(time_aggs, target_key, cpcs.currency_pair)
     seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio=0.4, val_ratio=0.4, days=30)
     cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=True)
     cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=True)

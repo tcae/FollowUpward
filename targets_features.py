@@ -38,6 +38,7 @@ TRAIN = 'training'
 VAL = 'validation'
 TEST = 'test'
 TARGETS = {HOLD: 0, BUY: 1, SELL: 2, NA: 11}  # dict with int encoding of target labels
+TARGET_KEY = 5
 TIME_AGGS = {CPC: 0, 1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10}
 # TIME_AGGS = {1: 10, 5: 10}
 LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
@@ -117,13 +118,25 @@ class TargetsFeatures:
 
     """
 
-    def __init__(self, aggregation=TIME_AGGS, cur_pair=None):
-        self.time_aggregations = aggregation  # aggregation in minutes of trailing DHTBV values
-        self.performance = self.time_aggregations.copy()
-        self.tf_aggs = self.time_aggregations.copy()  # feature and target aggregations
+    def __init__(self, aggregations=TIME_AGGS, target_key=TARGET_KEY, cur_pair=None):
+        """Receives the key attributes for feature generation
+
+        aggregations:
+            dict with required time aggregation keys and associated number
+            of periods that shall be compiled in a corresponding feature vector
+        target_key:
+            has to be a key of aggregations. Targets are only calculated for that target_key
+
+
+        """
+        self.time_aggregations = aggregations  # aggregation in minutes of trailing DHTBV values
+        self.tf_aggs = dict()  # feature and target aggregations
         self.cur_pair = cur_pair
         self.tf_vectors = None
         self.minute_data = None
+        self.target_key = target_key
+        assert target_key in aggregations, "target key {} not in aggregations {}".format(
+            target_key, aggregations)
 
     def derive_features(self, time_agg):
         """derived features in relation to price based on the provided time aggregated dataframe df
@@ -170,13 +183,15 @@ class TargetsFeatures:
         assert not minute_dataframe.empty, "empty dataframe"
         self.minute_data = minute_dataframe
         self.calc_aggregation()  # calculate features and time aggregations of features
-        for time_agg in self.time_aggregations:
-            if isinstance(time_agg, int):
-                self.add_period_specific_targets(time_agg)  # add aggregation targets
-        best_perf = self.cpc_best_path()
-        print(f"best potential performance among all aggregations: {best_perf:%}")
-        # self.calc_performances() # calculate performances based on targets
-        self.tf_vectors = TfVectors(tf=self, currency_pair=self.cur_pair)
+        if self.target_key == CPC:
+            for time_agg in self.time_aggregations:
+                if isinstance(time_agg, int):
+                    self.add_period_specific_targets(time_agg)  # add aggregation targets
+            best_perf = self.cpc_best_path()
+            print(f"best potential performance among all aggregations: {best_perf:%}")
+        else:
+            self.add_period_specific_targets(self.target_key)  # add aggregation targets
+        self.tf_vectors = TfVectors(tf=self)
 
     def add_period_specific_targets(self, time_agg):
         "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
@@ -262,6 +277,8 @@ class TargetsFeatures:
         """
 
         # cpc_df = pd.DataFrame(self.minute_data, columns=['close']) # already done
+        if self.target_key != CPC:
+            return self.target_performance()
         cpc_df = self.tf_aggs[CPC]
         cpc_df[CPC+'_target'] = TARGETS[HOLD]
         target_ix = cpc_df.columns.get_loc(CPC+'_target')
@@ -337,41 +354,70 @@ class TargetsFeatures:
         # self.tf_aggs[CPC] = cpc_df # already done
         return best_perf
 
+    def target_performance(self):
+        """calculates the time aggregation specific performance of target_key
+        """
+        print(f"{datetime.now()}: calculate target_performance")
+        target_df = self.tf_aggs[self.target_key]
+        perf = 0.
+        ta_holding = False
+        col_ix = target_df.columns.get_loc('target')
+        assert col_ix > 0, f"did not find column {col_ix} of {self.target_key}"
+        close_ix = target_df.columns.get_loc('close')
+
+        assert target_df.index.is_unique, "unexpected not unique index"
+        last = target_df.iat[0, close_ix]
+        for tix in range(len(target_df)):  # tix = time index
+            this = target_df.iat[tix, close_ix]
+            tix_perf = ((this - last) / last) # no longer in per mille * 1000)
+            last = this
+            signal = target_df.iat[tix, col_ix]
+            if ta_holding:
+                perf += tix_perf
+            if (signal == TARGETS[BUY]) and (not ta_holding):
+                perf -= FEE
+                ta_holding = True
+            if (signal == TARGETS[SELL]) and ta_holding:
+                perf -= FEE
+                ta_holding = False
+
     def calc_performances(self):
         """calculate all time aggregation specific performances
         as well as the CPC summary best path performance.
         """
-
         perf = dict()
-        print(f"{datetime.now()}: calculate performances")
-        cpc_df = self.tf_aggs[CPC]
-        col_ix = dict()
-        ta_holding = dict()
-        for time_agg in self.time_aggregations:
-            perf[time_agg] = 0.
-            ta_holding[time_agg] = False
-            t_name = str(time_agg) + '_target'
-            col_ix[time_agg] = cpc_df.columns.get_loc(t_name)
-            assert col_ix[time_agg] > 0, f"did not find column {col_ix[time_agg]} of {time_agg}"
-        close_ix = cpc_df.columns.get_loc('close')
+        if self.target_key == CPC:
+            print(f"{datetime.now()}: calculate performances")
+            cpc_df = self.tf_aggs[CPC]
+            col_ix = dict()
+            ta_holding = dict()
+            for time_agg in self.time_aggregations:
+                perf[time_agg] = 0.
+                ta_holding[time_agg] = False
+                t_name = str(time_agg) + '_target'
+                col_ix[time_agg] = cpc_df.columns.get_loc(t_name)
+                assert col_ix[time_agg] > 0, f"did not find column {col_ix[time_agg]} of {time_agg}"
+            close_ix = cpc_df.columns.get_loc('close')
 
-        assert cpc_df.index.is_unique, "unexpected not unique index"
-        last = cpc_df.iat[0, close_ix]
-        for tix in range(len(cpc_df)):  # tix = time index
-            this = cpc_df.iat[tix, close_ix]
-            tix_perf = ((this - last) / last) # no longer in per mille * 1000)
-            last = this
-            for ta_ix in perf:
-                signal = cpc_df.iat[tix, col_ix[ta_ix]]
-                if ta_holding[ta_ix]:
-                    perf[ta_ix] += tix_perf
-                if (signal == TARGETS[BUY]) and (not ta_holding[ta_ix]):
-                    perf[ta_ix] -= FEE
-                    ta_holding[ta_ix] = True
-                if (signal == TARGETS[SELL]) and ta_holding[ta_ix]:
-                    perf[ta_ix] -= FEE
-                    ta_holding[ta_ix] = False
-        self.performance = perf
+            assert cpc_df.index.is_unique, "unexpected not unique index"
+            last = cpc_df.iat[0, close_ix]
+            for tix in range(len(cpc_df)):  # tix = time index
+                this = cpc_df.iat[tix, close_ix]
+                tix_perf = ((this - last) / last) # no longer in per mille * 1000)
+                last = this
+                for ta_ix in perf:
+                    signal = cpc_df.iat[tix, col_ix[ta_ix]]
+                    if ta_holding[ta_ix]:
+                        perf[ta_ix] += tix_perf
+                    if (signal == TARGETS[BUY]) and (not ta_holding[ta_ix]):
+                        perf[ta_ix] -= FEE
+                        ta_holding[ta_ix] = True
+                    if (signal == TARGETS[SELL]) and ta_holding[ta_ix]:
+                        perf[ta_ix] -= FEE
+                        ta_holding[ta_ix] = False
+        else:
+            perf[self.target_key] = self.target_performance()
+        return perf
 
 
 class TfVectors:
@@ -396,7 +442,7 @@ class TfVectors:
     """
 
 #    def build_classifier_vectors(self):
-    def __init__(self, tf=None, filename=None, currency_pair=None):
+    def __init__(self, tf):
         """Builds a target and feature vector sequence with DHTBV feature sequences of
         n time steps (tics) as configured in time_aggregations in T units.
         While TargetFeatures calculates features and targets per minute,
@@ -410,69 +456,92 @@ class TfVectors:
             the type of feature, i.e. either 'target' or 'D|H|T|B|V' with aggregation+'T_'
             as prefix
         """
-        self.cur_pair = currency_pair
+        self.cur_pair = tf.cur_pair
+        assert tf is not None, "request for feature vectors without basis data"
         self.vecs = dict()  # full fleged feature vectors and their targets
-        self.data_version = 1.0
-        self.filename = filename
-        if tf is not None:
-            if currency_pair is not None:
-                print(f"{datetime.now()}: processing {self.cur_pair}")
-            self.aggregations = tf.time_aggregations.copy()
-            for ta in tf.time_aggregations:
-                print(f"{datetime.now()}: build classifier vectors {ta}")
-                t_name = str(ta) + '_target'
-                self.vecs[ta] = pd.DataFrame(tf.minute_data, columns=['close', 'target'])
-                self.vecs[ta]['target'] = tf.tf_aggs[CPC][t_name].astype(int)
+        if tf.target_key == CPC:
+            self.expand_CPC_feature_vectors(tf)
+        else:
+            self.expand_target_feature_vectors(tf)
 
-                for tics in range(tf.time_aggregations[ta]):
-                    tgt = str(ta) + 'T_' + str(tics) + '_'
-                    if isinstance(ta, int):
-                        offset = tics*ta
-                    else:
-                        offset = tics
-                    # now add feature columns according to aggregation
-                    self.vecs[ta][tgt + 'D'] = tf.tf_aggs[ta].delta.shift(offset)
-                    self.vecs[ta][tgt + 'H'] = tf.tf_aggs[ta].height.shift(offset)
-                    self.vecs[ta][tgt + 'T'] = tf.tf_aggs[ta].top.shift(offset)
-                    self.vecs[ta][tgt + 'B'] = tf.tf_aggs[ta].bottom.shift(offset)
-                    self.vecs[ta][tgt + 'V'] = tf.tf_aggs[ta].vol.shift(offset)
-                self.vecs[ta].dropna(inplace=True)
-                assert not self.vecs[ta].empty, "empty dataframe from TargetsFeatures"
-        elif filename is not None:
-            self.filename = None
-            if filename.endswith(PICKLE_EXT):
-                df_f = open(filename, 'rb')
-                self.data_version, self.cur_pair, self.aggregations = pickle.load(df_f)
-                self.vecs = pickle.load(df_f)
-                print(f"{datetime.now()}: processing {self.cur_pair}")
-                print("{}: read tf vectors with {} tics x {} aggregations from {}".format(
-                    datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
-                df_f.close()
-            elif filename.endswith(JSON_EXT):
-                with open(filename, 'r') as df_f:
-                    for line in df_f:
-                        self.data_version, self.cur_pair, self.aggregations = json.loads(line)
-                        break
-                    for ta in self.aggregations:
-                        self.vecs[ta] = pd.read_json(df_f)
-                print(f"{datetime.now()}: processing {self.cur_pair}")
-                print("{}: read tf vectors with {} tics x {} aggregations from {}".format(
-                    datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
-                df_f.close()
-            elif filename.endswith(MSG_EXT):
-                df_f = open(filename, 'rb')
-                self.data_version, self.cur_pair, self.aggregations = pickle.load(df_f)
-                df_f.close()
-                for ta in self.aggregations:
-                    ext_fname = re.sub(MSG_EXT, '_'+str(ta)+MSG_EXT, filename)
-                    self.vecs[ta] = pd.read_msgpack(ext_fname)
-                print("{}: read tf vectors with {} tics x {} aggregations from {}".format(
-                    datetime.now(), len(self.vecs[CPC]), len(self.vecs), filename))
-            else:
-                print(f"TfVectors init from file {filename}: unknown file extension")
-        self.cut_back_to_same_sample_tics()
+    def expand_target_feature_vectors(self, tf):
+        """Builds a target and feature vector for just the target_key with
+        1 minute DHTBV and D*V feature sequences and the remaining D sequences of
+        n time steps (tics) as configured in time_aggregations in T units.
+        While TargetFeatures calculates features and targets per minute,
+        the most important step in TfVectors is
+        1) the concatenation of feature vectors per sample to provide a history for the classifier
+        2) discarding the original currency values that are not used as features (except 'close')
 
-    def cut_back_to_same_sample_tics(self):
+        Result:
+            a self.vecs dict with the single target_key that is
+            referring to a DataFrame with feature vectors as rows. The column name indicates
+            the type of feature, i.e. either 'target', 'close' or 'D|H|T|B|V|DV' in case of
+            1 minute aggregation or just 'D' for all other aggregations with aggregation+'T_'
+            as column prefix
+        """
+        print(f"{datetime.now()}: processing {self.cur_pair} for target classifier {tf.target_key}")
+        trgt = tf.target_key
+        self.vecs[trgt] = pd.DataFrame(tf.tf_aggs[trgt], columns=['close', 'target'])
+        # self.vecs[trgt]['target'] = tf.tf_aggs[trgt]['target'].astype(int)
+        for ta in tf.time_aggregations:
+            for tics in range(tf.time_aggregations[ta]):
+                ctitle = str(ta) + 'T_' + str(tics) + '_'
+                if isinstance(ta, int):
+                    offset = tics*ta
+                else:
+                    offset = tics
+                # now add feature columns according to aggregation
+                self.vecs[trgt][ctitle + 'D'] = tf.tf_aggs[ta].delta.shift(offset)
+                if ta == 1:
+                    self.vecs[trgt][ctitle + 'H'] = tf.tf_aggs[ta].height.shift(offset)
+                    self.vecs[trgt][ctitle + 'T'] = tf.tf_aggs[ta].top.shift(offset)
+                    self.vecs[trgt][ctitle + 'B'] = tf.tf_aggs[ta].bottom.shift(offset)
+                    self.vecs[trgt][ctitle + 'V'] = tf.tf_aggs[ta].vol.shift(offset)
+                    self.vecs[trgt][ctitle + 'DV'] = tf.tf_aggs[ta].vol.shift(offset) *\
+                                                     tf.tf_aggs[ta].delta.shift(offset)
+            self.vecs[trgt].dropna(inplace=True)
+            assert not self.vecs[trgt].empty, "empty dataframe from TargetsFeatures"
+        self.cut_back_to_same_sample_tics(tf)
+
+    def expand_CPC_feature_vectors(self, tf):
+        """Builds a target and feature vector sequence with DHTBV feature sequences of
+        n time steps (tics) as configured in time_aggregations in T units.
+        While TargetFeatures calculates features and targets per minute,
+        the most important step in TfVectors is
+        1) the concatenation of feature vectors per sample to provide a history for the classifier
+        2) discarding the original currency values that are not used as features (except 'close')
+
+        Result:
+            a self.vecs dict with keys as in time_aggregations plus 'CPC' that
+            are referring to DataFrames with feature vectors as rows. The column name indicates
+            the type of feature, i.e. either 'target' or 'D|H|T|B|V' with aggregation+'T_'
+            as prefix
+        """
+        print(f"{datetime.now()}: processing {self.cur_pair}")
+        for ta in tf.time_aggregations:
+            print(f"{datetime.now()}: build classifier vectors {ta}")
+            t_name = str(ta) + '_target'
+            self.vecs[ta] = pd.DataFrame(tf.minute_data, columns=['close', 'target'])
+            self.vecs[ta]['target'] = tf.tf_aggs[CPC][t_name].astype(int)
+
+            for tics in range(tf.time_aggregations[ta]):
+                tgt = str(ta) + 'T_' + str(tics) + '_'
+                if isinstance(ta, int):
+                    offset = tics*ta
+                else:
+                    offset = tics
+                # now add feature columns according to aggregation
+                self.vecs[ta][tgt + 'D'] = tf.tf_aggs[ta].delta.shift(offset)
+                self.vecs[ta][tgt + 'H'] = tf.tf_aggs[ta].height.shift(offset)
+                self.vecs[ta][tgt + 'T'] = tf.tf_aggs[ta].top.shift(offset)
+                self.vecs[ta][tgt + 'B'] = tf.tf_aggs[ta].bottom.shift(offset)
+                self.vecs[ta][tgt + 'V'] = tf.tf_aggs[ta].vol.shift(offset)
+            self.vecs[ta].dropna(inplace=True)
+            assert not self.vecs[ta].empty, "empty dataframe from TargetsFeatures"
+        self.cut_back_to_same_sample_tics(tf)
+
+    def cut_back_to_same_sample_tics(self, tf):
         """
             There will be a different number of feature vectors per aggregation due to the
             nan in the beginning rows that have missing history vectors before them.
@@ -481,79 +550,17 @@ class TfVectors:
             with this function.
         """
         df = None
-        for ta in self.aggregations:
+        for ta in tf.time_aggregations:
             if df is None:
                 df = self.vecs[ta]
             elif len(self.vecs[ta]) < len(df):
                 df = self.vecs[ta]
-#            print("agg {} with {} tics, first tic: {}  last tic: {}".format( \
-#                  ta, len(self.vecs[ta]), \
-#                  self.vecs[ta].index[0], self.vecs[ta].index[len(self.vecs[ta])-1]))
-        for ta in self.aggregations:
-            # h=a[a.index.isin(f.index)]
+        for ta in tf.time_aggregations:
             self.vecs[ta] = self.vecs[ta][self.vecs[ta].index.isin(df.index)]
-#            print("agg {} with {} tics, first tic: {}  last tic: {}".format( \
-#                  ta, len(self.vecs[ta]), \
-#                  self.vecs[ta].index[0], self.vecs[ta].index[len(self.vecs[ta])-1]))
 
     def vec(self, key):
         "Returns the dataframe of the given key"
         return self.vecs[key]
-
-    def set_pair_name(self, currency_pair):
-        "sets the currency pair name"
-        self.cur_pair = currency_pair
-
-    def pair_name(self):
-        "returns the currency pair name"
-        return self.cur_pair
-
-    def save(self, fname):
-        if fname.endswith(PICKLE_EXT):
-            # "saves the object via pickle"
-            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format(
-                datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
-                self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
-            self.filename = fname
-            df_f = open(fname, 'wb')
-            pickle.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
-            pickle.dump(self.vecs, df_f)
-            df_f.close()
-            print(f"{datetime.now()}: tf vectors saved")
-        elif fname.endswith(JSON_EXT):
-            # "saves the object via json"
-            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format(
-                datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
-                self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
-            self.filename = fname
-            df_f = open(fname, 'w')
-            json.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
-#            json.dump(self.vecs, df_f)
-            for ta in self.aggregations:
-                self.vecs[ta].to_json(df_f)
-            df_f.close()
-            print(f"{datetime.now()}: tf vectors saved")
-        elif fname.endswith(MSG_EXT):
-            # "saves the object via msgpack"
-            print("{}: writing tf vectors with {} tics ({} - {}) x {} aggregations to {}".format(
-                datetime.now(), len(self.vecs[CPC]), self.vecs[CPC].index[0],
-                self.vecs[CPC].index[len(self.vecs[CPC])-1], len(self.vecs), fname))
-            self.filename = fname
-            df_f = open(fname, 'wb')
-            pickle.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
-            df_f.close()
-            for ta in self.aggregations:
-                newext = '_'+str(ta)+MSG_EXT
-                ext_fname = re.sub(MSG_EXT, newext, fname)
-                self.vecs[ta].to_msgpack(ext_fname)
-#            df_f = open(fname, 'wb')
-#            pickle.dump((self.data_version, self.cur_pair, self.aggregations), df_f)
-#            for ta in self.aggregations:
-#                self.vecs[ta].to_msgpack(df_f, append=True)
-#            df_f.close()
-            print(f"{datetime.now()}: tf vectors saved")
-        else:
-            print("TfVectors save: unknown file extension")
 
     def signal_sequences(self, key):
         "provides a histogram of consecutive signals for the given key data"
