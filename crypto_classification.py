@@ -113,85 +113,6 @@ def plot_learning_curve(estimator, title, X, y, ylim=None, cv=None,
     plt.legend(loc="best")
     plt.show()
 
-def eval_probs(classifier, val_data):
-    """ cross_val is a 3 dimenional array with the following dimensions:
-        ================================================================
-
-        classes: as defined in t_f.TARGETS = {HOLD: 0, BUY: 1, SELL: 2, NA: 11}
-
-        histogram with 10 probability elements to accumulated the evaluation results
-
-        result dimension:
-            0 == nbr of wrong classifications for that class and probability;
-
-            1 == nbr of correct classifications for that class and probability;
-
-            2 == either zero of no result available of that class probability or
-            calculated probability for the class
-
-            3 == number observations for that probability (is only valid for class == 0)
-        """
-    start_time = timeit.default_timer()
-    cross_val = np.zeros((3, 10, 4))
-    # Now predict the action corresponding to samples on the second half:
-    expected = val_data.target
-    predicted = classifier.predict_proba(val_data.data)
-    pred_cnt = len(predicted)
-    class_samples = dict()
-    for cl in range(len(predicted[0])):
-        class_samples[cl] = 0
-    for sample in range(pred_cnt):
-        t = expected[sample]
-        p = 0
-        for cl in range(len(predicted[0])):
-            if predicted[sample, p] < predicted[sample, cl]:
-                p = cl # make p the class index with the highest prediction
-        for cl in range(len(predicted[0])):
-            hist_ix = int(math.floor(predicted[sample, cl]*10))
-            if (p == cl) or (t == cl):
-                correct_ix = int(t == cl)
-                cross_val[cl, hist_ix, correct_ix] += 1
-                cross_val[cl, hist_ix, 2] += 1 # all observations
-                if p == cl:
-                    cross_val[cl, hist_ix, 3] += 1 # all highest probability observations
-                class_samples[cl] += 1
-    for hist_ix in range(len(cross_val[0])):
-        all_observ = 0
-        for cl in range(len(cross_val)):
-            if cross_val[cl, hist_ix, 2] != 0: # any observation?
-                cross_val[cl, hist_ix, 2] = cross_val[cl, hist_ix, 1] / \
-                                            cross_val[cl, hist_ix, 2]
-            all_observ += cross_val[cl, hist_ix, 3] # for that histogram entry
-        cross_val[0, hist_ix, 3] = all_observ / pred_cnt # only for (arbitrary) class 0
-
-    plt.figure()
-    plt.title("prob cross validation of SVM "+val_data.descr)
-    plt.ylim((0., 1.0))
-    plt.xlabel("prob estimate")
-    plt.ylabel("prob validate")
-#        train_sizes, train_scores, test_scores = learning_curve(
-#            estimator, X, y, cv=cv, n_jobs=n_jobs, pre_dispatch="2*n_jobs", train_sizes=train_sizes)
-#        train_scores_mean = np.mean(train_scores, axis=1)
-#        train_scores_std = np.std(train_scores, axis=1)
-#        test_scores_mean = np.mean(test_scores, axis=1)
-#        test_scores_std = np.std(test_scores, axis=1)
-    plt.grid()
-    xaxis = np.arange(0, 1, 0.1)
-    plt.plot(xaxis, cross_val[t_f.TARGETS[t_f.BUY], :, 2], 'o-', color="g",
-             label="BUY prob")
-    plt.plot(xaxis, cross_val[t_f.TARGETS[t_f.SELL], :, 2], 'o-', color="r",
-             label="SELL prob")
-    plt.plot(xaxis, cross_val[t_f.TARGETS[t_f.HOLD], :, 2], 'o-', color="b",
-             label="HOLD prob")
-    plt.plot(xaxis, cross_val[t_f.TARGETS[t_f.HOLD], :, 3], 'o-', color="c",
-             label="% samples") # take an arbitrary class as it is for all the same
-
-    plt.legend(loc="best")
-    plt.show()
-
-    # proba = classifier.predict_proba(sample_sets['validation'].data)
-    print(f"SVM evaluation: {timeit.default_timer() - start_time}")
-
 def targets_to_features(tfv_ta_df, target_df):
     """Extracts a sample subset with targets and features of a specific time aggregation
     based on given targets. target_df and tfv_ta_df both have to share the same index basis.
@@ -361,15 +282,17 @@ class Cpc:
         train_cnt = len(train_data.data)
         print(f"{train_data.descr}: # samples training: {train_cnt}")
 
-        # scaler = preprocessing.RobustScaler(quantile_range=(25.0, 75.0), copy=True)
-        self.scaler = None
-        # sample_sets['training'].data = scaler.fit_transform(sample_sets['training'].data)
+        self.scaler = preprocessing.StandardScaler()
+#         self.scaler = None
+        if self.scaler is not None:
+            train_data.data = self.scaler.fit_transform(train_data.data)
         # sample_sets['validation'].data = scaler.transform(sample_sets['validation'].data)
 
         start_time = timeit.default_timer()
         # Create a classifier: a support vector classifier
         # changed gamma from 0.001 to 1/#features = 0.02 for less generalization
-        self.classifier = svm.SVC(kernel='rbf', degree=3, gamma=0.02, probability=True,
+        # changed gamma from 0.02 to 0.1 for less generalization
+        self.classifier = svm.SVC(kernel='rbf', degree=3, gamma=0.001, probability=True,
                                   cache_size=400, class_weight='balanced', shrinking=True)
         # classifier = MLPClassifier(solver='adam',
         #                    hidden_layer_sizes=(20, 10, 3), random_state=1)
@@ -396,8 +319,7 @@ class Cpc:
         start_time = timeit.default_timer()
         # Now predict the action corresponding to samples on the second half:
         expected = val_data.target
-        predicted = self.classifier.predict(val_data.data)
-        # proba = classifier.predict_proba(sample_sets['validation'].data)
+        predicted = self.predict_probabilities(val_data.data)
         tdiff = timeit.default_timer() - start_time
         print(f"{val_data.descr} SVM evaluation time: {tdiff:.0f}s")
 
@@ -405,15 +327,101 @@ class Cpc:
               % (self.classifier, metrics.classification_report(expected, predicted)))
         print(f"{val_data.descr} Confusion matrix:\n%s" % metrics.confusion_matrix(expected, predicted))
 
+    def predict_probabilities(self, features):
+        if self.scaler is not None:
+            features = self.scaler.transform(features)
+        pred = self.classifier.predict_proba(features)
+        return pred
+
+    def eval_probs(self, val_data):
+        """ cross_val is a 3 dimenional array with the following dimensions:
+            ================================================================
+
+            classes: as defined in t_f.TARGETS = {HOLD: 0, BUY: 1, SELL: 2, NA: 11}
+
+            histogram with 10 probability elements to accumulated the evaluation results
+
+            result dimension:
+                0 == nbr of wrong classifications for that class and probability;
+
+                1 == nbr of correct classifications for that class and probability;
+
+                2 == either zero of no result available of that class probability or
+                calculated probability for the class
+
+                3 == number observations for that probability (is only valid for class == 0)
+            """
+        start_time = timeit.default_timer()
+        cross_val = np.zeros((3, 10, 4))
+        # Now predict the action corresponding to samples on the second half:
+        expected = val_data.target
+        predicted = self.predict_probabilities(val_data.data)
+        pred_cnt = len(predicted)
+        class_samples = dict()
+        for cl in range(len(predicted[0])):
+            class_samples[cl] = 0
+        for sample in range(pred_cnt):
+            t = expected[sample]
+            p = 0
+            for cl in range(len(predicted[0])):
+                if predicted[sample, p] < predicted[sample, cl]:
+                    p = cl # make p the class index with the highest prediction
+            for cl in range(len(predicted[0])):
+                hist_ix = int(math.floor(predicted[sample, cl]*10))
+                if (p == cl) or (t == cl):
+                    correct_ix = int(t == cl)
+                    cross_val[cl, hist_ix, correct_ix] += 1
+                    cross_val[cl, hist_ix, 2] += 1 # all observations
+                    if p == cl:
+                        cross_val[cl, hist_ix, 3] += 1 # all highest probability observations
+                    class_samples[cl] += 1
+        for hist_ix in range(len(cross_val[0])):
+            all_observ = 0
+            for cl in range(len(cross_val)):
+                if cross_val[cl, hist_ix, 2] != 0: # any observation?
+                    cross_val[cl, hist_ix, 2] = cross_val[cl, hist_ix, 1] / \
+                                                cross_val[cl, hist_ix, 2]
+                all_observ += cross_val[cl, hist_ix, 3] # for that histogram entry
+            cross_val[0, hist_ix, 3] = all_observ / pred_cnt # only for (arbitrary) class 0
+
+        plt.figure()
+        plt.title("prob cross validation of SVM "+val_data.descr)
+        plt.ylim((0., 1.0))
+        plt.xlabel("prob estimate")
+        plt.ylabel("prob validate")
+    #        train_sizes, train_scores, test_scores = learning_curve(
+    #            estimator, X, y, cv=cv, n_jobs=n_jobs, pre_dispatch="2*n_jobs", train_sizes=train_sizes)
+    #        train_scores_mean = np.mean(train_scores, axis=1)
+    #        train_scores_std = np.std(train_scores, axis=1)
+    #        test_scores_mean = np.mean(test_scores, axis=1)
+    #        test_scores_std = np.std(test_scores, axis=1)
+        plt.grid()
+        xaxis = np.arange(0, 1, 0.1)
+        plt.plot(xaxis, cross_val[t_f.TARGETS[t_f.BUY], :, 2], 'o-', color="g",
+                 label="BUY prob")
+        plt.plot(xaxis, cross_val[t_f.TARGETS[t_f.SELL], :, 2], 'o-', color="r",
+                 label="SELL prob")
+        plt.plot(xaxis, cross_val[t_f.TARGETS[t_f.HOLD], :, 2], 'o-', color="b",
+                 label="HOLD prob")
+        plt.plot(xaxis, cross_val[t_f.TARGETS[t_f.HOLD], :, 3], 'o-', color="c",
+                 label="% samples") # take an arbitrary class as it is for all the same
+
+        plt.legend(loc="best")
+        plt.show()
+
+        print(f"SVM evaluation: {timeit.default_timer() - start_time}")
+
 
 class CpcSet:
     """Provides methods to adapt an orchestrated set of currency performance classifiers
     """
-    def __init__(self, currency_pair, data_path, model_path):
+    def __init__(self, currency_pair, target_key, data_path, model_path):
         self.currency_pair = currency_pair
         self.data_path = data_path
         self.model_path = model_path
-        fname = self.model_path + '/' + self.currency_pair + t_f.PICKLE_EXT
+        self.target_key = target_key
+        fname = str("{}/{}{}{}".format(self.model_path, self.currency_pair,
+                    self.target_key, t_f.PICKLE_EXT))
         try:
             with open(fname, 'rb') as df_f:
                 tmp_dict = pickle.load(df_f)
@@ -423,10 +431,11 @@ class CpcSet:
         except IOError:
             pass
 
-    def save(self, as_ext=t_f.PICKLE_EXT):
+    def save(self):
         #for ta in self.cpc:  # strip pandas due to pickle incompatibility between versions
         #    self.cpc[ta].prep_pickle()
-        fname = self.model_path + '/' + self.currency_pair + as_ext
+        fname = str("{}/{}{}{}".format(self.model_path, self.currency_pair,
+                    self.target_key, t_f.PICKLE_EXT))
         df_f = open(fname, 'wb')
         pickle.dump(self.__dict__, df_f, pickle.HIGHEST_PROTOCOL)
         df_f.close()
@@ -440,7 +449,7 @@ class CpcSet:
                 subset_df = targets_to_features(tfv_ta, target_df)
                 descr = f"{self.currency_pair} {ta}"
                 skldata = tfv.to_scikitlearn(subset_df, np_data=None, descr=descr)
-                pred = self.cpc[ta].classifier.predict_proba(skldata.data)
+                pred = self.cpc[ta].predict_probabilities(skldata.data)
                 if predictions is None:
                     predictions = pred
                 else:
@@ -451,7 +460,10 @@ class CpcSet:
         """
         """
         start_time = timeit.default_timer()
-        self.cpc = dict(t_f.TIME_AGGS) # use a ta dict to manage the cpc set
+        if self.target_key == t_f.CPC:
+            self.cpc = dict.fromkeys(list(tfv.vecs.keys())) # use a ta dict to manage the cpc set
+        else:
+            self.cpc = dict.fromkeys([self.target_key])
         for ta in self.cpc:
             self.cpc[ta] = Cpc(ta)
             if isinstance(ta, int):
@@ -530,7 +542,7 @@ class CpcSet:
                 tfv_ta = tfv.vec(ta)
                 descr = f"{self.currency_pair} {ta}"
                 skldata = tfv.to_scikitlearn(tfv_ta, np_data=None, descr=descr)
-                pred = self.cpc[ta].classifier.predict_proba(skldata.data)
+                pred = self.cpc[ta].predict_probabilities(skldata.data)
                 pm[ta].assess_prediction(pred, skldata.close, skldata.tics)
                 if predictions is None:
                     predictions = pred
@@ -542,7 +554,7 @@ class CpcSet:
             tfv_ta = tfv.vec(t_f.CPC)
             descr = f"{self.currency_pair} {t_f.CPC}"
             skldata = tfv.to_scikitlearn(tfv_ta, np_data=predictions, descr=descr)
-            pred = combo_cpc.classifier.predict_proba(skldata.data)
+            pred = combo_cpc.predict_probabilities(skldata.data)
             pm[t_f.CPC].assess_prediction(pred, skldata.close, skldata.tics)
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"ensemble_performance_with_features time: {tdiff:.1f} min")
@@ -563,7 +575,7 @@ class CpcSet:
                 descr = f"{self.currency_pair} {ta} {setname}"
                 tfv.report_setsize(descr, tfv_ta_subset)
                 skldata = tfv.to_scikitlearn(tfv_ta_subset, np_data=None, descr=descr)
-                pred = self.cpc[ta].classifier.predict_proba(skldata.data)
+                pred = self.cpc[ta].predict_probabilities(skldata.data)
                 print(f"assessing {descr}")
                 pm[ta].assess_prediction(pred, skldata.close, skldata.tics)
                 tdiff = (timeit.default_timer() - start_time2) / 60
@@ -581,7 +593,7 @@ class CpcSet:
             descr = f"{self.currency_pair} {t_f.CPC} {setname}"
             tfv.report_setsize(descr, tfv_ta_subset)
             skldata = tfv.to_scikitlearn(tfv_ta_subset, np_data=predictions, descr=descr)
-            pred = combo_cpc.classifier.predict_proba(skldata.data)
+            pred = combo_cpc.predict_probabilities(skldata.data)
             print(f"assessing {descr}")
             pm[t_f.CPC].assess_prediction(pred, skldata.close, skldata.tics)
             tdiff = (timeit.default_timer() - start_time2) / 60
@@ -593,8 +605,7 @@ def load_classifier_features(aggs, target, cur_pair):
     df = t_f.load_asset_dataframe(cur_pair)
     tf = t_f.TargetsFeatures(aggregations=aggs, target_key=target, cur_pair=cur_pair)
     tf.calc_features_and_targets(df)
-    tf.calc_performances()
-    test = tf.performance
+    test = tf.calc_performances()
     for p in test:
         print(f"performance potential for aggregation {p}: {test[p]:%}")
     return tf.tf_vectors
@@ -602,17 +613,42 @@ def load_classifier_features(aggs, target, cur_pair):
 start_time = timeit.default_timer()
 unit_test = False
 if not unit_test:
+    time_aggs = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10}
+    target_key = 5
+    cpcs = CpcSet(PAIR, target_key, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
+    # The crypto dataset
+    # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
+    # fname = cpcs.data_path + '/' + 'bnb_usdt' + t_f.MSG_EXT
+    # tfv = t_f.TfVectors(filename=fname)
+    tfv = load_classifier_features(time_aggs, target_key, PAIR)
+    cfname = "/Users/tc/tf_models/crypto/sample_set_split.config"
+    seq = tfv.timeslice_targets_as_configured(tfv.any_key(), cfname)
+    cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=False)
+    cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=False)
+    print(f"performance with hold or sell as sell {tfv.cur_pair} {t_f.TRAIN}")
+    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN)
+#    print(f"performance with hold as sell at highest buy {tfv.cur_pair} {t_f.VAL}")
+#    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL)
+#    print(f"performance {tfv.cur_pair} {t_f.TEST} using a {PAIR} SVM 0.02gamma classifier")
+#    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST], t_f.TEST)
+#
+#    tfv = load_classifier_features(time_aggs, target_key, 'bnb_usdt')
+#    seq = tfv.timeslice_targets_as_configured(tfv.any_key(), cfname)
+#    print(f"performance {tfv.cur_pair} {t_f.TEST} using a {PAIR} SVM 0.02gamma classifier")
+#    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST], t_f.TEST)
+
+if False:
     time_aggs = {5: 10}  # {1: 10, 5: 10, 15: 10, 60: 10}
     target_key = 5
-    cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
+    cpcs = CpcSet(PAIR, target_key, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
     # The crypto dataset
     # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
     # fname = cpcs.data_path + '/' + 'bnb_usdt' + t_f.MSG_EXT
     # tfv = t_f.TfVectors(filename=fname)
     tfv = load_classifier_features(time_aggs, target_key, 'bnb_usdt')
     cfname = "/Users/tc/tf_models/crypto/sample_set_split.config"
-    seq = tfv.timeslice_targets_as_configured(t_f.ALL_SAMPLES, cfname)
-    # seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio=0.6, val_ratio=0.4, days=30)
+    seq = tfv.timeslice_targets_as_configured(tfv.any_key(), cfname)
+    # seq = tfv.timeslice_targets(tfv.any_key(), train_ratio=0.6, val_ratio=0.4, days=30)
     # cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=False)
     # cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=False)
     # print(f"performance with hold or sell as sell {tfv.cur_pair} {t_f.TRAIN}")
@@ -621,15 +657,15 @@ if not unit_test:
     # cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL)
     print(f"performance {tfv.cur_pair} {t_f.TEST} using a {PAIR} SVM 0.02gamma classifier")
     cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST], t_f.TEST)
-else:
+if unit_test:
     time_aggs = {1: 10, 5: 10}
     target_key = 5
-    cpcs = CpcSet(PAIR, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
+    cpcs = CpcSet(PAIR, target_key, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
     # The crypto dataset
     # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
     # tfv = t_f.TfVectors(filename=fname)
     tfv = load_classifier_features(time_aggs, target_key, cpcs.currency_pair)
-    seq = tfv.timeslice_targets(t_f.ALL_SAMPLES, train_ratio=0.4, val_ratio=0.4, days=30)
+    seq = tfv.timeslice_targets(tfv.any_key(), train_ratio=0.4, val_ratio=0.4, days=30)
     cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=True)
     cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=True)
     print(f"performance {tfv.cur_pair} {t_f.TEST}")

@@ -29,7 +29,6 @@ BUY_THRESHOLD = 10/1000  # in per mille
 SELL_THRESHOLD = -2/1000  # in per mille
 VOL_BASE_PERIOD = '1D'
 CPC = 'CPC'
-ALL_SAMPLES = 1
 HOLD = '-'
 BUY = 'buy'
 SELL = 'sell'
@@ -160,20 +159,20 @@ class TargetsFeatures:
         out:
             dict of dataframes of aggregations with features and targets
         """
+        mdf = df = self.minute_data  # .copy()
+        mdf['vol'] = (mdf['volume'] - mdf.volume.rolling(VOL_BASE_PERIOD).median()) \
+                     / mdf.volume.rolling(VOL_BASE_PERIOD).median()
         for time_agg in self.time_aggregations:
             print(f"{datetime.now()}: time_aggregation {time_agg}")
             if isinstance(time_agg, int):
-                if time_agg == 1:
-                    mdf = df = self.minute_data  # .copy()
-                    df['vol'] = (df['volume'] - df.volume.rolling(VOL_BASE_PERIOD).median()) \
-                                 / df.volume.rolling(VOL_BASE_PERIOD).median()
-                else:
+                if time_agg > 1:
                     df = pd.DataFrame()
                     df['open'] = mdf.open.shift(time_agg-1)
                     df['high'] = mdf.high.rolling(time_agg).max()
                     df['low'] = mdf.low.rolling(time_agg).min()
                     df['close'] = mdf.close
                     df['vol'] = mdf.vol.rolling(time_agg).mean()
+                df['delta'] = (mdf.close - mdf.close.shift(time_agg)) / mdf.close.shift(time_agg)
                 self.tf_aggs[time_agg] = df
                 self.derive_features(time_agg)
             else:
@@ -198,7 +197,7 @@ class TargetsFeatures:
 
         print(f"{datetime.now()}: add_period_specific_targets {time_agg}")
         df = self.tf_aggs[time_agg]
-        df['delta'] = 0.
+        # df['delta'] = 0.
         df['target'] = TARGETS[HOLD]
         pix = df.columns.get_loc('delta')  # performance column index
         lix = df.columns.get_loc('target')
@@ -216,7 +215,8 @@ class TargetsFeatures:
             slot = (tix % time_agg)
             last_close = df.iat[tix - time_agg, cix]
             delta = (df.iat[tix, cix] - last_close) / last_close  # * 1000 no longer in per mille
-            df.iat[tix, pix] = delta
+            if df.iat[tix, pix] != delta:
+                print("unexpected delta diff")
             if delta < 0:
                 if loss[slot] < 0:  # loss monitoring is running
                     loss[slot] += delta
@@ -380,6 +380,7 @@ class TargetsFeatures:
             if (signal == TARGETS[SELL]) and ta_holding:
                 perf -= FEE
                 ta_holding = False
+        return perf
 
     def calc_performances(self):
         """calculate all time aggregation specific performances
@@ -419,6 +420,14 @@ class TargetsFeatures:
             perf[self.target_key] = self.target_performance()
         return perf
 
+def smallest_dict_key(thisdict):
+    smallest_key = 5000
+    for k in thisdict:
+        if isinstance(k, int):
+            if k < smallest_key:
+                smallest_key = k
+    assert smallest_key != 5000, "no int in dict keys"
+    return smallest_key
 
 class TfVectors:
     """Container class for targets and features of a currency pair
@@ -484,7 +493,8 @@ class TfVectors:
         trgt = tf.target_key
         self.vecs[trgt] = pd.DataFrame(tf.tf_aggs[trgt], columns=['close', 'target'])
         # self.vecs[trgt]['target'] = tf.tf_aggs[trgt]['target'].astype(int)
-        for ta in tf.time_aggregations:
+        skey = smallest_dict_key(tf.tf_aggs)
+        for ta in tf.tf_aggs:
             for tics in range(tf.time_aggregations[ta]):
                 ctitle = str(ta) + 'T_' + str(tics) + '_'
                 if isinstance(ta, int):
@@ -493,7 +503,7 @@ class TfVectors:
                     offset = tics
                 # now add feature columns according to aggregation
                 self.vecs[trgt][ctitle + 'D'] = tf.tf_aggs[ta].delta.shift(offset)
-                if ta == 1:
+                if ta == skey:
                     self.vecs[trgt][ctitle + 'H'] = tf.tf_aggs[ta].height.shift(offset)
                     self.vecs[trgt][ctitle + 'T'] = tf.tf_aggs[ta].top.shift(offset)
                     self.vecs[trgt][ctitle + 'B'] = tf.tf_aggs[ta].bottom.shift(offset)
@@ -519,7 +529,7 @@ class TfVectors:
             as prefix
         """
         print(f"{datetime.now()}: processing {self.cur_pair}")
-        for ta in tf.time_aggregations:
+        for ta in tf.tf_aggs:
             print(f"{datetime.now()}: build classifier vectors {ta}")
             t_name = str(ta) + '_target'
             self.vecs[ta] = pd.DataFrame(tf.minute_data, columns=['close', 'target'])
@@ -550,17 +560,23 @@ class TfVectors:
             with this function.
         """
         df = None
-        for ta in tf.time_aggregations:
+        for ta in self.vecs:
             if df is None:
                 df = self.vecs[ta]
             elif len(self.vecs[ta]) < len(df):
                 df = self.vecs[ta]
-        for ta in tf.time_aggregations:
+        for ta in self.vecs:
             self.vecs[ta] = self.vecs[ta][self.vecs[ta].index.isin(df.index)]
 
     def vec(self, key):
         "Returns the dataframe of the given key"
         return self.vecs[key]
+
+    def any_key(self):
+        """Returns the key of any TfVectors dataframe that has a complete timestamp index
+            and minute close data. It may not have a 'target' column
+        """
+        return list(self.vecs.keys())[0]
 
     def signal_sequences(self, key):
         "provides a histogram of consecutive signals for the given key data"
