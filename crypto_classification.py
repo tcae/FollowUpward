@@ -29,6 +29,7 @@ start_time = timeit.default_timer()
 
 PAIR = 'xrp_usdt'
 AGGREGATION = 5
+MODEL_PATH = '/Users/tc/tf_models/crypto'
 
 
 def plot_learning_curve(estimator, title, X, y, ylim=None, cv=None,
@@ -319,7 +320,11 @@ class Cpc:
         start_time = timeit.default_timer()
         # Now predict the action corresponding to samples on the second half:
         expected = val_data.target
-        predicted = self.predict_probabilities(val_data.data)
+        if self.scaler is not None:
+            val_data.data = self.scaler.transform(val_data.data)
+        predicted = self.classifier.predict(val_data.data)
+#         predicted = self.predict_probabilities(val_data.data)
+#         does not work because of ValueError: Classification metrics can't handle a mix of multiclass and continuous-multioutput targets
         tdiff = timeit.default_timer() - start_time
         print(f"{val_data.descr} SVM evaluation time: {tdiff:.0f}s")
 
@@ -415,13 +420,13 @@ class Cpc:
 class CpcSet:
     """Provides methods to adapt an orchestrated set of currency performance classifiers
     """
-    def __init__(self, currency_pair, target_key, data_path, model_path):
+    def __init__(self, currency_pair, target_key, load_classifier, save_classifier):
         self.currency_pair = currency_pair
-        self.data_path = data_path
-        self.model_path = model_path
+        self.load_classifier = load_classifier
+        self.save_classifier = save_classifier
+        self.model_path = MODEL_PATH
         self.target_key = target_key
-        fname = str("{}/{}{}{}".format(self.model_path, self.currency_pair,
-                    self.target_key, t_f.PICKLE_EXT))
+        fname = str("{}/{}{}".format(self.model_path, self.load_classifier, t_f.PICKLE_EXT))
         try:
             with open(fname, 'rb') as df_f:
                 tmp_dict = pickle.load(df_f)
@@ -434,8 +439,7 @@ class CpcSet:
     def save(self):
         #for ta in self.cpc:  # strip pandas due to pickle incompatibility between versions
         #    self.cpc[ta].prep_pickle()
-        fname = str("{}/{}{}{}".format(self.model_path, self.currency_pair,
-                    self.target_key, t_f.PICKLE_EXT))
+        fname = str("{}/{}{}".format(self.model_path, self.save_classifier, t_f.PICKLE_EXT))
         df_f = open(fname, 'wb')
         pickle.dump(self.__dict__, df_f, pickle.HIGHEST_PROTOCOL)
         df_f.close()
@@ -474,7 +478,7 @@ class CpcSet:
                     subset_df = targetsubset
                 subset_df = targets_to_features(tfv_ta, subset_df)
                 descr = f"{self.currency_pair} {ta} {setname}"
-                tfv.report_setsize(descr, subset_df)
+                t_f.report_setsize(descr, subset_df)
                 skldata = tfv.to_scikitlearn(subset_df, np_data=None, descr=descr)
                 self.cpc[ta].adapt_classifier_with_data(skldata)
 
@@ -488,7 +492,7 @@ class CpcSet:
             tfv_ta = tfv.vec(t_f.CPC)
             subset_df = targets_to_features(tfv_ta, subset_df)
             descr = f"{self.currency_pair} {t_f.CPC} {setname}"
-            tfv.report_setsize(descr, subset_df)
+            t_f.report_setsize(descr, subset_df)
             skldata = tfv.to_scikitlearn(subset_df, np_data=predictions, descr=descr)
             combo_cpc.adapt_classifier_with_data(skldata)
 
@@ -509,7 +513,7 @@ class CpcSet:
                     subset_df = targetsubset
                 subset_df = targets_to_features(tfv_ta, subset_df)
                 descr = f"{self.currency_pair} {ta} {setname}"
-                tfv.report_setsize(descr, subset_df)
+                t_f.report_setsize(descr, subset_df)
                 skldata = tfv.to_scikitlearn(subset_df, np_data=None, descr=descr)
                 self.cpc[ta].eval_classifier_with_data(skldata)
 
@@ -523,7 +527,7 @@ class CpcSet:
             predictions = self.combined_probs(tfv, subset_df)
             subset_df = targets_to_features(tfv_ta, subset_df)
             descr = f"{self.currency_pair} {t_f.CPC} {setname}"
-            tfv.report_setsize(descr, subset_df)
+            t_f.report_setsize(descr, subset_df)
             skldata = tfv.to_scikitlearn(subset_df, np_data=predictions, descr=descr)
             combo_cpc.eval_classifier_with_data(skldata)
         tdiff = (timeit.default_timer() - start_time) / 60
@@ -573,7 +577,7 @@ class CpcSet:
                 start_time2 = timeit.default_timer()
                 tfv_ta_subset = targets_to_features(tfv_ta, subset_df)
                 descr = f"{self.currency_pair} {ta} {setname}"
-                tfv.report_setsize(descr, tfv_ta_subset)
+                t_f.report_setsize(descr, tfv_ta_subset)
                 skldata = tfv.to_scikitlearn(tfv_ta_subset, np_data=None, descr=descr)
                 pred = self.cpc[ta].predict_probabilities(skldata.data)
                 print(f"assessing {descr}")
@@ -591,7 +595,7 @@ class CpcSet:
             start_time2 = timeit.default_timer()
             tfv_ta_subset = targets_to_features(tfv_ta, subset_df)
             descr = f"{self.currency_pair} {t_f.CPC} {setname}"
-            tfv.report_setsize(descr, tfv_ta_subset)
+            t_f.report_setsize(descr, tfv_ta_subset)
             skldata = tfv.to_scikitlearn(tfv_ta_subset, np_data=predictions, descr=descr)
             pred = combo_cpc.predict_probabilities(skldata.data)
             print(f"assessing {descr}")
@@ -610,23 +614,21 @@ def load_classifier_features(aggs, target, cur_pair):
         print(f"performance potential for aggregation {p}: {test[p]:%}")
     return tf.tf_vectors
 
+target_key = 5
+load_classifier = str("{}{}".format(PAIR, target_key))
+save_classifier = str("{}{}".format(PAIR, target_key))
 start_time = timeit.default_timer()
 unit_test = False
 if not unit_test:
     time_aggs = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10}
-    target_key = 5
-    cpcs = CpcSet(PAIR, target_key, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
-    # The crypto dataset
-    # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
-    # fname = cpcs.data_path + '/' + 'bnb_usdt' + t_f.MSG_EXT
-    # tfv = t_f.TfVectors(filename=fname)
+    cpcs = CpcSet(PAIR, target_key, load_classifier, save_classifier)
     tfv = load_classifier_features(time_aggs, target_key, PAIR)
     cfname = "/Users/tc/tf_models/crypto/sample_set_split.config"
     seq = tfv.timeslice_targets_as_configured(tfv.any_key(), cfname)
-    cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=False)
-    cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=False)
-    print(f"performance with hold or sell as sell {tfv.cur_pair} {t_f.TRAIN}")
-    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN)
+#    cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=False)
+#    # cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=False)
+#    print(f"performance with hold or sell as sell {tfv.cur_pair} {t_f.TRAIN}")
+#    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN)
 #    print(f"performance with hold as sell at highest buy {tfv.cur_pair} {t_f.VAL}")
 #    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL)
 #    print(f"performance {tfv.cur_pair} {t_f.TEST} using a {PAIR} SVM 0.02gamma classifier")
@@ -637,35 +639,12 @@ if not unit_test:
 #    print(f"performance {tfv.cur_pair} {t_f.TEST} using a {PAIR} SVM 0.02gamma classifier")
 #    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST], t_f.TEST)
 
-if False:
-    time_aggs = {5: 10}  # {1: 10, 5: 10, 15: 10, 60: 10}
-    target_key = 5
-    cpcs = CpcSet(PAIR, target_key, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
-    # The crypto dataset
-    # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
-    # fname = cpcs.data_path + '/' + 'bnb_usdt' + t_f.MSG_EXT
-    # tfv = t_f.TfVectors(filename=fname)
-    tfv = load_classifier_features(time_aggs, target_key, 'bnb_usdt')
-    cfname = "/Users/tc/tf_models/crypto/sample_set_split.config"
-    seq = tfv.timeslice_targets_as_configured(tfv.any_key(), cfname)
-    # seq = tfv.timeslice_targets(tfv.any_key(), train_ratio=0.6, val_ratio=0.4, days=30)
-    # cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=False)
-    # cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=False)
-    # print(f"performance with hold or sell as sell {tfv.cur_pair} {t_f.TRAIN}")
-    # cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN)
-    # print(f"performance with hold as sell at highest buy {tfv.cur_pair} {t_f.VAL}")
-    # cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL)
-    print(f"performance {tfv.cur_pair} {t_f.TEST} using a {PAIR} SVM 0.02gamma classifier")
-    cpcs.ensemble_performance_with_targetsubset(tfv, seq[t_f.TEST], t_f.TEST)
 if unit_test:
     time_aggs = {1: 10, 5: 10}
-    target_key = 5
-    cpcs = CpcSet(PAIR, target_key, t_f.DATA_PATH, '/Users/tc/tf_models/crypto')
-    # The crypto dataset
-    # fname = cpcs.data_path + '/' + cpcs.currency_pair + t_f.MSG_EXT
-    # tfv = t_f.TfVectors(filename=fname)
+    cpcs = CpcSet(PAIR, target_key, load_classifier, save_classifier)
     tfv = load_classifier_features(time_aggs, target_key, cpcs.currency_pair)
-    seq = tfv.timeslice_targets(tfv.any_key(), train_ratio=0.4, val_ratio=0.4, days=30)
+    cfname = "/Users/tc/tf_models/crypto/sample_set_split.config"
+    seq = tfv.timeslice_targets_as_configured(tfv.any_key(), cfname)
     cpcs.adapt_ensemble_with_targetsubset(tfv, seq[t_f.TRAIN], t_f.TRAIN, balance=True)
     cpcs.eval_ensemble_with_targetsubset(tfv, seq[t_f.VAL], t_f.VAL, balance=True)
     print(f"performance {tfv.cur_pair} {t_f.TEST}")

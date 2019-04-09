@@ -9,11 +9,11 @@ Created on Mon Jan  7 21:43:26 2019
 import pandas as pd
 from datetime import datetime
 # import math
-import json
-import re
 from sklearn.utils import Bunch
 import numpy as np
-import pickle
+from queue import Queue
+
+
 
 # DATA_PATH = os.getcwd() # local execution - to be avoided due to Git sync size
 DATA_PATH = '/Users/tc/Features'  # local execution
@@ -25,8 +25,9 @@ MSG_EXT = ".msg"  # msgpack file extension
 
 DT_FORMAT = '%Y-%m-%d_%H:%M'
 FEE = 1/1000  # in per mille, transaction fee is 0.1%
+TRADE_SLIP = 0 # 1/1000  # in per mille, 0.1% trade slip
 BUY_THRESHOLD = 10/1000  # in per mille
-SELL_THRESHOLD = -2/1000  # in per mille
+SELL_THRESHOLD = -5/1000  # in per mille
 VOL_BASE_PERIOD = '1D'
 CPC = 'CPC'
 HOLD = '-'
@@ -81,6 +82,13 @@ def load_asset_dataframe(cur_pair):
         datetime.now().strftime(DT_FORMAT), cur_pair, len(df), df.index[0].strftime(DT_FORMAT),
         df.index[len(df)-1].strftime(DT_FORMAT), fname))
     return df
+
+def report_setsize(setname, df):
+    hc = len(df[df.target == TARGETS[HOLD]])
+    sc = len(df[df.target == TARGETS[SELL]])
+    bc = len(df[df.target == TARGETS[BUY]])
+    tc = hc + sc + bc
+    print(f"buy {bc} sell {sc} hold {hc} total {tc} on {setname}")
 
 
 class TargetsFeatures:
@@ -194,18 +202,17 @@ class TargetsFeatures:
 
     def add_period_specific_targets(self, time_agg):
         "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
-
         print(f"{datetime.now()}: add_period_specific_targets {time_agg}")
         df = self.tf_aggs[time_agg]
-        # df['delta'] = 0.
         df['target'] = TARGETS[HOLD]
-        pix = df.columns.get_loc('delta')  # performance column index
         lix = df.columns.get_loc('target')
         cix = df.columns.get_loc('close')
         win = dict()
         loss = dict()
         lossix = dict()
         winix = dict()
+        ixfifo = Queue()  # will hold all sell ix to smooth out if dip sell does no tpay off
+        closeatsell = closeatbuy = 0
         lasttarget = dict()
         for slot in range(0, time_agg):
             win[slot] = loss[slot] = 0.
@@ -214,9 +221,8 @@ class TargetsFeatures:
         for tix in range(time_agg, len(df), 1):  # tix = time index
             slot = (tix % time_agg)
             last_close = df.iat[tix - time_agg, cix]
-            delta = (df.iat[tix, cix] - last_close) / last_close  # * 1000 no longer in per mille
-            if df.iat[tix, pix] != delta:
-                print("unexpected delta diff")
+            this_close = df.iat[tix, cix]
+            delta = (this_close - last_close) / last_close  # * 1000 no longer in per mille
             if delta < 0:
                 if loss[slot] < 0:  # loss monitoring is running
                     loss[slot] += delta
@@ -231,6 +237,19 @@ class TargetsFeatures:
                     win[slot] = 0.
                     df.iat[lossix[slot], lix] = lasttarget[slot] = TARGETS[SELL]
                     lossix[slot] += 1  # allow multiple signals if conditions hold
+                    #  here comes the smooth execution for BUY peaks:
+                    if closeatbuy > 0:  # smoothing is active
+                        buy_sell = -2 * (FEE + TRADE_SLIP) + this_close - closeatbuy
+                        while not ixfifo.empty():
+                            smooth_ix = ixfifo.get()
+                            if buy_sell < 0:
+                                # if fee loss more than dip loss/gain then smoothing
+                                df.iat[smooth_ix, lix] = TARGETS[HOLD]
+                        closeatbuy = 0
+                    #  here comes the smooth preparation for SELL dips:
+                    if closeatsell == 0:
+                        closeatsell = this_close
+                    ixfifo.put(tix)  # prep after execution due to queue reuse
             elif delta > 0:
                 if win[slot] > 0:  # win monitoring is running
                     win[slot] += delta
@@ -245,6 +264,21 @@ class TargetsFeatures:
                     loss[slot] = 0.
                     df.iat[winix[slot], lix] = lasttarget[slot] = TARGETS[BUY]
                     winix[slot] += 1  # allow multiple signals if conditions hold
+                    #  here comes the smooth execution for SELL dips:
+                    if closeatsell > 0:  # smoothing is active
+                        sell_buy = -2 * (FEE + TRADE_SLIP)
+                        holdgain = this_close - closeatsell
+                        while not ixfifo.empty():
+                            smooth_ix = ixfifo.get()
+                            if sell_buy < holdgain:
+                                # if fee loss more than dip loss/gain then smoothing
+                                df.iat[smooth_ix, lix] = TARGETS[HOLD]
+                        closeatsell = 0
+                    #  here comes the smooth preparation for BUY peaks:
+                    if closeatbuy == 0:
+                        closeatbuy = this_close
+                    ixfifo.put(tix)  # prep after execution due to queue reuse
+        report_setsize("complete set", df)
 
     def cpc_best_path(self):
         """identify best path through all aggregations - use all buy and sell signals.
@@ -629,107 +663,71 @@ class TfVectors:
 
         Returns:
         ========
-        The dataframe receives a column 'slice' that identifies the assignment of samples to
-        training, validation, or test set
-
+        The dataframe receives a column 'slc' that identifies the assignment of samples to
+        training, validation, or test set and a column 'slcix' with the slice index to
+        enable slicewise adaptation and evaluation.
         """
         sdf = load_sample_set_split_config(config_fname)
         c_df = pd.DataFrame(self.vecs[key].target) #only use targets for filter logic
-#        c_df.index.tz_convert(None) # remove timezone info and use UTC
-#        sdf.set_start.tz_convert(None) # remove timezone info and use UTC
-#        sdf.set_stop.tz_convert(None) # remove timezone info and use UTC
-
-#        sdf.set_stop.tz = sdf.set_start.tz = c_df.index.tz
-        c_df['slice'] = 0
-        # c_df.loc[(sdf['set_start'] <= c_df.index)
-        #          & (sdf['set_stop'] > c_df.index)
-        #          & (sdf['sample_set'] in LBL), 'slice'] = LBL[sdf['sample_set']]
-        sdf_ix = 0
-        sdf_start = sdf.loc[sdf_ix, 'set_start']
-        sdf_stop = sdf.loc[sdf_ix, 'set_stop']
-        slc_col = c_df.columns.get_loc('slice')
-#        print(f"c_df.index[0]: {c_df.index.timetz} sdf.set_start: {sdf.set_start.dt.timetz} sdf.set_stop: {sdf.set_stop.dt.timetz}")
+        c_df['slc'] = LBL[NA]
+        sdf_ix = -1  # increment in while loop to 0 == start
+        c_df['slcix'] = sdf_ix
+        sdf_lbl = NA
+        sdf_pair = "no pair"
+        sdf_stop = np.datetime64(c_df.index[0])  # force while loop
+        slc_col = c_df.columns.get_loc('slc')
+        slcix_col = c_df.columns.get_loc('slcix')
+        trgt_col = c_df.columns.get_loc('target')
+        hc = bc = sc = nc = uc = 0
+        hct = bct = sct = nct = uct = 0
         for t_ix in range(len(c_df)):
             dt_stamp = np.datetime64(c_df.index[t_ix])
             while sdf_stop <= dt_stamp:
+                tc = hc + bc + sc
+                if tc > 0:
+                    print("buy {} sell {} hold {} total {} na {} unknown {} on {} set {} {}".format(
+                            bc, sc, hc, tc, nc, uc, sdf_pair,sdf_ix, sdf_lbl))
+                    hct += hc
+                    bct += bc
+                    sct += sc
+                    nct += nc
+                    uct += uc
+                    hc = bc = sc = nc = uc = 0
                 sdf_ix += 1
+                sdf_pair = sdf.loc[sdf_ix, 'set_pair']
                 sdf_start = sdf.loc[sdf_ix, 'set_start']
                 sdf_stop = sdf.loc[sdf_ix, 'set_stop']
-            if (sdf_start <= dt_stamp) and (sdf_stop > dt_stamp):
                 sdf_lbl = sdf.loc[sdf_ix, 'sample_set']
                 if sdf_lbl  in LBL:
                     sdf_tag = LBL[sdf_lbl]
                 else:
-                    print(f"warning: unknwon config label {sdf_lbl}")
+                    sdf_tag = LBL[NA]
+                    print(f"unknwon config label '{sdf_lbl}'")
+            if (sdf_start <= dt_stamp) and (sdf_stop > dt_stamp):
+                trgt = c_df.iat[t_ix, trgt_col]
+                if trgt == TARGETS[HOLD]:
+                    hc += 1
+                elif trgt == TARGETS[SELL]:
+                    sc += 1
+                elif trgt == TARGETS[BUY]:
+                    bc += 1
+                elif trgt == TARGETS[NA]:
+                    nc += 1
+                else:
+                    uc += 1
                 c_df.iat[t_ix, slc_col] = sdf_tag
+                c_df.iat[t_ix, slcix_col] = sdf_ix
+        print("buy {} sell {} hold {} total {} na {} unknown {} on whole set".format(
+                bct, sct, hct, bct + sct + hct, nct, uct))
 
-        train_df = c_df[c_df.slice == LBL[TRAIN]]
-        val_df = c_df[c_df.slice == LBL[VAL]]
-        test_df = c_df[c_df.slice == LBL[TEST]]
+        train_df = c_df[c_df.slc == LBL[TRAIN]]
+        val_df = c_df[c_df.slc == LBL[VAL]]
+        test_df = c_df[c_df.slc == LBL[TEST]]
         seq = {TRAIN: train_df, VAL: val_df, TEST: test_df}
 
-        self.report_setsize(TRAIN, seq[TRAIN])
-        self.report_setsize(VAL, seq[VAL])
-        self.report_setsize(TEST, seq[TEST])
-        return seq
-
-    def timeslice_targets(self, key, train_ratio=0.6, val_ratio=0.2, days=30):
-        """Splits the data set into training set, validation set and test set such that
-        training, validation and test sets are created that receive their time slice share
-        of samples according to the given ratio.
-        Days is the number of days of a single time slice of samples.
-
-        Returns:
-        ========
-        The dataframe receives a column 'slice' that identifies the assignment of samples to
-        training, validation, or test set
-
-        """
-
-        c_df = pd.DataFrame(self.vecs[key].target) #only use targets for filter logic
-        c_df['slice'] = 0
-        slc_col = c_df.columns.get_loc('slice')
-
-        # first slice set according to number of days
-        slice_end = c_df.index[0] + pd.Timedelta(days=days)
-        slice_cnt = 1
-        for t_ix in range(len(c_df)):
-            if c_df.index[t_ix] < slice_end:
-                c_df.iat[t_ix, slc_col] = slice_cnt
-            else:
-                slice_cnt += 1
-                slice_end = c_df.index[t_ix] + pd.Timedelta(days=days)
-
-        # now assign slices to training, validation and test set
-        slices = {k: LBL[NA] for k in range(slice_cnt)}
-        train_lvl = val_lvl = test_lvl = 0
-        test_ratio = 1 - train_ratio - val_ratio
-        ix = 0
-        for ix in range(slice_cnt):
-            train_lvl += train_ratio
-            val_lvl += val_ratio
-            test_lvl += test_ratio
-            if train_lvl >= 0:
-                slices[ix] = LBL[TRAIN]
-                train_lvl -= 1
-            elif val_lvl >= 0:
-                slices[ix] = LBL[VAL]
-                val_lvl -= 1
-            elif test_lvl >= 0:
-                slices[ix] = LBL[TEST]
-                test_lvl -= 1
-            assert slices[ix] != LBL[NA], "missing slice assignment"
-
-        for k in range(slice_cnt):
-            c_df.loc[(c_df['slice'] == k), 'slice'] = slices[k]
-        train_df = c_df[c_df.slice == LBL[TRAIN]]
-        val_df = c_df[c_df.slice == LBL[VAL]]
-        test_df = c_df[c_df.slice == LBL[TEST]]
-        seq = {TRAIN: train_df, VAL: val_df, TEST: test_df}
-
-        self.report_setsize(TRAIN, seq[TRAIN])
-        self.report_setsize(VAL, seq[VAL])
-        self.report_setsize(TEST, seq[TEST])
+        report_setsize(TRAIN, seq[TRAIN])
+        report_setsize(VAL, seq[VAL])
+        report_setsize(TEST, seq[TEST])
         return seq
 
     def reduce_target_sequences(self, c_df, key):
@@ -772,14 +770,14 @@ class TfVectors:
 
     def balance_targets(self, l_df):
         t_col = l_df.columns.get_loc('target')
-        # l_df = l_df.drop(['slice'], axis = 1) # not required as this is only a temp df
+        # l_df = l_df.drop(['slc'], axis = 1) # not required as this is only a temp df
         h_count = len(l_df[l_df.target == TARGETS[HOLD]])
         s_count = len(l_df[l_df.target == TARGETS[SELL]])
         b_count = len(l_df[l_df.target == TARGETS[BUY]])
         smallest = min([h_count, b_count, s_count])
         if smallest == 0:
             print("warning: cannot balance as not all classes have representatives")
-            self.report_setsize("val or train", l_df)
+            report_setsize("val or train", l_df)
             return l_df
         h_ratio = smallest / h_count
         s_ratio = smallest / s_count
@@ -820,38 +818,6 @@ class TfVectors:
         if balance:
             subset_df = self.balance_targets(subset_df)
         return subset_df
-
-    def report_setsize(self, setname, df):
-        hc = len(df[df.target == TARGETS[HOLD]])
-        sc = len(df[df.target == TARGETS[SELL]])
-        bc = len(df[df.target == TARGETS[BUY]])
-        tc = hc + sc + bc
-        print(f"buy {bc} sell {sc} hold {hc} total {tc} on {setname}")
-
-    def timeslice_and_select_targets(self, key, train_ratio, val_ratio, balance, days):
-        """Splits the data set into training set, validation set and test set such that
-        training set receives the specified ratio of buy and sell samples and
-        validation set also receives at least the specified ratio of buy and sell samples.
-        sequences of buy or sell samples will be reduced every n of the sequence according
-        to the seq_red value(local variable).
-        days is the number of days of a slice
-
-        Returns:
-        ========
-        dict with dataframes containing only targets for a training, a validation and a test set
-
-        """
-
-        seq = self.timeslice_targets(key, train_ratio, val_ratio, days)
-
-        train_df = self.reduce_sequences_balance_targets(key, seq[TRAIN], balance)
-        self.report_setsize(f"{TRAIN} subset", train_df)
-
-        val_df = self.reduce_sequences_balance_targets(key, seq[VAL], balance)
-        self.report_setsize(f"{VAL} subset", val_df)
-
-        return seq
-
 
     def to_scikitlearn(self, df, np_data=None, descr=None):
         """Load and return the crypto dataset (classification).
