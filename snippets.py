@@ -296,6 +296,8 @@ print(f"{min.days} {int(min.seconds/60)}")
 print(f"{min.days*24*60 + int(min.seconds/60)}")
 print(timedelta_minutes('2009-01-01', '2009-01-02'))
 print((np.datetime64('2009-01-02', 'm') - np.datetime64('2009-01-01', 'm')) > np.timedelta64(2, 'm'))
+print(np.datetime64('2009-01-02', 'm') )
+print(np.datetime64('2009-01-02', 'm') - np.timedelta64(2, 'm'))
 
 # <codecell> numpy
 
