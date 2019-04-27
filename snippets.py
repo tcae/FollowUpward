@@ -392,3 +392,20 @@ dt = datetime.now()
 print(dt.strftime('%Y-%m-%d_%H:%M'))
 print(datetime.now().strftime('%Y-%m-%d_%H:%M'))
 
+# <codecell> check_diff
+
+print (list(zip(['AB', 'CD'], *[iter('EF')]*2)))
+
+# <codecell> timediff
+import pandas as pd
+from datetime import datetime, timedelta  # , timezone
+
+minutes = 100
+dtnow = datetime.utcnow()
+last_tic = pd.Timestamp(year=2019, month=4, day=20, hour=21, minute=35)
+pylast = last_tic.to_pydatetime()
+dtlast = pylast.replace(tzinfo=None)
+dfdiff = int((dtnow - dtlast) / timedelta(minutes=1))
+print(f"now {dtnow} last_tic {last_tic} pylast {pylast} dtlast {dtlast} dfdiff {dfdiff}")
+if dfdiff < minutes:
+    tdminutes = dfdiff

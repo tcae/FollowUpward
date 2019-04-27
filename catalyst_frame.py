@@ -79,7 +79,7 @@ def handle_data(context, data: BarData):
 
     if context.handle_count < 1:
         btcusdt = load_pair(data, 'btc_usdt')
-        t_f.save_asset_dataframe(btcusdt, 'btc_usdt')
+        t_f.save_asset_dataframe(btcusdt, t_f.DATA_PATH, 'btc_usdt')
 
         for pair in CUR_CAND:
             cb_pair = pair + BTC_SUFFIX
@@ -94,11 +94,11 @@ def handle_data(context, data: BarData):
 
             cu_pair = pair + USDT_SUFFIX
             cusdt = load_pair(data, cu_pair)
-            t_f.save_asset_dataframe(cusdt, cu_pair)
+            t_f.save_asset_dataframe(cusdt, t_f.DATA_PATH, cu_pair)
 
             cbtcusdt.loc[cusdt.index,:] = cusdt[:]  # take values of cusdt where available
             # check_diff(cbtcusdt, cusdt)
-            t_f.save_asset_dataframe(cbtcusdt, cbu_pair)
+            t_f.save_asset_dataframe(cbtcusdt, t_f.DATA_PATH, cbu_pair)
 
     if False:  # context.handle_count < 1:
         btcusdt = load_pair(data, 'btc_usdt')

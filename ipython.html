@@ -1,0 +1,468 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd">
+<html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="qrichtext" content="1" /><style type="text/css">
+p, li { white-space: pre-wrap; }
+</style></head><body style=" font-family:'Menlo'; font-size:12pt; font-weight:400; font-style:normal;">
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">Python 3.6.7 | packaged by conda-forge | (default, Nov 20 2018, 18:37:09)</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">Type &quot;copyright&quot;, &quot;credits&quot; or &quot;license&quot; for more information.</p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">IPython 7.3.0 -- An enhanced Interactive Python.</p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" color:#00ff00;">In [</span><span style=" font-weight:600; color:#00ff00;">1</span><span style=" color:#00ff00;">]:</span> runfile('/Users/tc/Documents/GitHub/FollowUpward/trading.py', wdir='/Users/tc/Documents/GitHub/FollowUpward', post_mortem=True)</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">ERROR:root:Invalid alias: The name clear can't be aliased because it is another magic command.</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">ERROR:root:Invalid alias: The name more can't be aliased because it is another magic command.</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">ERROR:root:Invalid alias: The name less can't be aliased because it is another magic command.</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">ERROR:root:Invalid alias: The name man can't be aliased because it is another magic command.</p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">================================</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">Recognizing crypto samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">================================</p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">An example showing how the scikit-learn can be used</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">to classify crypto sell/buy actions.</p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">BTC = 5274.38 USDT</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">added GAS that cannot only be traded via BTC</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">balance value of 12864.36958314 VTHO not traded in USDT nor BTC</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load ONG_USDT DataFrame with 14652 tics (2019-04-12_09:07 - 2019-04-22_13:19) to /Users/tc/crypto/cache/ONG_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load BTC_USDT DataFrame with 14651 tics (2019-04-12_09:08 - 2019-04-22_13:19) to /Users/tc/crypto/cache/BTC_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load ETH_USDT DataFrame with 14651 tics (2019-04-12_09:09 - 2019-04-22_13:19) to /Users/tc/crypto/cache/ETH_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load BNB_USDT DataFrame with 14650 tics (2019-04-12_09:09 - 2019-04-22_13:19) to /Users/tc/crypto/cache/BNB_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load NEO_USDT DataFrame with 14650 tics (2019-04-12_09:10 - 2019-04-22_13:20) to /Users/tc/crypto/cache/NEO_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load LTC_USDT DataFrame with 14650 tics (2019-04-12_09:11 - 2019-04-22_13:20) to /Users/tc/crypto/cache/LTC_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load ADA_USDT DataFrame with 14649 tics (2019-04-12_09:11 - 2019-04-22_13:20) to /Users/tc/crypto/cache/ADA_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load XRP_USDT DataFrame with 14649 tics (2019-04-12_09:12 - 2019-04-22_13:20) to /Users/tc/crypto/cache/XRP_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load EOS_USDT DataFrame with 14648 tics (2019-04-12_09:12 - 2019-04-22_13:20) to /Users/tc/crypto/cache/EOS_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load XLM_USDT DataFrame with 14647 tics (2019-04-12_09:13 - 2019-04-22_13:20) to /Users/tc/crypto/cache/XLM_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load ONT_USDT DataFrame with 14647 tics (2019-04-12_09:14 - 2019-04-22_13:20) to /Users/tc/crypto/cache/ONT_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load TRX_USDT DataFrame with 14647 tics (2019-04-12_09:14 - 2019-04-22_13:21) to /Users/tc/crypto/cache/TRX_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load ETC_USDT DataFrame with 14647 tics (2019-04-12_09:15 - 2019-04-22_13:21) to /Users/tc/crypto/cache/ETC_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load ICX_USDT DataFrame with 14646 tics (2019-04-12_09:15 - 2019-04-22_13:21) to /Users/tc/crypto/cache/ICX_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load PAX_USDT DataFrame with 14645 tics (2019-04-12_09:16 - 2019-04-22_13:21) to /Users/tc/crypto/cache/PAX_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load BCH_USDT DataFrame with 14645 tics (2019-04-12_09:17 - 2019-04-22_13:21) to /Users/tc/crypto/cache/BCH_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load BSV_USDT DataFrame with 14399 tics (2019-04-12_09:17 - 2019-04-22_09:16) to /Users/tc/crypto/cache/BSV_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load USDC_USDT DataFrame with 14399 tics (2019-04-12_09:18 - 2019-04-22_09:16) to /Users/tc/crypto/cache/USDC_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load WAVES_USDT DataFrame with 14399 tics (2019-04-12_09:18 - 2019-04-22_09:17) to /Users/tc/crypto/cache/WAVES_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load BTT_USDT DataFrame with 14399 tics (2019-04-12_09:19 - 2019-04-22_09:17) to /Users/tc/crypto/cache/BTT_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load FET_USDT DataFrame with 14399 tics (2019-04-12_09:19 - 2019-04-22_09:18) to /Users/tc/crypto/cache/FET_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load BAT_USDT DataFrame with 14399 tics (2019-04-12_09:20 - 2019-04-22_09:19) to /Users/tc/crypto/cache/BAT_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load IOST_USDT DataFrame with 14399 tics (2019-04-12_09:21 - 2019-04-22_09:19) to /Users/tc/crypto/cache/IOST_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44: load CELR_USDT DataFrame with 14399 tics (2019-04-12_09:21 - 2019-04-22_09:20) to /Users/tc/crypto/cache/CELR_USDT_DataFrame.msg</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">classifier loaded from /Users/tc/crypto/classifier/2019-04-18_Full-SVM-orig-buy-hold-sell_gamma_0.01_extended_features_smooth+xrp_usdt5+D10.pydata</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44:09 next round</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ONG/USDT fromdate 2019-04-22_13:18 minutes 26</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:44:10.873178: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 605 sell 1545 hold 12527 total 14677 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:07 to 2019-04-22_13:44 = 14678.0 minutes in 14677 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ONG/USDT has 110 features x 277 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44:17 ONG -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BTC/USDT fromdate 2019-04-22_13:18 minutes 26</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:44:18.554556: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 756 sell 1177 hold 12743 total 14676 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:08 to 2019-04-22_13:44 = 14677.0 minutes in 14676 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BTC/USDT has 110 features x 276 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44:25 BTC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ETH/USDT fromdate 2019-04-22_13:18 minutes 26</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:44:26.151402: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 538 sell 1528 hold 12610 total 14676 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:09 to 2019-04-22_13:44 = 14676.0 minutes in 14676 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ETH/USDT has 110 features x 276 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44:32 ETH -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BNB/USDT fromdate 2019-04-22_13:18 minutes 26</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:44:33.861843: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 1111 sell 1675 hold 11889 total 14675 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:09 to 2019-04-22_13:44 = 14676.0 minutes in 14675 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BNB/USDT has 110 features x 275 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44:40 BNB -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; NEO/USDT fromdate 2019-04-22_13:19 minutes 25</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:44:41.726414: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 628 sell 1959 hold 12087 total 14674 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:10 to 2019-04-22_13:44 = 14675.0 minutes in 14674 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: NEO/USDT has 110 features x 274 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44:48 NEO -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; LTC/USDT fromdate 2019-04-22_13:19 minutes 25</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:44:49.365741: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 572 sell 2307 hold 11795 total 14674 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:11 to 2019-04-22_13:44 = 14674.0 minutes in 14674 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: LTC/USDT has 110 features x 274 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:44:56 LTC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ADA/USDT fromdate 2019-04-22_13:19 minutes 25</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:44:57.236105: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 506 sell 1892 hold 12275 total 14673 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:11 to 2019-04-22_13:44 = 14674.0 minutes in 14673 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ADA/USDT has 110 features x 273 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:45:04 ADA -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; XRP/USDT fromdate 2019-04-22_13:19 minutes 26</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:45:05.475036: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 187 sell 2211 hold 12276 total 14674 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:12 to 2019-04-22_13:45 = 14674.0 minutes in 14674 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: XRP/USDT has 110 features x 274 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:45:12 XRP -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; EOS/USDT fromdate 2019-04-22_13:19 minutes 26</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:45:13.389311: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 573 sell 2183 hold 11917 total 14673 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:12 to 2019-04-22_13:45 = 14674.0 minutes in 14673 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: EOS/USDT has 110 features x 273 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:45:20 EOS -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; XLM/USDT fromdate 2019-04-22_13:19 minutes 26</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:45:20.998605: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 582 sell 2013 hold 12077 total 14672 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:13 to 2019-04-22_13:45 = 14673.0 minutes in 14672 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: XLM/USDT has 110 features x 272 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:45:27 XLM -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ONT/USDT fromdate 2019-04-22_13:19 minutes 26</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:45:28.853855: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 526 sell 2166 hold 11980 total 14672 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:14 to 2019-04-22_13:45 = 14672.0 minutes in 14672 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ONT/USDT has 110 features x 272 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:45:35 ONT -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; TRX/USDT fromdate 2019-04-22_13:20 minutes 25</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:45:36.509864: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 360 sell 1458 hold 12853 total 14671 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:14 to 2019-04-22_13:45 = 14672.0 minutes in 14671 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: TRX/USDT has 110 features x 271 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:45:43 TRX -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ETC/USDT fromdate 2019-04-22_13:20 minutes 25</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:45:44.141409: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 502 sell 1746 hold 12423 total 14671 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:15 to 2019-04-22_13:45 = 14671.0 minutes in 14671 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ETC/USDT has 110 features x 271 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:45:50 ETC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ICX/USDT fromdate 2019-04-22_13:20 minutes 25</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:45:51.660682: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 810 sell 1715 hold 12145 total 14670 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:15 to 2019-04-22_13:45 = 14671.0 minutes in 14670 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ICX/USDT has 110 features x 270 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:45:58 ICX -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; PAX/USDT fromdate 2019-04-22_13:20 minutes 25</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:45:59.279690: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 0 sell 465 hold 14204 total 14669 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:16 to 2019-04-22_13:45 = 14670.0 minutes in 14669 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: PAX/USDT has 110 features x 269 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:46:05 PAX -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BCH/USDT fromdate 2019-04-22_13:20 minutes 26</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BCH/USDT fromdate 2019-04-22_13:45 minutes 1</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">nowstr() get_ohlcv ERROR: empty fetch_ohlcv</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BSV/USDT fromdate 2019-04-22_09:15 minutes 271</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BSV/USDT fromdate 2019-04-22_09:59 minutes 227</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">nowstr() get_ohlcv ERROR: empty fetch_ohlcv</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; USDC/USDT fromdate 2019-04-22_09:15 minutes 271</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:46:09.564763: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 11 sell 730 hold 13928 total 14669 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:18 to 2019-04-22_13:46 = 14669.0 minutes in 14669 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: USDC/USDT has 110 features x 269 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:46:16 USDC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; WAVES/USDT fromdate 2019-04-22_09:16 minutes 270</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:46:17.632650: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 538 sell 2135 hold 11995 total 14668 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:18 to 2019-04-22_13:46 = 14669.0 minutes in 14668 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: WAVES/USDT has 110 features x 268 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:46:24 WAVES -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BTT/USDT fromdate 2019-04-22_09:16 minutes 270</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:46:25.746813: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 435 sell 2058 hold 12175 total 14668 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:19 to 2019-04-22_13:46 = 14668.0 minutes in 14668 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BTT/USDT has 110 features x 268 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:46:32 BTT -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; FET/USDT fromdate 2019-04-22_09:17 minutes 269</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:46:33.872767: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 996 sell 1820 hold 11851 total 14667 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:19 to 2019-04-22_13:46 = 14668.0 minutes in 14667 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: FET/USDT has 110 features x 267 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:46:40 FET -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BAT/USDT fromdate 2019-04-22_09:18 minutes 268</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:46:42.103530: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 1466 sell 1824 hold 11376 total 14666 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:20 to 2019-04-22_13:46 = 14667.0 minutes in 14666 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BAT/USDT has 110 features x 266 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:46:49 BAT -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; IOST/USDT fromdate 2019-04-22_09:18 minutes 268</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:46:50.935002: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 924 sell 1884 hold 11858 total 14666 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:21 to 2019-04-22_13:46 = 14666.0 minutes in 14666 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: IOST/USDT has 110 features x 266 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:46:57 IOST -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; CELR/USDT fromdate 2019-04-22_09:19 minutes 267</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:46:59.042588: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 596 sell 1856 hold 12213 total 14665 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:21 to 2019-04-22_13:46 = 14666.0 minutes in 14665 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: CELR/USDT has 110 features x 265 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:47:05 CELR -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:47:05 next round</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ONG/USDT fromdate 2019-04-22_13:43 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ONG/USDT fromdate 2019-04-22_13:46 minutes 1</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">nowstr() get_ohlcv ERROR: empty fetch_ohlcv</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BTC/USDT fromdate 2019-04-22_13:43 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:47:07.810128: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 756 sell 1177 hold 12746 total 14679 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:08 to 2019-04-22_13:47 = 14680.0 minutes in 14679 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BTC/USDT has 110 features x 279 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:47:14 BTC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ETH/USDT fromdate 2019-04-22_13:43 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:47:16.083529: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 538 sell 1528 hold 12613 total 14679 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:09 to 2019-04-22_13:47 = 14679.0 minutes in 14679 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ETH/USDT has 110 features x 279 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:47:22 ETH -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BNB/USDT fromdate 2019-04-22_13:43 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:47:23.760741: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 1111 sell 1675 hold 11892 total 14678 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:09 to 2019-04-22_13:47 = 14679.0 minutes in 14678 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BNB/USDT has 110 features x 278 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:47:30 BNB -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; NEO/USDT fromdate 2019-04-22_13:43 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:47:31.554115: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 628 sell 1959 hold 12090 total 14677 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:10 to 2019-04-22_13:47 = 14678.0 minutes in 14677 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: NEO/USDT has 110 features x 277 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:47:38 NEO -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; LTC/USDT fromdate 2019-04-22_13:43 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:47:39.259034: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 572 sell 2308 hold 11797 total 14677 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:11 to 2019-04-22_13:47 = 14677.0 minutes in 14677 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: LTC/USDT has 110 features x 277 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:47:46 LTC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ADA/USDT fromdate 2019-04-22_13:43 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:47:47.312202: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 506 sell 1894 hold 12276 total 14676 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:11 to 2019-04-22_13:47 = 14677.0 minutes in 14676 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ADA/USDT has 110 features x 276 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:47:54 ADA -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; XRP/USDT fromdate 2019-04-22_13:44 minutes 3</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:47:55.808932: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 187 sell 2211 hold 12278 total 14676 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:12 to 2019-04-22_13:47 = 14676.0 minutes in 14676 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: XRP/USDT has 110 features x 276 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:48:02 XRP -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; EOS/USDT fromdate 2019-04-22_13:44 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:48:03.774060: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 573 sell 2184 hold 11919 total 14676 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:12 to 2019-04-22_13:48 = 14677.0 minutes in 14676 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: EOS/USDT has 110 features x 276 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:48:10 EOS -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; XLM/USDT fromdate 2019-04-22_13:44 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:48:11.353645: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 583 sell 2013 hold 12079 total 14675 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:13 to 2019-04-22_13:48 = 14676.0 minutes in 14675 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: XLM/USDT has 110 features x 275 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:48:18 XLM -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ONT/USDT fromdate 2019-04-22_13:44 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:48:19.498741: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 526 sell 2166 hold 11983 total 14675 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:14 to 2019-04-22_13:48 = 14675.0 minutes in 14675 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ONT/USDT has 110 features x 275 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:48:26 ONT -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; TRX/USDT fromdate 2019-04-22_13:44 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:48:27.649649: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 360 sell 1458 hold 12856 total 14674 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:14 to 2019-04-22_13:48 = 14675.0 minutes in 14674 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: TRX/USDT has 110 features x 274 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:48:34 TRX -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ETC/USDT fromdate 2019-04-22_13:44 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:48:35.434678: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 502 sell 1748 hold 12424 total 14674 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:15 to 2019-04-22_13:48 = 14674.0 minutes in 14674 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ETC/USDT has 110 features x 274 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:48:42 ETC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ICX/USDT fromdate 2019-04-22_13:44 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:48:43.495562: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 810 sell 1715 hold 12148 total 14673 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:15 to 2019-04-22_13:48 = 14674.0 minutes in 14673 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ICX/USDT has 110 features x 273 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:48:50 ICX -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; PAX/USDT fromdate 2019-04-22_13:44 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:48:51.018614: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 0 sell 465 hold 14207 total 14672 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:16 to 2019-04-22_13:48 = 14673.0 minutes in 14672 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: PAX/USDT has 110 features x 272 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:48:57 PAX -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BCH/USDT fromdate 2019-04-22_13:20 minutes 28</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:48:58.589340: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 760 sell 2143 hold 11769 total 14672 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:17 to 2019-04-22_13:48 = 14672.0 minutes in 14672 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BCH/USDT has 110 features x 272 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:49:05 BCH -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BSV/USDT fromdate 2019-04-22_09:15 minutes 274</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BSV/USDT fromdate 2019-04-22_09:59 minutes 230</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">nowstr() get_ohlcv ERROR: empty fetch_ohlcv</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; USDC/USDT fromdate 2019-04-22_13:45 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; USDC/USDT fromdate 2019-04-22_13:48 minutes 1</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">nowstr() get_ohlcv ERROR: empty fetch_ohlcv</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; WAVES/USDT fromdate 2019-04-22_13:45 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; WAVES/USDT fromdate 2019-04-22_13:48 minutes 1</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">nowstr() get_ohlcv ERROR: empty fetch_ohlcv</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BTT/USDT fromdate 2019-04-22_13:45 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:49:09.320390: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 435 sell 2059 hold 12177 total 14671 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:19 to 2019-04-22_13:49 = 14671.0 minutes in 14671 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BTT/USDT has 110 features x 271 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:49:15 BTT -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; FET/USDT fromdate 2019-04-22_13:45 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:49:16.867779: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 996 sell 1820 hold 11854 total 14670 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:19 to 2019-04-22_13:49 = 14671.0 minutes in 14670 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: FET/USDT has 110 features x 270 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:49:23 FET -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BAT/USDT fromdate 2019-04-22_13:45 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:49:24.388611: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 1466 sell 1824 hold 11379 total 14669 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:20 to 2019-04-22_13:49 = 14670.0 minutes in 14669 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BAT/USDT has 110 features x 269 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:49:30 BAT -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; IOST/USDT fromdate 2019-04-22_13:45 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:49:31.949120: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 924 sell 1885 hold 11860 total 14669 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:21 to 2019-04-22_13:49 = 14669.0 minutes in 14669 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: IOST/USDT has 110 features x 269 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:49:38 IOST -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; CELR/USDT fromdate 2019-04-22_13:45 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:49:39.420650: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 596 sell 1857 hold 12215 total 14668 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:21 to 2019-04-22_13:49 = 14669.0 minutes in 14668 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: CELR/USDT has 110 features x 268 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:49:46 CELR -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:49:46 next round</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ONG/USDT fromdate 2019-04-22_13:43 minutes 6</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:49:46.916621: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 605 sell 1548 hold 12529 total 14682 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:07 to 2019-04-22_13:49 = 14683.0 minutes in 14682 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ONG/USDT has 110 features x 282 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:49:53 ONG -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BTC/USDT fromdate 2019-04-22_13:46 minutes 3</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:49:54.669919: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 756 sell 1178 hold 12747 total 14681 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:08 to 2019-04-22_13:49 = 14682.0 minutes in 14681 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BTC/USDT has 110 features x 281 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:50:01 BTC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ETH/USDT fromdate 2019-04-22_13:46 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:50:02.426963: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 539 sell 1528 hold 12615 total 14682 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:09 to 2019-04-22_13:50 = 14682.0 minutes in 14682 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ETH/USDT has 110 features x 282 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:50:09 ETH -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BNB/USDT fromdate 2019-04-22_13:46 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:50:10.642438: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 1111 sell 1675 hold 11895 total 14681 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:09 to 2019-04-22_13:50 = 14682.0 minutes in 14681 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BNB/USDT has 110 features x 281 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:50:17 BNB -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; NEO/USDT fromdate 2019-04-22_13:46 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:50:18.326269: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 628 sell 1960 hold 12092 total 14680 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:10 to 2019-04-22_13:50 = 14681.0 minutes in 14680 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: NEO/USDT has 110 features x 280 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:50:25 NEO -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; LTC/USDT fromdate 2019-04-22_13:46 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:50:26.212176: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 572 sell 2308 hold 11800 total 14680 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:11 to 2019-04-22_13:50 = 14680.0 minutes in 14680 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: LTC/USDT has 110 features x 280 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:50:33 LTC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ADA/USDT fromdate 2019-04-22_13:46 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:50:34.438952: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 506 sell 1895 hold 12278 total 14679 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:11 to 2019-04-22_13:50 = 14680.0 minutes in 14679 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ADA/USDT has 110 features x 279 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:50:41 ADA -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; XRP/USDT fromdate 2019-04-22_13:46 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:50:42.108670: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 187 sell 2212 hold 12280 total 14679 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:12 to 2019-04-22_13:50 = 14679.0 minutes in 14679 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: XRP/USDT has 110 features x 279 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:50:48 XRP -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; EOS/USDT fromdate 2019-04-22_13:47 minutes 3</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:50:49.883741: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 573 sell 2184 hold 11921 total 14678 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:12 to 2019-04-22_13:50 = 14679.0 minutes in 14678 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: EOS/USDT has 110 features x 278 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:50:56 EOS -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; XLM/USDT fromdate 2019-04-22_13:47 minutes 3</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:50:57.487696: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 583 sell 2013 hold 12081 total 14677 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:13 to 2019-04-22_13:50 = 14678.0 minutes in 14677 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: XLM/USDT has 110 features x 277 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:51:04 XLM -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ONT/USDT fromdate 2019-04-22_13:47 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:51:05.221259: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 526 sell 2166 hold 11986 total 14678 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:14 to 2019-04-22_13:51 = 14678.0 minutes in 14678 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ONT/USDT has 110 features x 278 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:51:11 ONT -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; TRX/USDT fromdate 2019-04-22_13:47 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:51:12.879579: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 360 sell 1458 hold 12859 total 14677 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:14 to 2019-04-22_13:51 = 14678.0 minutes in 14677 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: TRX/USDT has 110 features x 277 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:51:19 TRX -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ETC/USDT fromdate 2019-04-22_13:47 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:51:20.580675: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 502 sell 1748 hold 12427 total 14677 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:15 to 2019-04-22_13:51 = 14677.0 minutes in 14677 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ETC/USDT has 110 features x 277 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:51:27 ETC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; ICX/USDT fromdate 2019-04-22_13:47 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:51:28.294542: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 809 sell 1716 hold 12151 total 14676 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:15 to 2019-04-22_13:51 = 14677.0 minutes in 14676 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: ICX/USDT has 110 features x 276 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:51:35 ICX -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; PAX/USDT fromdate 2019-04-22_13:47 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:51:36.098169: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 0 sell 466 hold 14209 total 14675 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:16 to 2019-04-22_13:51 = 14676.0 minutes in 14675 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: PAX/USDT has 110 features x 275 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:51:42 PAX -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BCH/USDT fromdate 2019-04-22_13:47 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:51:43.639520: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 760 sell 2144 hold 11771 total 14675 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:17 to 2019-04-22_13:51 = 14675.0 minutes in 14675 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BCH/USDT has 110 features x 275 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:51:50 BCH -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BSV/USDT fromdate 2019-04-22_09:15 minutes 276</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BSV/USDT fromdate 2019-04-22_09:59 minutes 232</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">nowstr() get_ohlcv ERROR: empty fetch_ohlcv</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; USDC/USDT fromdate 2019-04-22_13:45 minutes 6</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:51:52.313205: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 11 sell 730 hold 13933 total 14674 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:18 to 2019-04-22_13:51 = 14674.0 minutes in 14674 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: USDC/USDT has 110 features x 274 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:51:58 USDC -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; WAVES/USDT fromdate 2019-04-22_13:45 minutes 6</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:51:59.866559: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 538 sell 2139 hold 11996 total 14673 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:18 to 2019-04-22_13:51 = 14674.0 minutes in 14673 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: WAVES/USDT has 110 features x 273 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:52:06 WAVES -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BTT/USDT fromdate 2019-04-22_13:48 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:52:07.482654: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 435 sell 2059 hold 12180 total 14674 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:19 to 2019-04-22_13:52 = 14674.0 minutes in 14674 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BTT/USDT has 110 features x 274 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:52:14 BTT -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; FET/USDT fromdate 2019-04-22_13:48 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:52:15.187802: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 996 sell 1820 hold 11857 total 14673 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:19 to 2019-04-22_13:52 = 14674.0 minutes in 14673 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: FET/USDT has 110 features x 273 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:52:21 FET -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; BAT/USDT fromdate 2019-04-22_13:48 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:52:22.778001: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 1466 sell 1827 hold 11379 total 14672 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:20 to 2019-04-22_13:52 = 14673.0 minutes in 14672 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: BAT/USDT has 110 features x 272 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:52:29 BAT -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; IOST/USDT fromdate 2019-04-22_13:48 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:52:30.327810: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 924 sell 1888 hold 11860 total 14672 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:21 to 2019-04-22_13:52 = 14672.0 minutes in 14672 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: IOST/USDT has 110 features x 272 samples</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22_15:52:37 IOST -</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">&lt;function nowstr at 0x11e4d2c80&gt; CELR/USDT fromdate 2019-04-22_13:48 minutes 4</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">2019-04-22 15:52:38.365758: add_period_specific_targets 5</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">buy 596 sell 1857 hold 12218 total 14671 on complete set</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">expand from 2019-04-12_09:21 to 2019-04-22_13:52 = 14672.0 minutes in 14671 rows, required 14401</p>
+<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;">target: CELR/USDT has 110 features x 271 samples</p>
+<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p></body></html>

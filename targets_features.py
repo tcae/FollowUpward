@@ -7,7 +7,7 @@ Created on Mon Jan  7 21:43:26 2019
 """
 # import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 # import math
 from sklearn.utils import Bunch
 import numpy as np
@@ -16,7 +16,7 @@ from queue import Queue
 
 
 # DATA_PATH = os.getcwd() # local execution - to be avoided due to Git sync size
-DATA_PATH = '/Users/tc/Features'  # local execution
+DATA_PATH = '/Users/tc/crypto/Features'  # local execution
 # DATA_PATH = '/content/gdrive/My Drive/Features' # Colab execution
 
 PICKLE_EXT = ".pydata"  # pickle file extension
@@ -38,11 +38,17 @@ TRAIN = 'training'
 VAL = 'validation'
 TEST = 'test'
 TARGETS = {HOLD: 0, BUY: 1, SELL: 2, NA: 11}  # dict with int encoding of target labels
+TARGET_NAMES = {0: HOLD, 1: BUY, 2: SELL, 11: NA}  # dict with int encoding of targets
 TARGET_KEY = 5
 TIME_AGGS = {CPC: 0, 1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10}
 # TIME_AGGS = {1: 10, 5: 10}
 LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
 
+def timestr(ts):
+    if ts is None:
+        return datetime.now().strftime(DT_FORMAT)
+    else:
+        return ts.strftime(DT_FORMAT)
 
 def time_in_index(dataframe_with_timeseriesindex, tic):
     return True in dataframe_with_timeseriesindex.index.isin([tic])
@@ -66,21 +72,29 @@ def load_sample_set_split_config(config_fname):
         print(f"pd.read_csv({config_fname}) IO error")
         return None
 
-def save_asset_dataframe(df, cur_pair):
+def save_asset_dataframe(df, path, cur_pair):
     # "saves the object via msgpack"
-    fname = DATA_PATH +  '/' + cur_pair + '_DataFrame.msg'
-    print("{}: writing {} DataFrame with {} tics ({} - {}) to {}".format(
+    cur_pair = cur_pair.replace('/', '_')
+    fname = path +  '/' + cur_pair + '_DataFrame.msg'
+    print("{}: writing {} {} tics ({} - {})".format(
         datetime.now().strftime(DT_FORMAT), cur_pair, len(df), df.index[0].strftime(DT_FORMAT),
-        df.index[len(df)-1].strftime(DT_FORMAT), fname))
+        df.index[len(df)-1].strftime(DT_FORMAT)))
     df.to_msgpack(fname)
 
-def load_asset_dataframe(cur_pair):
+def load_asset_dataframe(path, cur_pair):
     # "saves the object via msgpack"
-    fname = DATA_PATH +  '/' + cur_pair + '_DataFrame.msg'
-    df = pd.read_msgpack(fname)
-    print("{}: load {} DataFrame with {} tics ({} - {}) to {}".format(
-        datetime.now().strftime(DT_FORMAT), cur_pair, len(df), df.index[0].strftime(DT_FORMAT),
-        df.index[len(df)-1].strftime(DT_FORMAT), fname))
+    cur_pair = cur_pair.replace('/', '_')
+    fname = path +  '/' + cur_pair + '_DataFrame.msg'
+    df = None
+    try:
+        df = pd.read_msgpack(fname)
+        print("{}: load {} {} tics ({} - {})".format(
+            datetime.now().strftime(DT_FORMAT), cur_pair, len(df), df.index[0].strftime(DT_FORMAT),
+            df.index[len(df)-1].strftime(DT_FORMAT)))
+    except IOError:
+        print(f"{timestr()} load_asset_dataframe ERROR: cannot load {fname}")
+    except ValueError:
+        return None
     return df
 
 def report_setsize(setname, df):
@@ -89,6 +103,10 @@ def report_setsize(setname, df):
     bc = len(df[df.target == TARGETS[BUY]])
     tc = hc + sc + bc
     print(f"buy {bc} sell {sc} hold {hc} total {tc} on {setname}")
+
+
+class MissingHistoryData(Exception):
+    pass
 
 
 class TargetsFeatures:
@@ -157,6 +175,7 @@ class TargetsFeatures:
         df.loc[df['close'] > df['open'], 'bottom'] = (df['open'] - df['low']) / df['close'] * 1000
         df.loc[df['close'] <= df['open'], 'bottom'] = (df['close'] - df['low']) / df['close'] * 1000
 
+
     def calc_aggregation(self):
         """Time aggregation through rolling aggregation with the consequence that new data is
         generated every minute and even long time aggregations reflect all minute bumps in their
@@ -168,10 +187,19 @@ class TargetsFeatures:
             dict of dataframes of aggregations with features and targets
         """
         mdf = df = self.minute_data  # .copy()
-        mdf['vol'] = (mdf['volume'] - mdf.volume.rolling(VOL_BASE_PERIOD).median()) \
-                     / mdf.volume.rolling(VOL_BASE_PERIOD).median()
+        mdf['vol'] = (mdf['volume'] - mdf.volume.rolling(VOL_BASE_PERIOD).mean()) \
+                 / mdf.volume.rolling(VOL_BASE_PERIOD).mean()
+        mdf = mdf.fillna(value={'vol': 0.000001})
+        maxmin = 0
         for time_agg in self.time_aggregations:
-            print(f"{datetime.now()}: time_aggregation {time_agg}")
+            if isinstance(time_agg, int):
+                if (time_agg * self.time_aggregations[time_agg]) > maxmin:
+                    maxmin = time_agg * self.time_aggregations[time_agg]
+        if maxmin > len(df.index):
+            raise MissingHistoryData("History data has {} samples but should have >= {}".format(
+                    len(df.index), maxmin))
+        for time_agg in self.time_aggregations:
+            # print(f"{datetime.now()}: time_aggregation {time_agg}")
             if isinstance(time_agg, int):
                 if time_agg > 1:
                     df = pd.DataFrame()
@@ -202,7 +230,7 @@ class TargetsFeatures:
 
     def add_period_specific_targets(self, time_agg):
         "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
-        print(f"{datetime.now()}: add_period_specific_targets {time_agg}")
+        #print(f"{datetime.now()}: add_period_specific_targets {time_agg}")
         df = self.tf_aggs[time_agg]
         df['target'] = TARGETS[HOLD]
         lix = df.columns.get_loc('target')
@@ -278,7 +306,7 @@ class TargetsFeatures:
                     if closeatbuy == 0:
                         closeatbuy = this_close
                     ixfifo.put(tix)  # prep after execution due to queue reuse
-        report_setsize("complete set", df)
+        # report_setsize("complete set", df)
 
     def cpc_best_path(self):
         """identify best path through all aggregations - use all buy and sell signals.
@@ -506,6 +534,8 @@ class TfVectors:
             self.expand_CPC_feature_vectors(tf)
         else:
             self.expand_target_feature_vectors(tf)
+#        print("target: {} has {} features x {} samples".format(tf.cur_pair,
+#              len(self.vecs[tf.target_key].columns)-2, len(self.vecs[tf.target_key].index)))
 
     def expand_target_feature_vectors(self, tf):
         """Builds a target and feature vector for just the target_key with
@@ -523,11 +553,16 @@ class TfVectors:
             1 minute aggregation or just 'D' for all other aggregations with aggregation+'T_'
             as column prefix
         """
-        print(f"{datetime.now()}: processing {self.cur_pair} for target classifier {tf.target_key}")
+        # print(f"{datetime.now()}: processing {self.cur_pair} for target classifier {tf.target_key}")
         trgt = tf.target_key
-        self.vecs[trgt] = pd.DataFrame(tf.tf_aggs[trgt], columns=['close', 'target'])
-        # self.vecs[trgt]['target'] = tf.tf_aggs[trgt]['target'].astype(int)
+        df = pd.DataFrame(tf.tf_aggs[trgt], columns=['close', 'target'])
+        # df['target'] = tf.tf_aggs[trgt]['target'].astype(int)
         skey = smallest_dict_key(tf.tf_aggs)
+        sts = tf.tf_aggs[skey].index[0]
+        ets = tf.tf_aggs[skey].index[len(tf.tf_aggs[skey].index)-1]
+        mindiff = (ets - sts) / timedelta(minutes=1) + 1
+        maxos = 1440 * tf.time_aggregations[1440]
+        # print(f"expand from {timestr(sts)} to {timestr(ets)} = {mindiff} minutes in {len(tf.tf_aggs[skey].index)} rows, required {maxos+1}")
         for ta in tf.tf_aggs:
             for tics in range(tf.time_aggregations[ta]):
                 ctitle = str(ta) + 'T_' + str(tics) + '_'
@@ -536,16 +571,17 @@ class TfVectors:
                 else:
                     offset = tics
                 # now add feature columns according to aggregation
-                self.vecs[trgt][ctitle + 'D'] = tf.tf_aggs[ta].delta.shift(offset)
+                df[ctitle + 'D'] = tf.tf_aggs[ta].delta.shift(offset)
                 if ta == skey:
-                    self.vecs[trgt][ctitle + 'H'] = tf.tf_aggs[ta].height.shift(offset)
-                    self.vecs[trgt][ctitle + 'T'] = tf.tf_aggs[ta].top.shift(offset)
-                    self.vecs[trgt][ctitle + 'B'] = tf.tf_aggs[ta].bottom.shift(offset)
-                    self.vecs[trgt][ctitle + 'V'] = tf.tf_aggs[ta].vol.shift(offset)
-                    self.vecs[trgt][ctitle + 'DV'] = tf.tf_aggs[ta].vol.shift(offset) *\
+                    df[ctitle + 'H'] = tf.tf_aggs[ta].height.shift(offset)
+                    df[ctitle + 'T'] = tf.tf_aggs[ta].top.shift(offset)
+                    df[ctitle + 'B'] = tf.tf_aggs[ta].bottom.shift(offset)
+                    df[ctitle + 'V'] = tf.tf_aggs[ta].vol.shift(offset)
+                    df[ctitle + 'DV'] = tf.tf_aggs[ta].vol.shift(offset) *\
                                                      tf.tf_aggs[ta].delta.shift(offset)
-            self.vecs[trgt].dropna(inplace=True)
-            assert not self.vecs[trgt].empty, "empty dataframe from TargetsFeatures"
+        self.vecs[trgt] = df.dropna()
+        if self.vecs[trgt].empty:
+            print("empty dataframe from TargetsFeatures")
         self.cut_back_to_same_sample_tics(tf)
 
     def expand_CPC_feature_vectors(self, tf):
@@ -605,6 +641,24 @@ class TfVectors:
     def vec(self, key):
         "Returns the dataframe of the given key"
         return self.vecs[key]
+
+    def most_recent_features_only(self):
+        """Reduces rows to just the last one"""
+        lastts = None
+        for ta in self.vecs:
+            tfv_ta = self.vecs[ta]
+            if tfv_ta.empty:
+                print("most_recent_features_only ERROR: unexpected empty self.vecs(ta)")
+                return None
+            if lastts is None:
+                lastts = tfv_ta.index[len(tfv_ta.index)-1]
+            if tfv_ta.empty:
+                print("most_recent_features_only ERROR: unexpected empty self.vecs(ta)")
+                return None
+            df = pd.DataFrame(tfv_ta.loc[lastts]).transpose()
+            if len(df) != 1:
+                print(f"most_recent_features_only ERROR: unexpected self.vecs(ta) len {len(df)}")
+            self.vecs[ta] = df
 
     def any_key(self):
         """Returns the key of any TfVectors dataframe that has a complete timestamp index
