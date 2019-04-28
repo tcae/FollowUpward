@@ -409,3 +409,5 @@ dfdiff = int((dtnow - dtlast) / timedelta(minutes=1))
 print(f"now {dtnow} last_tic {last_tic} pylast {pylast} dtlast {dtlast} dfdiff {dfdiff}")
 if dfdiff < minutes:
     tdminutes = dfdiff
+print(pd.Timestamp(dtnow).week)
+print(pd.Timestamp(dtnow).weekofyear)

@@ -23,9 +23,10 @@ CACHE_PATH = '/Users/tc/crypto/cache'
 RETRIES = 5  # number of ccxt retry attempts before proceeding without success
 ORDER_TIMEOUT = 45  # in seconds
 MIN_AVG_USDT = 1500  # minimum average minute volume in USDT to be considered
+TRADE_VOL_LIMIT_USDT = 100
 # BASES = ['BTC', 'XRP', 'ETH', 'BNB', 'EOS', 'LTC', 'NEO', 'TRX', 'USDT']
 BASES = ['ONG', 'USDT']
-BLACK_BASES = ['TUSD', 'USDT']
+BLACK_BASES = ['TUSD', 'USDT', 'BNB']
 QUOTE = 'USDT'
 DATA_KEYS = ['open', 'high', 'low', 'close', 'volume']
 AUTH_FILE = "/Users/tc/.catalyst/data/exchanges/binance/auth.json"
@@ -172,7 +173,8 @@ class Trading():
                 else:
                     bval = mybal[base]['free'] + mybal[base]['used']
                     if bval > 0.01:  # whatever USDT value
-                        print(f"balance value of {bval} {base} not traded in USDT")
+                        #  print(f"balance value of {bval} {base} not traded in USDT")
+                        pass
         for sym in tickers:
             if sym.endswith('/USDT'):  # add markets above MIN_AVG_USDT*60*24 daily volume
                 base = sym[:-5]
@@ -512,6 +514,7 @@ class Trading():
         # ice_chunk = ICEBERG_USDT_PART / price # about the chunk quantity we want
         ice_chunk = self.book.loc[base, 'dayUSDT'] / (24 * 60 * 4)  # 1/4 of average minute volume
         ice_parts = math.ceil(amount / ice_chunk) # about equal parts
+        ice_parts = 3 # test purposes
         ice_parts = min(ice_parts, self.book.loc[base, 'iceberg_parts'])
         ice_chunk = amount / ice_parts
         ice_chunk = int(ice_chunk / self.book.loc[base, 'lot_size_min']) \
@@ -598,6 +601,17 @@ class Trading():
         else:
             print(f"unsupported base {base}")
 
+    def trade_amount(self, base, ratio):
+        trade_vol = 0
+        for base in self.book.index:
+            if base not in BLACK_BASES:
+                trade_vol += (self.book.loc[base, 'free'] + self.book.loc[base, 'used']) \
+                             * self.book.loc[base, 'USDT']
+        trade_vol = TRADE_VOL_LIMIT_USDT - trade_vol
+        trade_vol = min(trade_vol, self.book.loc[QUOTE, 'free'])
+        usdt_amount = trade_vol * ratio
+        return usdt_amount
+
     def buy_order(self, base, ratio=1):
         """ Buys the ratio of free quote currency with base currency. Constraint: 0 <= ratio <= 1
         """
@@ -610,7 +624,7 @@ class Trading():
                 return
 
             self.update_bookkeeping(tickers)
-            quote_amount = self.book.loc[QUOTE, 'free'] * ratio
+            quote_amount = self.trade_amount(base, ratio)
             price = tickers[sym]['ask']  # TODO order spread strategy
             print(f"{nowstr()} BUY {quote_amount} USDT / {price} {sym}")
             while quote_amount > 0:
@@ -646,13 +660,13 @@ class Trading():
             print(f"unsupported base {base}")
 
     def trade_loop(self, cpcs, time_aggs, buy_trshld, sell_trshld):
-        sellbase = buybase = dict()
+        buybase = list()
+        sellbase = list()
         try:
             while True:
                 print(f"{nowstr()} next round")
                 # TOD: check order progress
                 ts1 = pd.Timestamp.utcnow()
-                buyperfsum = 0
                 for base in self.book.index:
                     if base in BLACK_BASES:
                         continue
@@ -660,7 +674,6 @@ class Trading():
                     ohlcv_df = self.get_ohlcv(base, 24*60*10+1)
                     if ohlcv_df is None:
                         continue
-                    perf = self.last_hour_performance(ohlcv_df)
                     try:
                         ttf = tf.TargetsFeatures(aggregations=time_aggs, target_key=5, cur_pair=sym)
                         ttf.calc_features_and_targets(ohlcv_df)
@@ -672,26 +685,24 @@ class Trading():
                     tfv.most_recent_features_only()
                     cl = cpcs.ensemble_performance_with_features(tfv, buy_trshld, sell_trshld)
                     # cl will be HOLD if insufficient data history is available
+
+                    # if (base == 'ONT') and (cl == tf.TARGETS[tf.HOLD]):  # test purposes
+                    #     cl = tf.TARGETS[tf.SELL]
                     if cl != tf.TARGETS[tf.HOLD]:
                         print(f"{nowstr()} {base} {tf.TARGET_NAMES[cl]}")
                     if cl == tf.TARGETS[tf.SELL]:
-                        sellbase[base] = perf
+                        sellbase.append(base)
                     if cl == tf.TARGETS[tf.BUY]:
-                        if perf > 0:
-                            buybase[base] = perf
-                            buyperfsum += perf
-                        else:
-                            buybase[base] = 0
+                        buybase.append(base)
                 if len(sellbase) > 0:
                     for base in sellbase:
                         self.sell_order(base, ratio=1)
                     sellbase.clear()
                 if len(buybase) > 0:
-                    free_distribution = 1/(2 * len(buybase))  # 50% equally distributed weight
+                    free_distribution = 1/len(buybase)  # equally distributed weight
+                    # TODO: 50% of weight via Alpha of that currency
                     for base in buybase:
-                        buybase[base] /= (2*buyperfsum)  # 50% performance dependent weight
-                        buybase[base] += free_distribution
-                        self.buy_order(base, ratio=buybase[base])
+                        self.buy_order(base, ratio=free_distribution)
                     buybase.clear()
 
                 ts2 = pd.Timestamp.utcnow()
