@@ -8,15 +8,17 @@ Created on Mon Jan  7 21:43:26 2019
 # import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-# import math
+import math
 from sklearn.utils import Bunch
 import numpy as np
 from queue import Queue
 
 
+DATA_KEYS = ['open', 'high', 'low', 'close', 'volume']  # , 'price'
 
 # DATA_PATH = os.getcwd() # local execution - to be avoided due to Git sync size
-DATA_PATH = '/Users/tc/crypto/Features'  # local execution
+# DATA_PATH = '/Users/tc/crypto/Features'  # local execution
+DATA_PATH = '/Users/tc/crypto/TestFeatures'  # local execution
 # DATA_PATH = '/content/gdrive/My Drive/Features' # Colab execution
 
 PICKLE_EXT = ".pydata"  # pickle file extension
@@ -43,8 +45,10 @@ TARGET_KEY = 5
 TIME_AGGS = {CPC: 0, 1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10}
 # TIME_AGGS = {1: 10, 5: 10}
 LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
+# BASES = ['xrp', 'eos', 'bnb', 'btc', 'eth', 'neo', 'ltc', 'trx']
+BASES = ['bnb', 'xrp']
 
-def timestr(ts):
+def timestr(ts=None):
     if ts is None:
         return datetime.now().strftime(DT_FORMAT)
     else:
@@ -52,6 +56,13 @@ def timestr(ts):
 
 def time_in_index(dataframe_with_timeseriesindex, tic):
     return True in dataframe_with_timeseriesindex.index.isin([tic])
+
+def targets_to_features(tfv_ta_df, target_df):
+    """Extracts a sample subset with targets and features of a specific time aggregation
+    based on given targets. target_df and tfv_ta_df both have to share the same index basis.
+    The index of target_df shall be a subset of tfv_ta_df.
+    """
+    return tfv_ta_df[tfv_ta_df.index.isin(target_df.index)]
 
 def load_sample_set_split_config(config_fname):
     # fname = '/Users/tc/tf_models/crypto' + '/' + 'sample_set_split.config'
@@ -81,21 +92,65 @@ def save_asset_dataframe(df, path, cur_pair):
         df.index[len(df)-1].strftime(DT_FORMAT)))
     df.to_msgpack(fname)
 
-def load_asset_dataframe(path, cur_pair):
-    # "saves the object via msgpack"
-    cur_pair = cur_pair.replace('/', '_')
-    fname = path +  '/' + cur_pair + '_DataFrame.msg'
+def load_asset_dataframefile(fname):
+    # "loads the object via msgpack"
     df = None
     try:
         df = pd.read_msgpack(fname)
         print("{}: load {} {} tics ({} - {})".format(
-            datetime.now().strftime(DT_FORMAT), cur_pair, len(df), df.index[0].strftime(DT_FORMAT),
+            datetime.now().strftime(DT_FORMAT), fname, len(df), df.index[0].strftime(DT_FORMAT),
             df.index[len(df)-1].strftime(DT_FORMAT)))
     except IOError:
         print(f"{timestr()} load_asset_dataframe ERROR: cannot load {fname}")
     except ValueError:
         return None
     return df
+
+def dfdescribe(desc, df):
+    print(desc)
+    print(df.describe())
+    print(df.head())
+    print(df.tail())
+
+def merge_asset_dataframe(path, base):
+    # "loads the object via msgpack"
+    fname = path +  '/' + 'btc_usdt' + '_DataFrame.msg'
+    btcusdt = load_asset_dataframefile(fname)
+    if base != 'btc':
+        fname = path +  '/' + base + '_btc' + '_DataFrame.msg'
+        basebtc = load_asset_dataframefile(fname)
+        dfdescribe(f"{base}-btc", basebtc)
+        fname = path +  '/' + base + '_usdt' + '_DataFrame.msg'
+        baseusdt = load_asset_dataframefile(fname)
+        dfdescribe(f"{base}-usdt", baseusdt)
+        if (baseusdt.index[0] <= basebtc.index[0]) or (baseusdt.index[0] <= btcusdt.index[0]):
+            basemerged = baseusdt
+        else:
+            basebtc = basebtc[basebtc.index.isin(btcusdt.index)]
+            basemerged = pd.DataFrame(btcusdt)
+            basemerged = basemerged[basemerged.index.isin(basebtc.index)]
+            for key in DATA_KEYS:
+                if key != 'volume':
+                    basemerged[key] = basebtc[key] * btcusdt[key]
+            basemerged['volume'] = basebtc.volume
+            dfdescribe(f"{base}-btc-usdt", basemerged)
+
+            baseusdt = baseusdt[baseusdt.index.isin(basemerged.index)]
+            assert not baseusdt.empty
+            basemerged.loc[baseusdt.index] = baseusdt[:]  # take values of cusdt where available
+    else:
+        basemerged = btcusdt
+    dfdescribe(f"{base}-merged", basemerged)
+
+    save_asset_dataframe(basemerged, DATA_PATH, base + 'usdt')
+
+    return basemerged
+
+def load_asset_dataframe(path, base):
+    # "loads the object via msgpack"
+    fname = path +  '/' + base + 'usdt' + '_DataFrame.msg'
+    dfbu = load_asset_dataframefile(fname)
+    return dfbu
 
 def report_setsize(setname, df):
     hc = len(df[df.target == TARGETS[HOLD]])
@@ -913,6 +968,311 @@ class TfVectors:
             seq[elem] = self.to_scikitlearn(data_df)
             seq[elem].descr = self.cur_pair + " aggregation: " + str(key) + " " + elem
         return seq
+
+
+def load_classifier_features(aggs, target, base):
+    df = load_asset_dataframe(DATA_PATH, base)
+    if df is None:
+        tf = None
+    else:
+        cur_pair = base + "_usdt"
+        tf = TargetsFeatures(aggregations=aggs, target_key=target, cur_pair=cur_pair)
+        tf.calc_features_and_targets(df)
+        # test = tf.calc_performances()
+        # for p in test:
+        #     print(f"performance potential for aggregation {p}: {test[p]:%}")
+    return tf
+
+class TrainingSet:
+
+    def __init__(self, history_sets):
+        self.hs = history_sets
+        self.bases_iter = None
+        self.base = None
+        self.tfv = None
+
+    def __iter__(self):
+        self.bases_iter = iter(self.hs.baselist)
+        return self
+
+    def __next__(self):
+        try:
+            if self.hs.trainctrl.empty:
+                print("no training set in HistorySets")
+                raise StopIteration()
+            while True:
+                self.base = self.bases_iter.__next__()
+                sym = self.base + "_usdt"
+                # tf = load_classifier_features(self.hs.tf_aggs, self.hs.target_key, self.base)
+                # self.tfv = tf.tf_vectors
+                try:
+                    train_base_df = self.hs.trainctrl.loc[self.hs.trainctrl.sym == sym]
+                    print(f"training set with {len(train_base_df)} samples for {sym}")
+                    return train_base_df
+                except KeyError:
+                    print(f"no training set for {sym}")
+                    pass
+        except StopIteration:
+            raise StopIteration()
+
+
+class HistorySets:
+    """Container class for targets and features of a currency pair
+    timeblock is the time window in minutes that is analyzed equally for all bases to
+    avoid label leakage. timeblocks are then distributed to train, validate and test to
+    balance buy and sell signals.
+    """
+
+    def __init__(self, target_key, aggs):
+        """Uses history data of baselist/USDT as history set to train and evaluate.
+
+        training control:
+        =================
+        - df[common timeline index, base, target, training_count, buy_prob, sell_prop, hold_prop,
+           train_next]
+        - iteration within an epoch, every iternation-th class of a sym is used
+        - tcount is incremented with every training cycle usage
+        - buy_prob, sell_prop, hold_prop are the class probabilities of the last evaluation
+        - use is an earmark that this sample shall be used for the next training epoch/validation
+        """
+        self.baselist = BASES
+        self.target_key = target_key
+        self.tf_aggs = aggs
+        self.timeblock = 4*7*24*60  # time window in minutes that is analyzed equally for all bases
+        self.fixtic = None  # tic as fixpoint for timeblock
+        self.analysis = pd.DataFrame(columns=['sym', 'set_type', 'start', 'end', 'tics',
+                                              'buys', 'sells', 'avg_vol', 'novol_count'])
+
+        self.trainctrl = pd.DataFrame(columns=['sym', 'timestamp', 'target', 'use',
+                                               'buy_prob', 'sell_prop', 'hold_prop',
+                                               'iteration', 'tcount'])
+        self.training_iterations = 10
+        self.valctrl = pd.DataFrame(columns=['sym', 'timestamp', 'target', 'use',
+                                             'buy_prob', 'sell_prop', 'hold_prop'])
+        self.testctrl = pd.DataFrame(columns=['sym', 'timestamp', 'target', 'use',
+                                              'buy_prob', 'sell_prop', 'hold_prop'])
+
+        # for base in self.baselist:
+        #     merge_asset_dataframe(DATA_PATH, base)
+        self.load_sets_config(self.sets_config_fname(target_key))
+        assert not self.analysis.empty, f"{timestr()}: missing sets config - generating it now"
+        # self.analyze_bases(target_key, aggs)
+
+    def load_sets_config(self, config_fname):
+
+        def use_settype_total():
+            """Uses the set_type of 'total' and apllies it to all sets with such timeblock.
+            """
+            cdf = self.analysis.set_index('end')
+            cdf['set_type'] = cdf.loc[cdf.sym == 'total']['set_type']
+            # cdf['end'] = cdf.index  # is already doen by reset_index
+            self.analysis = cdf.reset_index()
+
+        # fname = '/Users/tc/tf_models/crypto' + '/' + 'sample_set_split.config'
+        try:
+            self.analysis = pd.read_csv(config_fname, skipinitialspace=True, sep='\t')
+        except IOError:
+            print(f"pd.read_csv({config_fname}) IO error")
+            return None
+        # use_settype_total()
+        # self.analysis.to_csv(config_fname, sep='\t', index=False)
+        self.prepare_training()
+
+    def prepare_training(self):
+        """Prepares training, validation and test sets with targets and admin info
+        (see class description). These determine the samples per set_type and whether
+        they are used in an iteration.
+
+        It is assumed that load_sets_config was called and self.analysis contains the
+        proper config fiel content.
+        """
+
+        def label_iterations(df, buys, sells, holds):
+            """Each sample is assigned to an iteration. The smallest class has
+            self.training_iterations iterations, i.e. each sample is labeled
+            with an iteration between 0 and self.training_iterations-1.
+            The larger classes have more iteration labels according to
+            their ratio with the smallest class. This is determines per sym,
+            timeblock and target class.
+
+            This sample distribution over iterations shall balance the training
+            of the classifiers and not bias the classifier too much in an early learning cycle.
+            """
+            min_iter = min([buys, sells, holds])
+            b_iter = buys / min_iter * self.training_iterations
+            s_iter = sells / min_iter * self.training_iterations
+            h_iter = holds / min_iter * self.training_iterations
+            bi = si = hi = 0
+            tix = df.columns.get_loc('target')
+            iix = df.columns.get_loc('iteration')
+            for ix in range(len(df.index)):
+                target = df.iat[ix, tix]
+                if target == TARGETS[BUY]:
+                    df.iat[ix, iix] = bi
+                    bi = (bi + 1) % b_iter
+                elif target == TARGETS[SELL]:
+                    df.iat[ix, iix] = si
+                    si = (si + 1) % s_iter
+                elif target == TARGETS[HOLD]:
+                    df.iat[ix, iix] = hi
+                    hi = (hi + 1) % h_iter
+                else: # hold
+                    print(f"error: unexpected target {target}")
+
+        def samples_concat(target, to_be_added):
+            if target.empty:
+                target = to_be_added
+                print("target empty --> target = to_be_added", target.head(), target.tail())
+                return to_be_added
+            if False:
+                # debugging output
+                elen = len(target)
+                xdf = target.tail()
+                if ('iteration' in xdf.columns):
+                    xdf = xdf[['target', 'timestamp', 'iteration']]
+                else:
+                    xdf = xdf[['target', 'timestamp']]
+                print(f'target len: {elen}', xdf)
+                ydf = to_be_added.head()
+                if ('iteration' in ydf.columns):
+                    ydf = ydf[['target', 'timestamp', 'iteration']]
+                else:
+                    ydf = ydf[['target', 'timestamp']]
+                print(f'time agg timeblock len: {len(to_be_added)}', ydf)
+            target = pd.concat([target, to_be_added], sort=False)
+            if False:
+                # debugging output
+                zdf = target.iloc[range(elen-5,elen+5)]
+                elen = len(target)
+                if ('iteration' in zdf.columns):
+                    zdf = zdf[['target', 'timestamp', 'iteration']]
+                else:
+                    zdf = zdf[['target', 'timestamp']]
+                print(f'concat with new len {elen} result at interface: ', zdf)
+            return target
+
+        def extract_set_type_targets(sym, tf, set_type):
+            try:
+                print(f"extracting {set_type} for {sym}")
+                dfcfg = self.analysis.loc[(self.analysis.set_type == set_type) &
+                                          (self.analysis.sym == sym)]
+            except KeyError:
+                print(f"no {set_type} set for {sym}")
+                return None
+            dft = tf.tf_aggs[self.target_key]
+            extract = None
+            for block in dfcfg.index:
+                df = dft.loc[(dft.index >= dfcfg.at[block, 'start']) &
+                              (dft.index <= dfcfg.at[block, 'end']), ['target']]
+                df['timestamp'] = df.index
+                df['sym'] = sym
+                df['use'] = True
+                df['buy_prob'] = float(0)
+                df['sell_prop'] = float(0)
+                df['hold_prop'] = float(0)
+                if set_type == TRAIN:
+                    df['tcount'] = int(0)
+                    df['iteration'] = int(0)
+                    buys = dfcfg.at[block, 'buys']
+                    sells = dfcfg.at[block, 'sells']
+                    holds = dfcfg.at[block, 'tics'] - sells - buys
+                    if False:  # False for SVM regression test
+                        label_iterations(df, buys, sells, holds)
+                if extract is None:
+                    extract = df
+                else:
+                    extract = samples_concat(extract, df)
+            return extract
+
+        for base in self.baselist:
+            sym = base + "_usdt"
+            tf = load_classifier_features(self.tf_aggs, self.target_key, base)
+            if tf is None:
+                print(f"no datafile found for {sym}")
+                continue
+            tdf = extract_set_type_targets(sym, tf, TRAIN)
+            self.trainctrl = samples_concat(self.trainctrl, tdf)
+            vdf = extract_set_type_targets(sym, tf, VAL)
+            self.valctrl = samples_concat(self.valctrl, vdf)
+            tstdf = extract_set_type_targets(sym, tf, TEST)
+            self.testctrl = samples_concat(self.testctrl, tstdf)
+
+    def sets_config_fname(self, target_key):
+        cfname = DATA_PATH + "/target_" + str(target_key) +"_sets_split.config"
+        return cfname
+
+    def analyze_bases(self, target_key, aggs):
+        """Analyses the baselist and creates a config file of sets split into equal timeblock
+        length. Additionally an artificial 'total' set is created with the sum of all bases for
+        each timeblock.
+        """
+
+        def first_week_ts(tf):
+            df = tf.tf_vectors.vec(tf.target_key)
+            assert df is not None
+            first_tic = df.index[0].to_pydatetime()
+            last_tic = df.index[len(df.index)-1].to_pydatetime()
+            if self.fixtic is None:
+                self.fixtic = last_tic
+            fullweeks = math.ceil((self.fixtic - first_tic) / timedelta(minutes=self.timeblock))
+            assert fullweeks > 0, \
+                   f"{tf.cur_pair} {len(df)} {len(df.index)} {first_tic} {last_tic} {fullweeks}"
+            wsts = self.fixtic - timedelta(minutes=fullweeks*self.timeblock-1)
+            wets = wsts + timedelta(minutes=self.timeblock-1)
+            return (wsts, wets)
+
+        def next_week_ts(tf, wets):
+            wsts = wets + timedelta(minutes=1)
+            wets = wsts + timedelta(minutes=self.timeblock-1)
+            df = tf.tf_vectors.vec(tf.target_key)
+            assert df is not None
+            last_tic = df.index[len(df.index)-1].to_pydatetime()
+            if last_tic < wsts:
+                return (None, None)
+            else:
+                return (wsts, wets)  # first and last tic of a block
+
+        def analyze_timeblock(tf, wsts, wets, sym):
+            dft = tf.tf_aggs[tf.target_key]
+            dfm = tf.tf_aggs[1]
+            assert dft is not None
+            assert dfm is not None
+            dft = dft.loc[(dft.index >= wsts) & (dft.index <= wets), ['target']]
+            buys = len(dft.loc[dft.target == TARGETS[BUY]])
+            sells = len(dft.loc[dft.target == TARGETS[SELL]])
+            dfm = dfm.loc[(dfm.index >= wsts) & (dfm.index <= wets), ['volume']]
+            vcount = len(dfm)
+            avgvol = int(dfm['volume'].mean())
+            novol = len(dfm.loc[dfm.volume <= 0])
+            lastix = len(self.analysis)
+            self.analysis.loc[lastix] = [sym, NA, wsts, wets, vcount, buys, sells, avgvol, novol]
+
+        blocks = set()
+        for base in self.baselist:
+            sym = base + "_usdt"
+            tf = load_classifier_features(aggs, target_key, base)
+            (wsts, wets) = first_week_ts(tf)
+            while wets is not None:
+                blocks.add(wets)
+                analyze_timeblock(tf, wsts, wets, sym)
+                (wsts, wets) = next_week_ts(tf, wets)
+        blocklist = list(blocks)
+        blocklist.sort()
+        for wets in blocklist:
+            df = self.analysis.loc[self.analysis.end == wets]
+            buys = int(df['buys'].sum())
+            sells = int(df['sells'].sum())
+            avgvol = int(df['avg_vol'].mean())
+            novol = int(df['novol_count'].sum())
+            vcount = int(df['tics'].sum())
+            wsts = wets - timedelta(minutes=self.timeblock)
+            lastix = len(self.analysis)
+            sym = 'total'
+            self.analysis.loc[lastix] = [sym, NA, wsts, wets, vcount, buys, sells, avgvol, novol]
+        cfname = self.sets_config_fname(target_key)
+        self.analysis.to_csv(cfname, sep='\t', index=False)
+
+
 
 #if __name__ == "__main__":
 #    import sys

@@ -16,17 +16,18 @@ import math
 from datetime import datetime, timedelta  # , timezone
 import time
 import targets_features as tf
-from crypto_classification import *
+from crypto_classification import Cpc
 import crypto_classification as cc
 
 CACHE_PATH = '/Users/tc/crypto/cache'
 RETRIES = 5  # number of ccxt retry attempts before proceeding without success
+MAX_MINBELOW = 0  # max minutes below buy price before emergency sell
 ORDER_TIMEOUT = 45  # in seconds
 MIN_AVG_USDT = 1500  # minimum average minute volume in USDT to be considered
 TRADE_VOL_LIMIT_USDT = 100
 # BASES = ['BTC', 'XRP', 'ETH', 'BNB', 'EOS', 'LTC', 'NEO', 'TRX', 'USDT']
-BASES = ['ONG', 'USDT']
-BLACK_BASES = ['TUSD', 'USDT', 'BNB']
+BASES = ['USDT']
+BLACK_BASES = ['TUSD', 'USDT', 'BNB', 'ONG', 'PAX', 'BTT', 'ATOM', 'FET', 'USDC']
 QUOTE = 'USDT'
 DATA_KEYS = ['open', 'high', 'low', 'close', 'volume']
 AUTH_FILE = "/Users/tc/.catalyst/data/exchanges/binance/auth.json"
@@ -154,6 +155,19 @@ class Trading():
         return mybal
 
 
+    def update_book_entry(self, base, mybal, tickers):
+        sym = base + '/' + QUOTE
+        if (sym in tickers) or (base == QUOTE):
+            self.book.loc[base, 'action_id'] = self.aid
+            self.book.loc[base, 'free'] = mybal[base]['free']
+            self.book.loc[base, 'used'] = mybal[base]['used']
+            if base == QUOTE:
+                self.book.loc[base, 'USDT'] = 1
+            else:
+                self.book.loc[base, 'USDT'] = tickers[sym]['last']
+                self.book.loc[base, 'dayUSDT'] = tickers[sym]['quoteVolume']
+            self.book.loc[base, 'updated'] = pd.Timestamp.utcnow()
+
     def update_bookkeeping(self, tickers):
         xch_info = self.xch.public_get_exchangeinfo()
         mybal = self.myfetch_balance("update_bookkeeping")
@@ -182,39 +196,27 @@ class Trading():
                     if tickers[sym]['quoteVolume'] >= (MIN_AVG_USDT*60*24):
                         bases.append(base)
         for base in bases:
-            sym = base + '/' + QUOTE
-            if (sym in tickers) or (base == QUOTE):
-                    self.book.loc[base, 'action_id'] = self.aid
-                    self.book.loc[base, 'free'] = mybal[base]['free']
-                    self.book.loc[base, 'used'] = mybal[base]['used']
-                    if base == QUOTE:
-                        self.book.loc[base, 'USDT'] = 1
-                    else:
-                        self.book.loc[base, 'USDT'] = tickers[sym]['last']
-                        self.book.loc[base, 'dayUSDT'] = tickers[sym]['quoteVolume']
-                    self.book.loc[base, 'updated'] = pd.Timestamp.utcnow()
+            self.update_book_entry(base, mybal, tickers)
+            self.book.loc[base, 'buyprice'] = 0  # indicating no open buy
+            self.book.loc[base, 'minbelow'] = 0  # minutes below buy price
+            syms = xch_info['symbols']
+            for s in syms:
+                if (s['baseAsset'] == base) and (s['quoteAsset'] == QUOTE):
+                    for f in s['filters']:
+                        if f['filterType'] == 'ICEBERG_PARTS':
+                            self.book.loc[base, 'iceberg_parts'] = int(f['limit'])
+                        if f['filterType'] == 'LOT_SIZE':
+                            self.book.loc[base, 'lot_size_min'] = float(f['minQty'])
+                            assert f['minQty'] == f['stepSize']
 
-                    syms = xch_info['symbols']
-                    for s in syms:
-                        if (s['baseAsset'] == base) and (s['quoteAsset'] == QUOTE):
-                            for f in s['filters']:
-                                if f['filterType'] == 'ICEBERG_PARTS':
-                                    self.book.loc[base, 'iceberg_parts'] = int(f['limit'])
-                                if f['filterType'] == 'LOT_SIZE':
-                                    self.book.loc[base, 'lot_size_min'] = float(f['minQty'])
-                                    assert f['minQty'] == f['stepSize']
-
-    def update_balance(self):
+    def update_balance(self, tickers):
         mybal = self.myfetch_balance("update_balance")
         if mybal is None:
             return
         self.log_action('fetch_balance (update_balance)')
         for base in self.book.index:
             assert base in mybal, f"unexpectedly missing {base} in balance"
-            self.book.loc[base, 'action_id'] = self.aid
-            self.book.loc[base, 'free'] = mybal[base]['free']
-            self.book.loc[base, 'used'] = mybal[base]['used']
-            self.book.loc[base, 'updated'] = pd.Timestamp.utcnow()
+            self.update_book_entry(base, mybal, tickers)
 
     def last_hour_performance(self, ohlcv_df):
         cix = ohlcv_df.columns.get_loc('close')
@@ -334,7 +336,6 @@ class Trading():
             self.book.loc[base, 'updated'] = tic
         else:
             print(f"unsupported base {base}")
-        # TODO: limit ohlcv_df to minutes features
         return df
 
     def log_action(self, ccxt_action):
@@ -417,7 +418,7 @@ class Trading():
             try:
                 self.xch.cancel_order(orderid, sym)
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} fetch_open_orders failed {i}x due to a RequestTimeout error:",
+                print(f"{nowstr()} cancel_order failed {i}x due to a RequestTimeout error:",
                       str(err))
                 continue
             except ccxt.OrderNotFound:
@@ -432,7 +433,7 @@ class Trading():
             try:
                 self.xch.cancel_order(orderid, sym)
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} fetch_open_orders failed {i}x due to a RequestTimeout error:",
+                print(f"{nowstr()} 2nd cancel_order failed {i}x due to a RequestTimeout error:",
                       str(err))
                 continue
             except ccxt.OrderNotFound:
@@ -514,14 +515,20 @@ class Trading():
         # ice_chunk = ICEBERG_USDT_PART / price # about the chunk quantity we want
         ice_chunk = self.book.loc[base, 'dayUSDT'] / (24 * 60 * 4)  # 1/4 of average minute volume
         ice_parts = math.ceil(amount / ice_chunk) # about equal parts
-        ice_parts = 3 # test purposes
+
+        mincost = self.markets[sym]['limits']['cost']['min'] # test purposes
+        ice_parts = math.floor(price * amount / mincost) # test purposes
+
         ice_parts = min(ice_parts, self.book.loc[base, 'iceberg_parts'])
-        ice_chunk = amount / ice_parts
-        ice_chunk = int(ice_chunk / self.book.loc[base, 'lot_size_min']) \
-                    * self.book.loc[base, 'lot_size_min']
-        ice_chunk = round(ice_chunk, self.markets[sym]['precision']['amount'])
-        amount = ice_chunk * ice_parts
-        if ice_chunk == amount:
+        if ice_parts > 1:
+            ice_chunk = amount / ice_parts
+            ice_chunk = int(ice_chunk / self.book.loc[base, 'lot_size_min']) \
+                        * self.book.loc[base, 'lot_size_min']
+            ice_chunk = round(ice_chunk, self.markets[sym]['precision']['amount'])
+            amount = ice_chunk * ice_parts
+            if ice_chunk == amount:
+                ice_chunk = 0
+        else:
             ice_chunk = 0
         # amount = round(amount, self.markets[sym]['precision']['amount']) is ensured by ice_chunk
         price = round(price, self.markets[sym]['precision']['price'])
@@ -568,7 +575,7 @@ class Trading():
             tickers = self.myfetch_tickers("sell_order")
             if tickers is None:
                 return
-            self.update_bookkeeping(tickers)
+            self.update_balance(tickers)
             base_amount = self.book.loc[base, 'free'] * ratio
             price = tickers[sym]['bid']  # TODO order spread strategy
             print(f"{nowstr()} SELL {base_amount} {base} x {price} {sym}")
@@ -623,7 +630,7 @@ class Trading():
             if tickers is None:
                 return
 
-            self.update_bookkeeping(tickers)
+            self.update_balance(tickers)
             quote_amount = self.trade_amount(base, ratio)
             price = tickers[sym]['ask']  # TODO order spread strategy
             print(f"{nowstr()} BUY {quote_amount} USDT / {price} {sym}")
@@ -651,6 +658,9 @@ class Trading():
                 if myorder is None:
                     print(f"nowstr() buy_order ERROR: cannot create_limit_buy_order")
                     return
+                if self.book.loc[base, 'buyprice'] < price:
+                    self.book.loc[base, 'buyprice'] = price
+                self.book.loc[base, 'minbelow'] = 0  # minutes below buy price
                 self.log_action('create_limit_buy_order')
                 print(myorder)
                 # FIXME: store order with attributes in order pandas
@@ -659,9 +669,17 @@ class Trading():
         else:
             print(f"unsupported base {base}")
 
-    def trade_loop(self, cpcs, time_aggs, buy_trshld, sell_trshld):
-        buybase = list()
-        sellbase = list()
+    def buy_ratio(self, buylist):
+        buydict = dict()
+        free_distribution = 1/len(buylist)  # equally distributed weight
+        # TODO: 50% of weight via Alpha of that currency
+        for base in buylist:
+            buydict[base] = free_distribution
+        return buydict
+
+
+    def trade_loop(self, cpc, time_aggs, buy_trshld, sell_trshld):
+        buylist = list()
         try:
             while True:
                 print(f"{nowstr()} next round")
@@ -672,6 +690,7 @@ class Trading():
                         continue
                     sym = base + '/' + QUOTE
                     ohlcv_df = self.get_ohlcv(base, 24*60*10+1)
+                    # print(sym)
                     if ohlcv_df is None:
                         continue
                     try:
@@ -683,27 +702,40 @@ class Trading():
                         continue
                     tfv = ttf.tf_vectors
                     tfv.most_recent_features_only()
-                    cl = cpcs.ensemble_performance_with_features(tfv, buy_trshld, sell_trshld)
+                    cl = cpc.performance_with_features(tfv, buy_trshld, sell_trshld)
                     # cl will be HOLD if insufficient data history is available
 
                     # if (base == 'ONT') and (cl == tf.TARGETS[tf.HOLD]):  # test purposes
                     #     cl = tf.TARGETS[tf.SELL]
+                    if cl != tf.TARGETS[tf.BUY]:
+                        # emergency sell in case no SELL signal but performance drops
+                        if self.book.loc[base, 'buyprice'] > 0:
+                            pricenow = ohlcv_df.loc[ohlcv_df.index[len(ohlcv_df.index)-1], "close"]
+                            if self.book.loc[base, 'buyprice'] > pricenow:
+                                self.book.loc[base, 'minbelow'] += 1  # minutes below buy price
+                            else:
+                                self.book.loc[base, 'minbelow'] = 0  # reset minute counter
+                            if self.book.loc[base, 'minbelow'] > MAX_MINBELOW:  # minutes
+                                print("{} Selling {} due to {} minutes < buy price of {}".format(
+                                      nowstr(), sym,
+                                      self.book.loc[base, 'minbelow'],
+                                      self.book.loc[base, 'buyprice']))
+                                cl = tf.TARGETS[tf.SELL]
+                                self.book.loc[base, 'buyprice'] = 0  # reset price monitoring
+                                self.book.loc[base, 'minbelow'] = 0  # minutes below buy price
                     if cl != tf.TARGETS[tf.HOLD]:
                         print(f"{nowstr()} {base} {tf.TARGET_NAMES[cl]}")
                     if cl == tf.TARGETS[tf.SELL]:
-                        sellbase.append(base)
-                    if cl == tf.TARGETS[tf.BUY]:
-                        buybase.append(base)
-                if len(sellbase) > 0:
-                    for base in sellbase:
                         self.sell_order(base, ratio=1)
-                    sellbase.clear()
-                if len(buybase) > 0:
-                    free_distribution = 1/len(buybase)  # equally distributed weight
-                    # TODO: 50% of weight via Alpha of that currency
-                    for base in buybase:
-                        self.buy_order(base, ratio=free_distribution)
-                    buybase.clear()
+                    if cl == tf.TARGETS[tf.BUY]:
+                        buylist.append(base) # amount to be determined by buy_ratio()
+
+                if len(buylist) > 0:
+                    buydict = self.buy_ratio(buylist)
+                    for base in buydict:
+                        self.buy_order(base, ratio=buydict[base])
+                    buydict = None
+                    buylist.clear()
 
                 ts2 = pd.Timestamp.utcnow()
                 tsdiff = 59 - int((ts2 - ts1) / timedelta(seconds=1))  # 1 seconds order progress
@@ -728,20 +760,21 @@ class Trading():
                     print(f)
 
 
-trd = Trading()
-load_classifier = "2019-04-18_Full-SVM-orig-buy-hold-sell_gamma_0.01_extended_features_smooth+xrp_usdt5+D10"
-start_time = timeit.default_timer()
-unit_test = False
-time_aggs = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
-buy_trshld = 0.6  # 0.8
-sell_trshld = 0.6  # 0.8
-cpcs = cc.CpcSet(5, load_classifier, None)
+if __name__ == "__main__":
+    trd = Trading()
+    load_classifier = "2019-04-18_Full-SVM-orig-buy-hold-sell_gamma_0.01_extended_features_smooth+xrp_usdt5+D10"
+    start_time = timeit.default_timer()
+    unit_test = False
+    time_aggs = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
+    buy_trshld = 0.8
+    sell_trshld = 0.8
+    cpc = cc.Cpc(5, load_classifier, None)
 
 
-# trd.buy_order('ETH', ratio=22/trd.book.loc[QUOTE, 'free'])
-# trd.sell_order('ETH', ratio=1)
-trd.trade_loop(cpcs, time_aggs, buy_trshld, sell_trshld)
-trd = None  # should trigger Trading destructor
+    # trd.buy_order('ETH', ratio=22/trd.book.loc[QUOTE, 'free'])
+    # trd.sell_order('ETH', ratio=1)
+    trd.trade_loop(cpc, time_aggs, buy_trshld, sell_trshld)
+    trd = None  # should trigger Trading destructor
 
-tdiff = (timeit.default_timer() - start_time) / (60*60)
-print(f"total time: {tdiff:.2f} hours")
+    tdiff = (timeit.default_timer() - start_time) / (60*60)
+    print(f"total time: {tdiff:.2f} hours")

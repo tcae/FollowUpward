@@ -5,6 +5,30 @@ Created on Sun Jan 13 09:54:13 2019
 
 @author: tc
 """
+# <codecell> iterator
+class CtrlSet:
+
+    def __init__(self, history_sets):
+        self.hs = history_sets
+        self.bases_iter = None
+        self.base = None
+        self.tfv = None
+
+    def __iter__(self):
+        self.bases_iter = iter(self.hs.baselist)
+        return self
+
+    def __next__(self):  # only python 2 uses next() without underscore
+        try:
+            if self.hs.ctrl[self.set_type].empty:
+                print(f"no {self.set_type} set in HistorySets")
+                raise StopIteration()
+            while True:
+                self.base = self.bases_iter.__next__()
+        except StopIteration:
+            raise StopIteration()
+
+
 # <codecell> rolling cell
 import numpy as np
 import pandas as pd
@@ -267,6 +291,54 @@ def check_loc4():
 check_loc3()
 #print(str.isdecimal())
 
+# <codecell> isin
+import numpy as np
+import pandas as pd
+
+adf = pd.DataFrame(columns=["a","b", "c"],\
+                 index = pd.date_range('2012-10-08 18:15:05', periods=3, freq='T'))
+adf.iloc[0] = {'a': 'hugo1', 'b': 511, 'c': "x"}
+adf.iloc[1] = {'a': 'hugo2', 'b': 512, 'c': "w"}
+adf.iloc[2] = {'a': 'karl1', 'b': 512, 'c': "y"}
+#df.iloc[3] = {'a': 'karl2', 'b': 513, 'c': "z"}
+
+df = pd.DataFrame(columns=["a","b", "c"],\
+                 index = pd.date_range('2012-10-08 18:15:05', periods=4, freq='T'))
+df.iloc[0] = {'a': 'hugo3', 'b': 511, 'c': "x"}
+df.iloc[1] = {'a': 'hugo4', 'b': 512, 'c': "w"}
+df.iloc[2] = {'a': 'karl3', 'b': 512, 'c': "y"}
+df.iloc[3] = {'a': 'karl4', 'b': 513, 'c': "z"}
+
+bdf = df[df.index.isin(adf.index)]
+print(bdf)
+cdf = adf.index.difference(df.index)
+print(len(cdf))
+
+# <codecell> take over
+import numpy as np
+import pandas as pd
+
+df = pd.DataFrame(columns=["a","b", "c"],\
+                 index = pd.date_range('2012-10-08 18:15:05', periods=4, freq='T'))
+df.iloc[0] = {'a': 'hugo', 'b': 511, 'c': "x"}
+df.iloc[1] = {'a': 'hugo', 'b': 512, 'c': "w"}
+df.iloc[2] = {'a': 'karl', 'b': 512, 'c': "y"}
+df.iloc[3] = {'a': 'karl', 'b': 513, 'c': "z"}
+df['i'] = df.index
+print(df)
+df = df.set_index('a')
+print(df)
+print(df.loc[df.b == 512])
+print(df.loc[df.b == 512]['c'])
+
+df['c'] = df.loc[df.b == 512, 'c']
+print(df)
+df = df.reset_index()
+print(df)
+df = df.set_index('i')
+print(df)
+
+
 # <codecell> dict
 import numpy as np
 import pandas as pd
@@ -334,6 +406,8 @@ except IOError:
     print(f"pd.read_csv({fname}) IO error")
 
 # <codecell> check_diff
+import numpy as np
+import pandas as pd
 DATA_KEYS = ['a']
 
 def check_diff(cur_btc_usdt, cur_usdt):
@@ -378,12 +452,23 @@ def check_diff2(cur_btc_usdt, cur_usdt):
 
 adf = pd.DataFrame(np.arange(2,6), columns=['a'],\
                  index = pd.date_range('2012-10-08 18:15:05', periods=4, freq='T'))
+print(adf)
 bdf = pd.DataFrame(np.arange(1,7), columns=['a'],\
                  index = pd.date_range('2012-10-08 18:15:05', periods=6, freq='T'))
-check_diff2(bdf, adf)
+# check_diff2(bdf, adf)
 print(bdf)
-bdf.loc[adf.index,:] = adf[:] # replace only values of subset adf in bdf
+bdf.loc[adf.index,adf.columns] = adf[:] # replace only values of subset adf in bdf
 print(bdf)
+s = set()
+for ts in adf.index:
+    s.add(ts)
+print(s)
+l = list(s)
+print(l)
+l.sort()
+print(l)
+for ts in l:
+    print(ts)
 
 # <codecell> check_diff
 from datetime import datetime

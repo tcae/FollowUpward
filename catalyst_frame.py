@@ -28,9 +28,8 @@ def tdelta(first: str, last: str) -> int:
     min_res = my_min.days*24*60 + int(my_min.seconds/60)
     return min_res
 
-USDT_SUFFIX = 'usdt'
-BTC_SUFFIX = 'btc'
-CUR_CAND = ['xrp_', 'eth_', 'bnb_', 'eos_', 'ltc_', 'neo_', 'trx_']
+USDT_SUFFIX = '_usdt'
+BTC_SUFFIX = '_btc'
 DATA_KEYS = ['open', 'high', 'low', 'close', 'volume']  # , 'price'
 # classifier_input = dict()
 
@@ -81,24 +80,30 @@ def handle_data(context, data: BarData):
         btcusdt = load_pair(data, 'btc_usdt')
         t_f.save_asset_dataframe(btcusdt, t_f.DATA_PATH, 'btc_usdt')
 
-        for pair in CUR_CAND:
+        for pair in t_f.BASES:
+            if pair == 'btc':
+                continue
             cb_pair = pair + BTC_SUFFIX
             cbtc = load_pair(data, cb_pair)
-            cbtcusdt = pd.DataFrame(btcusdt)
-            cbtcusdt = cbtcusdt[cbtcusdt.index.isin(cbtc.index)]
-            for key in DATA_KEYS:
-                if key != 'volume':
-                    cbtcusdt[key] = cbtc[key] * btcusdt[key]
-            cbtcusdt['volume'] = cbtc.volume
-            cbu_pair = pair + BTC_SUFFIX + '_' + USDT_SUFFIX
+            t_f.save_asset_dataframe(cbtc, t_f.DATA_PATH, cb_pair)
+#            cbtc = cbtc[cbtc.index.isin(btcusdt.index)]
+#            cbtcusdt = pd.DataFrame(btcusdt)
+#            cbtcusdt = cbtcusdt[cbtcusdt.index.isin(cbtc.index)]
+#            for key in DATA_KEYS:
+#                if key != 'volume':
+#                    cbtcusdt[key] = cbtc[key] * btcusdt[key]
+#            cbtcusdt['volume'] = cbtc.volume
+#            cbu_pair = pair + BTC_SUFFIX + '_' + USDT_SUFFIX
 
             cu_pair = pair + USDT_SUFFIX
             cusdt = load_pair(data, cu_pair)
             t_f.save_asset_dataframe(cusdt, t_f.DATA_PATH, cu_pair)
 
-            cbtcusdt.loc[cusdt.index,:] = cusdt[:]  # take values of cusdt where available
+#            cbtcusdt.loc[cusdt.index] = cusdt[:]  # take values of cusdt where available
             # check_diff(cbtcusdt, cusdt)
-            t_f.save_asset_dataframe(cbtcusdt, t_f.DATA_PATH, cbu_pair)
+            # t_f.save_asset_dataframe(cbtcusdt, t_f.DATA_PATH, cbu_pair)
+#            print(pair, cbtcusdt.describe())
+#            t_f.save_asset_dataframe(cbtcusdt, t_f.DATA_PATH, cu_pair)
 
     if False:  # context.handle_count < 1:
         btcusdt = load_pair(data, 'btc_usdt')
@@ -110,7 +115,7 @@ def handle_data(context, data: BarData):
             print(f"performance potential for aggregation {p}: {test[p]:%}")
         tf.tf_vectors.save(t_f.DATA_PATH + '/btc_usdt.msg')
 
-        for pair in CUR_CAND:
+        for pair in t_f.BASES:
             cb_pair = pair + BTC_SUFFIX
             cbtc = load_pair(data, cb_pair)
             cbtcusdt = pd.DataFrame(btcusdt)
@@ -146,15 +151,16 @@ def handle_data(context, data: BarData):
     context.handle_count += 1
 
 
-#def analyze(context=None, results=None):
-#    "catalyst framework aftermath callback"
-#    pass
+def analyze(context=None, results=None):
+    "catalyst framework aftermath callback"
+    pass
+
 
 daily_perf = run_algorithm(initialize=initialize,
                            handle_data=handle_data,
                            # analyze=analyze,
-                           start=datetime(2019, 4, 1, 0, 0, 0, 0, pytz.utc),
-                           end=datetime(2019, 4, 1, 0, 0, 0, 0, pytz.utc),
+                           start=datetime(2019, 5, 11, 0, 0, 0, 0, pytz.utc),
+                           end=datetime(2019, 5, 11, 0, 0, 0, 0, pytz.utc),
                            exchange_name='binance',
                            data_frequency='minute',
                            quote_currency='usdt',
