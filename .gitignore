@@ -11,3 +11,5 @@ VS-FollowUpward.code-workspace
 .ipynb_checkpoints/FollowUpwardTrading-checkpoint.ipynb
 .ipynb_checkpoints/ticker-checkpoint.ipynb
 __pycache__/mpl_finance.cpython-36.pyc
+*.pyc
+*.pyc

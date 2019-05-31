@@ -17,9 +17,20 @@ from queue import Queue
 DATA_KEYS = ['open', 'high', 'low', 'close', 'volume']  # , 'price'
 
 # DATA_PATH = os.getcwd() # local execution - to be avoided due to Git sync size
-# DATA_PATH = '/Users/tc/crypto/Features'  # local execution
-DATA_PATH = '/Users/tc/crypto/TestFeatures'  # local execution
-# DATA_PATH = '/content/gdrive/My Drive/Features' # Colab execution
+if False:  # full setup
+    DATA_PATH = '/Users/tc/crypto/Features'  # local execution
+    BASES = ['xrp', 'eos', 'bnb', 'btc', 'eth', 'neo', 'ltc', 'trx']
+    TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
+
+elif False:
+    DATA_PATH = '/content/gdrive/My Drive/Features' # Colab execution
+
+else:  # test setup
+    DATA_PATH = '/Users/tc/crypto/TestFeatures'  # local execution
+    TIME_AGGS = {1: 10, 5: 10, 15: 10}
+    # BASES = ['xrp', 'bnb', 'eos']
+    BASES = ['xrp', 'eos']
+    # BASES = ['xrp']
 
 PICKLE_EXT = ".pydata"  # pickle file extension
 JSON_EXT = ".json"  # msgpack file extension
@@ -42,14 +53,14 @@ TEST = 'test'
 TARGETS = {HOLD: 0, BUY: 1, SELL: 2}  # dict with int encoding of target labels
 TARGET_NAMES = {0: HOLD, 1: BUY, 2: SELL}  # dict with int encoding of targets
 TARGET_KEY = 5
-TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
-# TIME_AGGS = {1: 10, 5: 10}
 LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
-# BASES = ['xrp', 'eos', 'bnb', 'btc', 'eth', 'neo', 'ltc', 'trx']
-BASES = ['bnb', 'xrp']
 QUOTE = 'usdt'
-MANDATORY_ITERATIONS = 2  # number of iterations for the smallest class (in general BUY)
+MANDATORY_STEPS = 2  # number of steps for the smallest class (in general BUY)
 
+
+def sets_config_fname():
+    cfname = DATA_PATH + "/target_5_sets_split.config"
+    return cfname
 
 def timestr(ts=None):
     if ts is None:
@@ -60,6 +71,24 @@ def timestr(ts=None):
 def time_in_index(dataframe_with_timeseriesindex, tic):
     return True in dataframe_with_timeseriesindex.index.isin([tic])
 
+def sym_of_base(base):
+    s = base.lower + '_' + QUOTE
+    return s
+
+def base_of_sym(sym):
+    s = sym.lower()
+    q = QUOTE.lower()
+    ix = s.find(q)
+    if ix < 0:
+        raise ValueError(f"base_of_sym {sym}: no quote {QUOTE} found")
+    if ix == 0:
+        raise ValueError(f"base_of_sym {sym}: no base found")
+    if not s[ix-1].isalpha():  # seperation character found
+        ix -= 1
+    b = s[0:ix]
+    return b
+
+
 class NoSubsetWarning(Exception):
     pass
 
@@ -69,14 +98,18 @@ def targets_to_features(tfv_ta_df, target_df):
     The index of target_df shall be a subset of tfv_ta_df.
     """
     df = tfv_ta_df[tfv_ta_df.index.isin(target_df.index)]
+    # check compatibility of target_df.sym with
     l = len(target_df.index.difference(tfv_ta_df.index))
+    c = len(df)
+    b = len(target_df)
+    p = len(tfv_ta_df)
     if l > 0:
-        raise NoSubsetWarning(f"subset with {l} rows that are not in superset")
+        raise NoSubsetWarning(f"subset({b}) with {c}/{l} rows that are/are not in superset({p})")
     return df
 
 def save_asset_dataframe(df, path, cur_pair):
     # "saves the object via msgpack"
-    cur_pair = cur_pair.replace('/', '_')
+    # cur_pair = cur_pair.replace('/', '_')
     fname = path +  '/' + cur_pair + '_DataFrame.msg'
     print("{}: writing {} {} tics ({} - {})".format(
         datetime.now().strftime(DT_FORMAT), cur_pair, len(df), df.index[0].strftime(DT_FORMAT),
@@ -139,7 +172,7 @@ def merge_asset_dataframe(path, base):
 
 def load_asset_dataframe(path, base):
     # "loads the object via msgpack"
-    fname = path +  '/' + base + 'usdt' + '_DataFrame.msg'
+    fname = path +  '/' + base + f'_{QUOTE}' + '_DataFrame.msg'
     dfbu = load_asset_dataframefile(fname)
     if dfbu is None:
         raise MissingHistoryData("Cannot load {}".format(fname))
@@ -151,6 +184,13 @@ def report_setsize(setname, df):
     bc = len(df[df.target == TARGETS[BUY]])
     tc = hc + sc + bc
     print(f"buy {bc} sell {sc} hold {hc} total {tc} on {setname}")
+
+def str_setsize(df):
+    hc = len(df[df.target == TARGETS[HOLD]])
+    sc = len(df[df.target == TARGETS[SELL]])
+    bc = len(df[df.target == TARGETS[BUY]])
+    tc = hc + sc + bc
+    return f"buy {bc} sell {sc} hold {hc} total {tc}"
 
 def smallest_dict_key(thisdict):
     smallest_key = 5000
@@ -258,6 +298,18 @@ class TargetsFeatures:
             self.calc_features_and_targets(df)
 
     def calc_features_and_targets(self, minute_dataframe):
+        """Assigns minute_dataframe to attribute *minute_data*.
+        Calculates features and assigns them to attribute *vec*.
+        If minute_dataframe is None
+        then an earlier assigned *minute_data* is used the recalculate features.
+        If *minute_data* has no 'target' column then targets are calculated and added to
+        *minute_data*.
+
+        Releasing feature data by assigning *vec* None and recalculating those later is a valid
+        use case to free up memory temporary.
+
+        minute_dataframe shall have the columns: open, high, low, close, volume and timestamps as index
+        """
 
         def derive_features(df):
             """derived features in relation to price based on the provided
@@ -282,15 +334,16 @@ class TargetsFeatures:
             features
 
             in:
-                dataframe of minute data of a currency pair;
+                dataframe of minute data of a currency pair with the columns: open, high, low, close, volume
             out:
                 dict of dataframes of aggregations with features and targets
             """
             tf_aggs = dict()  # feature and target aggregations
-            mdf = df = minute_df  # .copy()
-            mdf['vol'] = (mdf['volume'] - mdf.volume.rolling(VOL_BASE_PERIOD).mean()) \
+            mdf = minute_df  # .copy()
+            df = pd.DataFrame(minute_df)  # .copy()
+            df['vol'] = (mdf['volume'] - mdf.volume.rolling(VOL_BASE_PERIOD).mean()) \
                      / mdf.volume.rolling(VOL_BASE_PERIOD).mean()
-            mdf = mdf.fillna(value={'vol': 0.000001})
+            df = df.fillna(value={'vol': 0.000001})
             maxmin = 0
             for time_agg in time_aggregations:
                 if isinstance(time_agg, int):
@@ -330,7 +383,7 @@ class TargetsFeatures:
                 1 minute aggregation or just 'D' for all other aggregations with aggregation+'T_'
                 as column prefix
             """
-            df = pd.DataFrame(tf_aggs[target_key], columns=['close', 'target'])
+            df = pd.DataFrame(tf_aggs[target_key], columns=['close'])
             skey = smallest_dict_key(tf_aggs)
             for ta in tf_aggs:
                 for tics in range(TIME_AGGS[ta]):
@@ -347,7 +400,7 @@ class TargetsFeatures:
                                                          tf_aggs[ta].delta.shift(offset)
             df = df.dropna()
             if df.empty:
-                print("empty dataframe from expand_target_feature_vectors")
+                raise MissingHistoryData("empty dataframe from expand_target_feature_vectors")
             return df
 
         def add_targets(time_agg, df):
@@ -430,22 +483,46 @@ class TargetsFeatures:
             # report_setsize("complete set", df)
 
         # here comes the core of calc_features_and_targets
-        self.minute_data = minute_dataframe
         if minute_dataframe is None:
-            return
-        if minute_dataframe.empty is None:
-            minute_dataframe = None
-            return
+            if self.minute_data is None:
+                raise MissingHistoryData("{}–{} target {}min without minute data ({})".format(
+                                         self.base, self.quote, self.target_key, self.vec))
+        else:
+            self.minute_data = minute_dataframe
+        if self.minute_data.empty is None:
+            self.minute_data = None
+            raise MissingHistoryData("{}–{} target {}min with empty minute data".format(
+                                     self.base, self.quote, self.target_key))
         tf_aggs = calc_aggregation(self.minute_data, TIME_AGGS)
-        add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
-        self.minute_data['target'] = tf_aggs[self.target_key]['target']
+        if 'target' not in self.minute_data:
+            add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
+            self.minute_data['target'] = tf_aggs[self.target_key]['target']
+            # print("calculating targets")
+        else:
+            # print("reusing targets")
+            pass
         self.vec = expand_target_feature_vectors(tf_aggs, self.target_key)
+        if 'target' not in self.vec:
+            self.vec['target'] = self.minute_data['target']
+
+        # print(f"{len(self.vec)} feature vectors of {len(self.vec.iloc[0])-2} features")
+
+    def append_minute_df_with_targets(self, minute_df):
+        self.vec = None
+        if 'target' not in minute_df:
+            raise ValueError("append_minute_df_with_targets: missing target column")
+        if self.minute_data is None:
+            self.minute_data = minute_df
+        else:
+            self.minute_data = pd.concat([self.minute_data, minute_df], sort=False)
+
+
 
 
     def target_performance(self):
         """calculates the time aggregation specific performance of target_key
         """
-        print(f"{datetime.now()}: calculate target_performance")
+        # print(f"{datetime.now()}: calculate target_performance")
         target_df = self.minute_data
         perf = 0.
         ta_holding = False
@@ -478,20 +555,23 @@ class HistorySets:
     balance buy and sell signals.
     """
 
-    def __init__(self):
+    def __init__(self, sets_config_fname):
         """Uses history data of baselist/USDT as history set to train and evaluate.
 
         training control:
         =================
         - df[common timeline index, base, target, training_count, buy_prob, sell_prop, hold_prop,
            train_next]
-        - iteration within an epoch, every iternation-th class of a sym is used
+        - step within an epoch, every step-th class of a sym is used
         - tcount is incremented with every training cycle usage
         - buy_prob, sell_prop, hold_prop are the class probabilities of the last evaluation
         - use is an earmark that this sample shall be used for the next training epoch/validation
         """
-        self.hs_name = None
-        self.baselist = BASES
+        self.bases = dict.fromkeys(BASES, None)
+        self.max_steps = dict.fromkeys(BASES)
+        for base in self.max_steps:
+            self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0, 'max': 0}
+        self.max_steps['total'] = 0
         self.timeblock = 4*7*24*60  # time window in minutes that is analyzed equally for all bases
         self.fixtic = None  # tic as fixpoint for timeblock
         self.analysis = pd.DataFrame(columns=['sym', 'set_type', 'start', 'end', 'tics',
@@ -500,49 +580,50 @@ class HistorySets:
         self.ctrl = dict()
         self.ctrl[TRAIN] = pd.DataFrame(columns=['sym', 'timestamp', 'target', 'use',
                                                'buy_prob', 'sell_prop', 'hold_prop',
-                                               'iteration', 'tcount'])
+                                               'step', 'tcount'])
         self.ctrl[VAL] = pd.DataFrame(columns=['sym', 'timestamp', 'target', 'use',
                                              'buy_prob', 'sell_prop', 'hold_prop'])
         self.ctrl[TEST] = pd.DataFrame(columns=['sym', 'timestamp', 'target', 'use',
                                               'buy_prob', 'sell_prop', 'hold_prop'])
-
-        # state attributes
-        self.iterations = 0  # actual training iterations
-        self.max_iter = dict()  # max labeled iterations for all used samples per HOLD, BUY, SELL
+        self.last_base = None
 
 
-        # for base in self.baselist:
+        # for base in self.bases:
         #     merge_asset_dataframe(DATA_PATH, base)
-        self.load_sets_config(self.sets_config_fname())
-        assert not self.analysis.empty, f"{timestr()}: missing sets config - generating it now"
+        self.load_sets_config(sets_config_fname)
+        assert not self.analysis.empty, f"{timestr()}: missing sets config"
         # self.analyze_bases()
 
     def set_of_type(self, base, set_type):
         sym = base + "_" + QUOTE
+        if self.last_base != base:
+            self.release_features_of_base(self.last_base)
         try:
             base_df = self.ctrl[set_type].loc[(self.ctrl[set_type].sym == sym) &
                                                  (self.ctrl[set_type].use == True)]
-            print(f"{set_type} set with {len(base_df)} samples for {sym}")
+            # print(f"{set_type} set with {len(base_df)} samples for {sym}")
             return base_df
         except KeyError:
             print(f"no {self.set_type} set for {sym}")
             pass
 
-    def trainset_iteration(self, base, iteration):
+    def trainset_step(self, base, step):
         sym = base + "_" + QUOTE
+        if self.last_base != base:
+            self.release_features_of_base(self.last_base)
         try:
-            hold_iter = iteration % self.max_iter[HOLD]
-            buy_iter = iteration % self.max_iter[BUY]
-            sell_iter = iteration % self.max_iter[SELL]
+            hold_step = step % self.max_steps[base][HOLD]
+            buy_step = step % self.max_steps[base][BUY]
+            sell_step = step % self.max_steps[base][SELL]
             base_df = self.ctrl[TRAIN].loc[(self.ctrl[TRAIN].sym == sym) &
                                               (((self.ctrl[TRAIN].target == TARGETS[HOLD]) &
-                                              (self.ctrl[TRAIN].iteration == hold_iter)) |
+                                              (self.ctrl[TRAIN].step == hold_step)) |
                                               ((self.ctrl[TRAIN].target == TARGETS[BUY]) &
-                                              (self.ctrl[TRAIN].iteration == buy_iter)) |
+                                              (self.ctrl[TRAIN].step == buy_step)) |
                                               ((self.ctrl[TRAIN].target == TARGETS[SELL]) &
-                                              (self.ctrl[TRAIN].iteration == sell_iter))) &
+                                              (self.ctrl[TRAIN].step == sell_step))) &
                                               (self.ctrl[TRAIN].use == True)]
-            report_setsize(f"{sym} {TRAIN} set iteration {iteration}", base_df)
+            # report_setsize(f"{sym} {TRAIN} set step {step}", base_df)
             return base_df
         except KeyError:
             print(f"no {self.set_type} set for {sym}")
@@ -558,8 +639,6 @@ class HistorySets:
             # cdf['end'] = cdf.index  # is already doen by reset_index
             self.analysis = cdf.reset_index()
 
-        # fname = '/Users/tc/tf_models/crypto' + '/' + 'sample_set_split.config'
-        self.hs_name = config_fname
         try:
             self.analysis = pd.read_csv(config_fname, skipinitialspace=True, sep='\t')
         except IOError:
@@ -569,10 +648,30 @@ class HistorySets:
         # self.analysis.to_csv(config_fname, sep='\t', index=False)
         self.prepare_training()
 
+    def features_from_targets(self, df, base, set_type, step):
+        if df.empty:
+            raise NoSubsetWarning("empty {} subset for {}".format(set_type, base))
+        sym = df.at[df.index[0],'sym']
+        df_base = base_of_sym(sym)
+        if base != df_base:
+            raise ValueError(f"features_from_targets: base(df)={df_base} != base={base}")
+        tfv = self.get_targets_features_of_base(base)
+        try:
+            subset_df = targets_to_features(tfv.vec, df)
+        except NoSubsetWarning as msg:
+            print("features_from_targets  {} {} set step {}: {}".format(
+                        base, set_type, step, msg))
+            raise
+        descr = "{} {} {} set step {}: {}".format( timestr(),
+                        base, set_type, step, str_setsize(subset_df))
+        # print(descr)
+        samples = to_scikitlearn(subset_df, np_data=None, descr=descr)
+        return samples
+
     def prepare_training(self):
         """Prepares training, validation and test sets with targets and admin info
         (see class description). These determine the samples per set_type and whether
-        they are used in an iteration.
+        they are used in a step.
 
         It is assumed that load_sets_config was called and self.analysis contains the
         proper config fiel content.
@@ -587,14 +686,14 @@ class HistorySets:
                 # debugging output
                 elen = len(target)
                 xdf = target.tail()
-                if ('iteration' in xdf.columns):
-                    xdf = xdf[['target', 'timestamp', 'iteration']]
+                if ('step' in xdf.columns):
+                    xdf = xdf[['target', 'timestamp', 'step']]
                 else:
                     xdf = xdf[['target', 'timestamp']]
                 print(f'target len: {elen}', xdf)
                 ydf = to_be_added.head()
-                if ('iteration' in ydf.columns):
-                    ydf = ydf[['target', 'timestamp', 'iteration']]
+                if ('step' in ydf.columns):
+                    ydf = ydf[['target', 'timestamp', 'step']]
                 else:
                     ydf = ydf[['target', 'timestamp']]
                 print(f'time agg timeblock len: {len(to_be_added)}', ydf)
@@ -603,8 +702,8 @@ class HistorySets:
                 # debugging output
                 zdf = target.iloc[range(elen-5,elen+5)]
                 elen = len(target)
-                if ('iteration' in zdf.columns):
-                    zdf = zdf[['target', 'timestamp', 'iteration']]
+                if ('step' in zdf.columns):
+                    zdf = zdf[['target', 'timestamp', 'step']]
                 else:
                     zdf = zdf[['target', 'timestamp']]
                 print(f'concat with new len {elen} result at interface: ', zdf)
@@ -613,7 +712,7 @@ class HistorySets:
         def extract_set_type_targets(base, tf, set_type):
             sym = base + '_' + QUOTE
             try:
-                print(f"extracting {set_type} for {sym}")
+                # print(f"extracting {set_type} for {sym}")
                 dfcfg = self.analysis.loc[(self.analysis.set_type == set_type) &
                                           (self.analysis.sym == sym)]
             except KeyError:
@@ -632,7 +731,7 @@ class HistorySets:
                 df['hold_prop'] = float(0)
                 if set_type == TRAIN:
                     df['tcount'] = int(0)
-                    df['iteration'] = int(0)
+                    df['step'] = int(0)
                 if extract is None:
                     extract = df
                 else:
@@ -640,12 +739,13 @@ class HistorySets:
             return extract
 
         # here comes the core of prepare_training()
-        for base in self.baselist:
+        for base in self.bases:
             tf = TargetsFeatures(base, QUOTE)
             try:
                 tf.load_classifier_features()
             except MissingHistoryData:
                 continue
+            self.bases[base] = tf
             tfv = tf.vec
             tdf = extract_set_type_targets(base, tf, TRAIN)
             tdf = tdf[tdf.index.isin(tfv.index)]
@@ -656,6 +756,27 @@ class HistorySets:
             tstdf = extract_set_type_targets(base, tf, TEST)
             tstdf = tstdf[tstdf.index.isin(tfv.index)]
             self.ctrl[TEST] = samples_concat(self.ctrl[TEST], tstdf)
+
+    def get_targets_features_of_base(self, base):
+        if base not in self.bases:
+            raise KeyError()
+        tf = self.bases[base]
+        if tf is None:
+            tf = TargetsFeatures(base, QUOTE)
+            tf.load_classifier_features()
+        if tf is not None:
+            if tf.vec is None:
+                try:
+                    tf.calc_features_and_targets(None)
+                except MissingHistoryData as msg:
+                    print(f"get_targets_features_of_base {base}: {msg}")
+        return tf
+
+    def release_features_of_base(self, base):
+        if base in self.bases:
+            tf = self.bases[base]
+            if tf is not None:
+                tf.vec = None
 
     def use_training_mistakes(self):
         df = self.ctrl[TRAIN]
@@ -668,50 +789,91 @@ class HistorySets:
                ((df.buy_prob >=  df.sell_prop) | (df.hold_prop >=  df.sell_prop)), 'use'] = True
         return len(df[df.use == True])
 
-    def label_iterations(self):
-        """Each sample is assigned to an iteration. The smallest class has
-        MANDATORY_ITERATIONS, i.e. each sample is labeled
-        with an iteration between 0 and MANDATORY_ITERATIONS - 1.
-        The larger classes have more iteration labels according to
+    def base_label_check(self, base):
+        print("{} maxsteps of buy:{} sell:{} hold:{} max:{}".format(
+                base, self.max_steps[base][BUY], self.max_steps[base][SELL],
+                self.max_steps[base][HOLD], self.max_steps[base]['max']))
+        holds = sells = buys = totals = 0
+        for step in range(self.max_steps[base]['max']):
+            df = self.trainset_step(base, step)
+            hc = len(df[df.target == TARGETS[HOLD]])
+            sc = len(df[df.target == TARGETS[SELL]])
+            bc = len(df[df.target == TARGETS[BUY]])
+            tc = hc + sc + bc
+            print(f"buy {bc} sell {sc} hold {hc} total {tc} on label_check {step}")
+            if step < self.max_steps[base]['max']:
+                holds += hc
+                sells += sc
+                buys += bc
+                totals += tc
+        df = self.set_of_type(base, TRAIN)
+        hc = len(df[df.target == TARGETS[HOLD]])
+        sc = len(df[df.target == TARGETS[SELL]])
+        bc = len(df[df.target == TARGETS[BUY]])
+        nc = len(df)
+        tc = hc + sc + bc
+        print(f"label check set: buy {bc} sell {sc} hold {hc} total {tc} whole set{nc}")
+
+    def label_check(self):
+        print("label_check ==> maxsteps total:{}".format(self.max_steps['total']))
+        for base in self.bases:
+            self.base_label_check(base)
+
+    def label_steps(self):
+        """Each sample is assigned to a step. The smallest class has
+        MANDATORY_STEPS, i.e. each sample is labeled
+        with a step between 0 and MANDATORY_STEPS - 1.
+        The larger classes have more step labels according to
         their ratio with the smallest class. This is determined per sym,
         timeblock and target class.
 
-        This sample distribution over iterations shall balance the training of classes
+        This sample distribution over steps shall balance the training of classes
         not bias the classifier too much in an early learning cycle.
         """
-        df = self.ctrl[TRAIN]
-        holds = len(df[(df.target == TARGETS[HOLD]) & (df.use == True)])
-        sells = len(df[(df.target == TARGETS[SELL]) & (df.use == True)])
-        buys = len(df[(df.target == TARGETS[BUY]) & (df.use == True)])
-        samples = holds + sells + buys
-        print(f"buy {buys} sell {sells} hold {holds} total {samples} on {TRAIN}")
-        min_iter = min([buys, sells, holds])
-        b_iter = int(buys / min_iter * MANDATORY_ITERATIONS)
-        self.max_iter[BUY] = b_iter
-        s_iter = int(sells / min_iter * MANDATORY_ITERATIONS)
-        self.max_iter[SELL] = s_iter
-        h_iter = int(holds / min_iter * MANDATORY_ITERATIONS)
-        self.max_iter[HOLD] = h_iter
-        bi = si = hi = 0
-        tix = df.columns.get_loc('target')
-        iix = df.columns.get_loc('iteration')
-        for ix in range(len(df.index)):
-            target = df.iat[ix, tix]
-            if target == TARGETS[BUY]:
-                df.iat[ix, iix] = bi
-                bi = (bi + 1) % b_iter
-            elif target == TARGETS[SELL]:
-                df.iat[ix, iix] = si
-                si = (si + 1) % s_iter
-            elif target == TARGETS[HOLD]:
-                df.iat[ix, iix] = hi
-                hi = (hi + 1) % h_iter
-            else: # hold
-                print(f"error: unexpected target {target}")
-
-    def sets_config_fname(self):
-        cfname = DATA_PATH + "/target_5_sets_split.config"
-        return cfname
+        self.max_steps['total'] = 0
+        for base in self.bases:
+            sym = base + "_" + QUOTE
+            tdf = self.ctrl[TRAIN]
+            tdf = tdf[tdf.sym == sym]
+            self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0}
+            holds = len(tdf[(tdf.target == TARGETS[HOLD]) & (tdf.use == True)])
+            sells = len(tdf[(tdf.target == TARGETS[SELL]) & (tdf.use == True)])
+            buys = len(tdf[(tdf.target == TARGETS[BUY]) & (tdf.use == True)])
+            all_use = len(tdf[(tdf.use == True)])
+            all_sym = len(tdf)
+            samples = holds + sells + buys
+            # print(f"{sym} buys:{buys} sells:{sells} holds:{holds} total:{samples} on {TRAIN}")
+            if all_use != samples:
+                print(f"samples {samples} != all use {all_use} as subset from all {sym} {all_sym}")
+            min_step = min([buys, sells, holds])
+            if min_step == 0:
+                continue
+            b_step = round(buys / min_step * MANDATORY_STEPS)
+            s_step = round(sells / min_step * MANDATORY_STEPS)
+            h_step = round(holds / min_step * MANDATORY_STEPS)
+            bi = si = hi = 0
+            tix = tdf.columns.get_loc('target')
+            iix = tdf.columns.get_loc('step')
+            for ix in range(len(tdf.index)):
+                target = tdf.iat[ix, tix]
+                if target == TARGETS[BUY]:
+                    tdf.iat[ix, iix] = bi
+                    bi = (bi + 1) % b_step
+                elif target == TARGETS[SELL]:
+                    tdf.iat[ix, iix] = si
+                    si = (si + 1) % s_step
+                elif target == TARGETS[HOLD]:
+                    tdf.iat[ix, iix] = hi
+                    hi = (hi + 1) % h_step
+                else: # hold
+                    print(f"error: unexpected target {target}")
+            self.ctrl[TRAIN].loc[(self.ctrl[TRAIN].sym == sym), 'step'] = tdf.step
+            self.max_steps[base][BUY] = b_step
+            self.max_steps[base][SELL] = s_step
+            self.max_steps[base][HOLD] = h_step
+            self.max_steps[base]['max'] = max([h_step, b_step, s_step])
+            self.max_steps['total'] += self.max_steps[base]['max']
+        return self.max_steps['total']
 
     def analyze_bases(self):
         """Analyses the baselist and creates a config file of sets split into equal timeblock
@@ -757,7 +919,7 @@ class HistorySets:
             self.analysis.loc[lastix] = [sym, NA, wsts, wets, vcount, buys, sells, avgvol, novol]
 
         blocks = set()
-        for base in self.baselist:
+        for base in self.bases:
             sym = base + "_usdt"
             tf = TargetsFeatures(base, QUOTE)
             tf.load_classifier_features()
@@ -779,10 +941,90 @@ class HistorySets:
             lastix = len(self.analysis)
             sym = 'total'
             self.analysis.loc[lastix] = [sym, NA, wsts, wets, vcount, buys, sells, avgvol, novol]
-        cfname = self.sets_config_fname()
+        cfname = sets_config_fname()
         self.analysis.to_csv(cfname, sep='\t', index=False)
 
+class CLassifierSets:
 
+    def __init__(self):
+        self.trainsets = dict()
+        pairbase = f"{VAL}"
+        self.valset = TargetsFeatures(pairbase, QUOTE)
+        pairbase = f"{TEST}"
+        self.testset = TargetsFeatures(pairbase, QUOTE)
+
+    def create_step_datafiles(self, hs):
+        hs.label_steps()
+        for base in hs.bases:
+            tfb = hs.get_targets_features_of_base(base)
+            for step in range(hs.max_steps[base]['max']):
+                pairbase = f"{TRAIN}{step:0>3d}"
+                df = hs.trainset_step(base, step)
+                df = targets_to_features(tfb.minute_data, df)
+                df['base'] = tfb.base
+                if step not in self.trainsets:
+                    self.trainsets[step] = TargetsFeatures(pairbase, QUOTE)
+                self.trainsets[step].append_minute_df_with_targets(df)
+
+            df = hs.set_of_type(base, VAL)
+            df = targets_to_features(tfb.minute_data, df)
+            self.valset.append_minute_df_with_targets(df)
+
+            df = hs.set_of_type(base, VAL)
+            df = targets_to_features(tfb.minute_data, df)
+            self.testset.append_minute_df_with_targets(df)
+
+            hs.release_features_of_base(base)
+
+    def features_of_set(self, set_type, step):
+        if set_type == TRAIN:
+            if step in self.trainsets:
+                tf = self.trainsets[step]
+            else:
+                raise KeyError("unknown step {step} for {set_type}")
+        elif set_type == VAL:
+            tf = self.valset
+        elif set_type == TEST:
+            tf = self.testset
+        else:
+            raise  KeyError("unknown set type {set_type} at step {step}")
+        if tf.vec is None:
+            try:
+                tf.calc_features_and_targets(None)
+            except MissingHistoryData as msg:
+                print(f"features_of_set: {msg}")
+                raise
+        descr = tf.base
+        samples = to_scikitlearn(tf.vec, np_data=None, descr=descr)
+        samples.target = tf.keras.utils.to_categorical(samples.target, num_classes=len(TARGETS))
+        return samples
+
+    def save_setfiles(self):
+        for step in self.trainsets:
+            save_asset_dataframe(self.trainsets[step].minute_data, DATA_PATH,
+                                 self.trainsets[step].cur_pair())
+        save_asset_dataframe(self.valset.minute_data, DATA_PATH, self.valset.cur_pair())
+        save_asset_dataframe(self.testset.minute_data, DATA_PATH, self.testset.cur_pair())
+
+    def load_setfile(self):
+        step = 0
+        while True:
+            try:
+                pairbase = f"{TRAIN}{step:0>3d}"
+                fname = DATA_PATH +  '/' + pairbase + f"_{QUOTE}" + "_DataFrame.msg"
+                with open(fname, 'rb') as df_f:
+                    df_f.close()
+                    df = load_asset_dataframefile(fname)
+                    self.trainsets[step] = TargetsFeatures(pairbase, QUOTE)
+                    self.trainsets[step].minute_data = df
+                    step += 1
+            except FileNotFoundError:
+                if step == 0:
+                    raise  # no a single training datafiel loaded
+                else:
+                    break  # break while loop
+        self.valset.minute_data = load_asset_dataframe(DATA_PATH, self.valset.base)
+        self.testset.minute_data = load_asset_dataframe(DATA_PATH, self.testset.base)
 
 #if __name__ == "__main__":
 #    import sys

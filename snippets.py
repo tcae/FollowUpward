@@ -332,6 +332,7 @@ print(df.loc[df.b == 512])
 print(df.loc[df.b == 512]['c'])
 
 df['c'] = df.loc[df.b == 512, 'c']
+df['g'] = 'new column'
 print(df)
 df = df.reset_index()
 print(df)
