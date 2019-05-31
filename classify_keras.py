@@ -19,7 +19,7 @@ from sklearn import svm, metrics, preprocessing
 
 import tensorflow as tf
 import tensorflow.keras as krs
-
+import talos as ta
 
 import matplotlib.pyplot as plt
 from sklearn.model_selection import learning_curve
@@ -716,86 +716,6 @@ class Cpc:
         self.save()
 
 
-    def adapt_keras_with_classifier_sets(self):
-        start_time = timeit.default_timer()
-        cs = ctf.CLassifierSets()
-        cs.load_setfile()
-
-        scaler = preprocessing.StandardScaler(copy=False)
-        for step in cs.trainsets:
-            samples = cs.features_of_set(ctf.TRAIN, step)
-            scaler.partial_fit(samples.data)
-        self.scaler = scaler
-
-        inputs = krs.Input(shape=(110,))  # Returns a placeholder tensor
-        x = krs.layers.Dense(80, kernel_initializer='he_uniform', activation='relu')(inputs)
-        x = krs.layers.Dense(40, kernel_initializer='he_uniform', activation='relu')(x)
-        predictions = krs.layers.Dense(3, activation='softmax')(x)
-        self.classifier = krs.Model(inputs=inputs, outputs=predictions)
-
-        self.classifier.compile(optimizer=krs.optimizers.Adam(),
-              loss='categorical_crossentropy',
-              metrics=['accuracy'])
-
-        callbacks = [
-          EpochPerformance(self),
-          # Interrupt training if `val_loss` stops improving for over 2 epochs
-          krs.callbacks.EarlyStopping(patience=2, monitor='val_loss'),
-          # Write TensorBoard logs to `./logs` directory
-          krs.callbacks.TensorBoard(log_dir=LOG_PATH)
-        ]
-
-        valsamples = cs.features_of_set(ctf.VAL, step)
-        if self.scaler is not None:
-            valsamples.data = self.scaler.transform(valsamples.data)
-        steps_per_epoch=len(cs.trainsets)
-        for step in cs.trainsets:
-            trainsamples = cs.features_of_set(ctf.TRAIN, step)
-            if self.scaler is not None:
-                trainsamples.data = self.scaler.transform(trainsamples.data)
-
-            self.classifier.fit(
-                x=trainsamples.data,
-                y=trainsamples.targets,
-                batch_size=None,  # default 32
-                epochs=3,
-                verbose=2,
-                callbacks=callbacks,
-                validation_data=(valsamples.data, valsamples.targets),
-                shuffle=False,
-                class_weight=None,
-                sample_weight=None,
-                initial_epoch=0,
-                steps_per_epoch=steps_per_epoch,
-                validation_steps=1,
-                max_queue_size=10,
-                workers=1,
-                use_multiprocessing=False)
-
-
-        tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"MLP adaptation time: {tdiff:.0f} min")
-        self.save()
-
-    def create_classifier_sets(self):
-        hs = ctf.HistorySets(ctf.sets_config_fname())
-        cs = ctf.CLassifierSets()
-        cs.create_step_datafiles(hs)
-        print("saving classifier_sets")
-        for step in cs.trainsets:
-            print(f"{ctf.TRAIN}{step}: {ctf.str_setsize(cs.trainsets[step].minute_data)}")
-        print(f"{ctf.VAL}: {ctf.str_setsize(cs.valset.minute_data)}")
-        print(f"{ctf.TEST}: {ctf.str_setsize(cs.testset.minute_data)}")
-        cs.save_setfiles()
-        hs = None
-        cs = None
-        cs = ctf.CLassifierSets()
-        cs.load_setfile()
-        print("loading classifier_sets")
-        for step in cs.trainsets:
-            print(f"{ctf.TRAIN}{step}: {ctf.str_setsize(cs.trainsets[step].minute_data)}")
-        print(f"{ctf.VAL}: {ctf.str_setsize(cs.valset.minute_data)}")
-        print(f"{ctf.TEST}: {ctf.str_setsize(cs.testset.minute_data)}")
 
 def adapt_keras_with_talos(cpc):
 
@@ -834,7 +754,52 @@ def adapt_keras_with_talos(cpc):
                                                         num_classes=len(ctf.TARGETS))
                 yield samples.data, targets
 
+    def MLP1(x, y, x_val, y_val, params):
+        model = krs.models.Sequential()
+        model.add(krs.Input(shape=params['input_shape']))  # Returns a placeholder tensor
+        model.add(krs.layers.Dense(params['first_layer_neurons'],
+                                   kernel_initializer=params['kernel_initializer'],
+                                   activation=params['activation']))
+        model.add(krs.layers.Dropout(params['dropout']))
+        model.add(krs.layers.Dense(params['second_layer_neurons'],
+                                   kernel_initializer=params['kernel_initializer'],
+                                   activation=params['activation']))
+        model.add(krs.layers.Dense(params['last_layer_neurons'],
+                                   activation=params['last_activation']))
+        cpc.classifier = model
 
+        cpc.classifier.compile(optimizer=params['optimizer'],
+                               loss=params['losses'],
+                               metrics=['accuracy'])
+
+        callbacks = [
+          EpochPerformance(cpc),
+          # Interrupt training if `val_loss` stops improving for over 2 epochs
+          # krs.callbacks.EarlyStopping(patience=2, monitor='val_loss'),
+          # WARNING:tensorflow:Early stopping conditioned on metric `val_loss`
+          #     which is not available. Available metrics are: loss,acc
+          # Write TensorBoard logs to `./logs` directory
+          krs.callbacks.TensorBoard(log_dir=LOG_PATH)
+        ]
+
+        steps_per_epoch = cpc.hs.label_steps()
+        epochs = params['losses']
+        out = cpc.classifier.fit_generator(
+                iteration_generator(cpc, cpc.hs, epochs+1),
+                steps_per_epoch=steps_per_epoch,
+                epochs=epochs,
+                callbacks=callbacks,
+                verbose=2,
+                validation_data=base_generator(cpc, cpc.hs, ctf.VAL, epochs+1),
+                validation_steps=len(cpc.hs.bases),
+                class_weight=None,
+                max_queue_size=10,
+                workers=1,
+                use_multiprocessing=False,
+                shuffle=False,
+                initial_epoch=0)
+
+        return out,model
 
     start_time = timeit.default_timer()
     cpc.hs = ctf.HistorySets(ctf.sets_config_fname())
@@ -846,65 +811,36 @@ def adapt_keras_with_talos(cpc):
     cpc.scaler = scaler
     print(f"{ctf.timestr()} scaler adapted")
 
-    inputs = krs.Input(shape=np.shape(samples[1]))  # Returns a placeholder tensor
-    x = krs.layers.Dense(80, kernel_initializer='he_uniform', activation='relu')(inputs)
-    x = krs.layers.Dense(40, kernel_initializer='he_uniform', activation='relu')(x)
-    predictions = krs.layers.Dense(3, activation='softmax')(x)
-    cpc.classifier = krs.Model(inputs=inputs, outputs=predictions)
+    params = {'input_shape': [np.shape(samples[1])],
+              'first_layer_neurons': [80],
+              'second_layer_neurons': [40],
+              'last_layer_neurons': [3],
+              'batch_size': [32],
+              'epochs': [300],
+              'dropout': (0, 0.40, 3),
+              'kernel_initializer': ['he_uniform'],
+              'weight_regulizer': [None],
+              'optimizer': ['adam'],
+              'losses': [krs.losses.categorical_crossentropy, krs.losses.logcosh],
+              'activation': [krs.activations.relu],  # krs.activations.elu],
+              'last_activation': [krs.activations.softmax]}
 
-    cpc.classifier.compile(optimizer=krs.optimizers.Adam(),
-          loss='categorical_crossentropy',
-          metrics=['accuracy'])
+    scan = ta.Scan(x=samples,  # samples here used as dummy as real data comes from generator
+                   y=targets,  # targets here used as dummy as real data comes from generator
+                   model=MLP1,
+                   params=params,
+                   dataset_name='xrp-eos',  # 'xrp-eos-bnb-btc-eth-neo-ltc-trx',
+                   grid_downsample=0.5,
+                   experiment_no='talos-test-001',
+                   talos_log_name='talos.log')
 
-    callbacks = [
-      EpochPerformance(cpc),
-      # Interrupt training if `val_loss` stops improving for over 2 epochs
-      # krs.callbacks.EarlyStopping(patience=2, monitor='val_loss'),
-      # WARNING:tensorflow:Early stopping conditioned on metric `val_loss` which is not available. Available metrics are: loss,acc
-      # Write TensorBoard logs to `./logs` directory
-      krs.callbacks.TensorBoard(log_dir=LOG_PATH)
-    ]
-
-    steps_per_epoch = cpc.hs.label_steps()
-    epochs = 3
-    cpc.classifier.fit_generator(
-            iteration_generator(cpc, cpc.hs, epochs+1),
-            steps_per_epoch=steps_per_epoch, epochs=epochs, callbacks=callbacks, verbose=2,
-            validation_data=base_generator(cpc, cpc.hs, ctf.VAL, epochs+1),
-            validation_steps=len(cpc.hs.bases),
-            class_weight=None, max_queue_size=10, workers=1,
-            use_multiprocessing=False, shuffle=False, initial_epoch=0)
+    # ta.Deploy(scan, 'talos_lstm_x', metric='val_loss', asc=True)
 
 
     tdiff = (timeit.default_timer() - start_time) / 60
     print(f"{ctf.timestr()} MLP adaptation time: {tdiff:.0f} min")
     cpc.save()
 
-#def CNN_LSTM(x, y, x_val, y_val, params):
-#    model = [...]
-#    train_generator = create_generator(path,
-#                                       batch_size=params['batch_size'],
-#                                       set_size=params['set_size'],
-#                                       return_sequences=params['return_sequences'])
-#    val_generator = create_generator(path,
-#                                     batch_size=params['batch_size'],
-#                                     set_size=params['set_size'],
-#                                     return_sequences=params['return_sequences'])
-#    out = model.fit_generator(generator=train_generator, validation_data=val_generator,
-#                              epochs=params['epochs'], callbacks=[ta.live()])
-#    return out, model
-#
-#dummy_x = np.empty((1, 10, _CHANNELS, _IMG_WIDTH, _IMG_HEIGHT))
-#dummy_y = np.empty((1, 10))
-#scan = ta.Scan(x=dummy_x,
-#               y=dummy_y,
-#               model=CNN_LSTM,
-#               params=params,
-#               grid_downsample=1.0,
-#               dataset_name='talos_lstm',
-#               experiment_no='x')
-#
-#ta.Deploy(scan, 'talos_lstm_x', metric='val_loss', asc=True)
 
 
 if __name__ == "__main__":
