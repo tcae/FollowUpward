@@ -684,7 +684,7 @@ class Cpc:
             scaler.partial_fit(samples)
         self.scaler = scaler
 
-        inputs = krs.Input(shape=(110,))  # Returns a placeholder tensor
+        inputs = krs.Input(shape=(samples.shape[1],))  # (110,))  # Returns a placeholder tensor
         x = krs.layers.Dense(80, kernel_initializer='he_uniform', activation='relu')(inputs)
         x = krs.layers.Dense(40, kernel_initializer='he_uniform', activation='relu')(x)
         predictions = krs.layers.Dense(3, activation='softmax')(x)
@@ -717,7 +717,7 @@ class Cpc:
 
 
 
-def adapt_keras_with_talos(cpc):
+def adapt_keras(cpc, talos=False):
 
     def iteration_generator(cpc, hs, epochs):
         'Generate one batch of data'
@@ -732,7 +732,7 @@ def adapt_keras_with_talos(cpc):
                         return None, None
                     if cpc.scaler is not None:
                         samples.data = cpc.scaler.transform(samples.data)
-                    print(f"iteration_gen {base}({bix}) {bstep}(of {hs.max_steps[base]['max']})")
+                    # print(f"iteration_gen {base}({bix}) {bstep}(of {hs.max_steps[base]['max']})")
                     targets = tf.keras.utils.to_categorical(samples.target,
                                                             num_classes=len(ctf.TARGETS))
                     yield samples.data, targets
@@ -749,15 +749,16 @@ def adapt_keras_with_talos(cpc):
                     return None, None
                 if cpc.scaler is not None:
                     samples.data = cpc.scaler.transform(samples.data)
-                print(f"base_gen {base}({bix}) {set_type}")
+                # print(f"base_gen {base}({bix}) {set_type}")
                 targets = tf.keras.utils.to_categorical(samples.target,
                                                         num_classes=len(ctf.TARGETS))
                 yield samples.data, targets
 
     def MLP1(x, y, x_val, y_val, params):
+        krs.backend.clear_session()
         model = krs.models.Sequential()
-        model.add(krs.Input(shape=params['input_shape']))  # Returns a placeholder tensor
         model.add(krs.layers.Dense(params['first_layer_neurons'],
+                                   input_dim=samples.shape[1],
                                    kernel_initializer=params['kernel_initializer'],
                                    activation=params['activation']))
         model.add(krs.layers.Dropout(params['dropout']))
@@ -767,6 +768,7 @@ def adapt_keras_with_talos(cpc):
         model.add(krs.layers.Dense(params['last_layer_neurons'],
                                    activation=params['last_activation']))
         cpc.classifier = model
+        assert model is not None
 
         cpc.classifier.compile(optimizer=params['optimizer'],
                                loss=params['losses'],
@@ -783,14 +785,17 @@ def adapt_keras_with_talos(cpc):
         ]
 
         steps_per_epoch = cpc.hs.label_steps()
-        epochs = params['losses']
+        epochs = params['epochs']
+        gen_epochs = epochs * 2  # due to max_queue_size more step data is requested than needed
+
+        print(model.summary())
         out = cpc.classifier.fit_generator(
-                iteration_generator(cpc, cpc.hs, epochs+1),
+                iteration_generator(cpc, cpc.hs, gen_epochs),
                 steps_per_epoch=steps_per_epoch,
                 epochs=epochs,
                 callbacks=callbacks,
                 verbose=2,
-                validation_data=base_generator(cpc, cpc.hs, ctf.VAL, epochs+1),
+                validation_data=base_generator(cpc, cpc.hs, ctf.VAL, gen_epochs),
                 validation_steps=len(cpc.hs.bases),
                 class_weight=None,
                 max_queue_size=10,
@@ -798,6 +803,7 @@ def adapt_keras_with_talos(cpc):
                 use_multiprocessing=False,
                 shuffle=False,
                 initial_epoch=0)
+        assert out is not None
 
         return out,model
 
@@ -810,33 +816,133 @@ def adapt_keras_with_talos(cpc):
         scaler.partial_fit(samples)
     cpc.scaler = scaler
     print(f"{ctf.timestr()} scaler adapted")
+    print(f"Talos active:{talos}")
 
-    params = {'input_shape': [np.shape(samples[1])],
-              'first_layer_neurons': [80],
-              'second_layer_neurons': [40],
-              'last_layer_neurons': [3],
-              'batch_size': [32],
-              'epochs': [300],
-              'dropout': (0, 0.40, 3),
-              'kernel_initializer': ['he_uniform'],
-              'weight_regulizer': [None],
-              'optimizer': ['adam'],
-              'losses': [krs.losses.categorical_crossentropy, krs.losses.logcosh],
-              'activation': [krs.activations.relu],  # krs.activations.elu],
-              'last_activation': [krs.activations.softmax]}
+    dummy_x = np.empty((1, samples.shape[1]))
+    dummy_y = np.empty((1, targets.shape[1]))
+    if talos:
+        params = {'first_layer_neurons': [80],
+                  'second_layer_neurons': [40],
+                  'last_layer_neurons': [3],
+                  'epochs': [2],
+                  'dropout': (0, 0.40, 3),
+                  'kernel_initializer': ['he_uniform'],
+                  'optimizer': ['adam'],
+                  'losses': ['categorical_crossentropy'],
+                  'activation': ['relu', 'elu'],
+                  'last_activation': ['softmax']}
 
-    scan = ta.Scan(x=samples,  # samples here used as dummy as real data comes from generator
-                   y=targets,  # targets here used as dummy as real data comes from generator
-                   model=MLP1,
-                   params=params,
-                   dataset_name='xrp-eos',  # 'xrp-eos-bnb-btc-eth-neo-ltc-trx',
-                   grid_downsample=0.5,
-                   experiment_no='talos-test-001',
-                   talos_log_name='talos.log')
+        ta.Scan(x=dummy_x,  # real data comes from generator
+                       y=dummy_y,  # real data comes from generator
+                       model=MLP1,
+                       debug=True,
+                       print_params=True,
+                       params=params,
+                       dataset_name='xrp_eos',  # 'xrp-eos-bnb-btc-eth-neo-ltc-trx',
+                       grid_downsample=1,
+                       experiment_no='talos_test_001')
 
-    # ta.Deploy(scan, 'talos_lstm_x', metric='val_loss', asc=True)
+        # ta.Deploy(scan, 'talos_lstm_x', metric='val_loss', asc=True)
+    else:
+        MLP1(dummy_x, dummy_y, dummy_x, dummy_y, None)
+
+    tdiff = (timeit.default_timer() - start_time) / 60
+    print(f"{ctf.timestr()} MLP adaptation time: {tdiff:.0f} min")
+    cpc.save()
 
 
+def adapt_keras_without_talos(cpc):
+
+    def iteration_generator(cpc, hs, epochs):
+        'Generate one batch of data'
+        for e in range(epochs):  # due to prefetch of max_queue_size
+            for base in hs.bases:
+                bix = list(hs.bases.keys()).index(base)
+                for bstep in range(hs.max_steps[base]['max']):
+                    df = hs.trainset_step(base, bstep)
+                    samples = hs.features_from_targets(df, base, ctf.TRAIN, bix)
+                    # print(f">>> getitem: {samples.descr}", flush=True)
+                    if samples is None:
+                        return None, None
+                    if cpc.scaler is not None:
+                        samples.data = cpc.scaler.transform(samples.data)
+                    # print(f"iteration_gen {base}({bix}) {bstep}(of {hs.max_steps[base]['max']})")
+                    targets = tf.keras.utils.to_categorical(samples.target,
+                                                            num_classes=len(ctf.TARGETS))
+                    yield samples.data, targets
+
+    def base_generator(cpc, hs, set_type, epochs):
+        'Generate one batch of data per base'
+        for e in range(epochs):
+            for base in hs.bases:
+                bix = list(hs.bases.keys()).index(base)
+                df = hs.set_of_type(base, set_type)
+                samples = hs.features_from_targets(df, base, set_type, bix)
+                # print(f">>> getitem: {samples.descr}", flush=True)
+                if samples is None:
+                    return None, None
+                if cpc.scaler is not None:
+                    samples.data = cpc.scaler.transform(samples.data)
+                # print(f"base_gen {base}({bix}) {set_type}")
+                targets = tf.keras.utils.to_categorical(samples.target,
+                                                        num_classes=len(ctf.TARGETS))
+                yield samples.data, targets
+
+    def MLP1(x, y, x_val, y_val, params):
+        model = krs.models.Sequential()
+        model.add(krs.layers.Dense(80,
+                                   input_dim=samples.shape[1],
+                                   kernel_initializer='he_uniform',
+                                   activation='relu'))
+        model.add(krs.layers.Dropout(0.2))
+        model.add(krs.layers.Dense(40,
+                                   kernel_initializer='he_uniform',
+                                   activation='relu'))
+        model.add(krs.layers.Dense(3,
+                                   activation='softmax'))
+        cpc.classifier = model
+        assert model is not None
+
+        cpc.classifier.compile(optimizer=krs.optimizers.Adam(),
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+        callbacks = [
+          EpochPerformance(cpc),
+          # Interrupt training if `val_loss` stops improving for over 2 epochs
+          krs.callbacks.EarlyStopping(patience=2, monitor='val_loss'),
+          # Write TensorBoard logs to `./logs` directory
+          krs.callbacks.TensorBoard(log_dir=LOG_PATH)
+        ]
+
+        steps_per_epoch = cpc.hs.label_steps()
+        epochs = 2
+        gen_epochs = epochs * 2  # due to max_queue_size more step data is requested than needed
+        out = cpc.classifier.fit_generator(
+                iteration_generator(cpc, cpc.hs, gen_epochs),
+                steps_per_epoch=steps_per_epoch,
+                epochs=epochs,
+                callbacks=callbacks,
+                verbose=2,
+                validation_data=base_generator(cpc, cpc.hs, ctf.VAL, gen_epochs),
+                validation_steps=len(cpc.hs.bases),
+                class_weight=None,
+                max_queue_size=10, workers=1, use_multiprocessing=False,
+                shuffle=False, initial_epoch=0)
+        assert out is not None
+        return out,model
+
+    start_time = timeit.default_timer()
+    cpc.hs = ctf.HistorySets(ctf.sets_config_fname())
+
+    scaler = preprocessing.StandardScaler(copy=False)
+    for (samples, targets) in base_generator(cpc, cpc.hs, ctf.TRAIN, 1):
+        # print("scaler fit")
+        scaler.partial_fit(samples)
+    cpc.scaler = scaler
+    print(f"{ctf.timestr()} scaler adapted")
+
+    MLP1(samples, targets, samples, targets, None)
     tdiff = (timeit.default_timer() - start_time) / 60
     print(f"{ctf.timestr()} MLP adaptation time: {tdiff:.0f} min")
     cpc.save()
@@ -850,6 +956,6 @@ if __name__ == "__main__":
         #     load_classifier = str("{}{}".format(BASE, target_key))
         unit_test = False
         cpc = Cpc(load_classifier, save_classifier)
-        # cpc.adapt_with_keras()
-        adapt_keras_with_talos(cpc)
+        # cpc.adapt_keras_with_history_sets()
+        adapt_keras(cpc, talos=True)
 

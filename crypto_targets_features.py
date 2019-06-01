@@ -29,7 +29,7 @@ else:  # test setup
     DATA_PATH = '/Users/tc/crypto/TestFeatures'  # local execution
     TIME_AGGS = {1: 10, 5: 10, 15: 10}
     # BASES = ['xrp', 'bnb', 'eos']
-    BASES = ['xrp', 'eos']
+    BASES = ['xrp']
     # BASES = ['xrp']
 
 PICKLE_EXT = ".pydata"  # pickle file extension
