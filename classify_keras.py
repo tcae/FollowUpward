@@ -33,7 +33,8 @@ print(f"Keras version: {krs.__version__}")
 print(__doc__)
 
 MODEL_PATH = '/Users/tc/crypto/classifier'
-LOG_PATH = '/Users/tc/crypto/tensorflowlog'
+TFBLOG_PATH = '/Users/tc/crypto/tensorflowlog'
+TALOSLOG = '/Users/tc/crypto/talos.log'
 
 
 def plot_learning_curve(estimator, title, X, y, ylim=None, cv=None,
@@ -375,6 +376,15 @@ class EpochPerformance(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         self.cpc.performance_assessment(ctf.TRAIN, epoch)
         self.cpc.performance_assessment(ctf.VAL, epoch)
+        test_loss, test_acc = self.cpc.classifier.evaluate_generator(
+            base_generator(self.cpc, self.cpc.hs, ctf.VAL, 2),
+            steps=len(self.cpc.hs.bases),
+            max_queue_size=10,
+            workers=1,
+            use_multiprocessing=False,
+            verbose=2 )
+        print(f"validation loss: {test_loss} validation acc: {test_acc}")
+
 
 
 class Cpc:
@@ -717,45 +727,45 @@ class Cpc:
 
 
 
-def adapt_keras(cpc, talos=False):
-
-    def iteration_generator(cpc, hs, epochs):
-        'Generate one batch of data'
-        for e in range(epochs):  # due to prefetch of max_queue_size
-            for base in hs.bases:
-                bix = list(hs.bases.keys()).index(base)
-                for bstep in range(hs.max_steps[base]['max']):
-                    df = hs.trainset_step(base, bstep)
-                    samples = hs.features_from_targets(df, base, ctf.TRAIN, bix)
-                    # print(f">>> getitem: {samples.descr}", flush=True)
-                    if samples is None:
-                        return None, None
-                    if cpc.scaler is not None:
-                        samples.data = cpc.scaler.transform(samples.data)
-                    # print(f"iteration_gen {base}({bix}) {bstep}(of {hs.max_steps[base]['max']})")
-                    targets = tf.keras.utils.to_categorical(samples.target,
-                                                            num_classes=len(ctf.TARGETS))
-                    yield samples.data, targets
-
-    def base_generator(cpc, hs, set_type, epochs):
-        'Generate one batch of data per base'
-        for e in range(epochs):
-            for base in hs.bases:
-                bix = list(hs.bases.keys()).index(base)
-                df = hs.set_of_type(base, set_type)
-                samples = hs.features_from_targets(df, base, set_type, bix)
+def iteration_generator(cpc, hs, epochs):
+    'Generate one batch of data'
+    for e in range(epochs):  # due to prefetch of max_queue_size
+        for base in hs.bases:
+            bix = list(hs.bases.keys()).index(base)
+            for bstep in range(hs.max_steps[base]['max']):
+                df = hs.trainset_step(base, bstep)
+                samples = hs.features_from_targets(df, base, ctf.TRAIN, bix)
                 # print(f">>> getitem: {samples.descr}", flush=True)
                 if samples is None:
                     return None, None
                 if cpc.scaler is not None:
                     samples.data = cpc.scaler.transform(samples.data)
-                # print(f"base_gen {base}({bix}) {set_type}")
+                # print(f"iteration_gen {base}({bix}) {bstep}(of {hs.max_steps[base]['max']})")
                 targets = tf.keras.utils.to_categorical(samples.target,
                                                         num_classes=len(ctf.TARGETS))
                 yield samples.data, targets
 
+def base_generator(cpc, hs, set_type, epochs):
+    'Generate one batch of data per base'
+    for e in range(epochs):
+        for base in hs.bases:
+            bix = list(hs.bases.keys()).index(base)
+            df = hs.set_of_type(base, set_type)
+            samples = hs.features_from_targets(df, base, set_type, bix)
+            # print(f">>> getitem: {samples.descr}", flush=True)
+            if samples is None:
+                return None, None
+            if cpc.scaler is not None:
+                samples.data = cpc.scaler.transform(samples.data)
+            # print(f"base_gen {base}({bix}) {set_type}")
+            targets = tf.keras.utils.to_categorical(samples.target,
+                                                    num_classes=len(ctf.TARGETS))
+            yield samples.data, targets
+
+def adapt_keras(cpc, talos=False):
+
     def MLP1(x, y, x_val, y_val, params):
-        krs.backend.clear_session()
+        krs.backend.clear_session()  # done by switch in talos Scan command
         model = krs.models.Sequential()
         model.add(krs.layers.Dense(params['first_layer_neurons'],
                                    input_dim=samples.shape[1],
@@ -781,7 +791,7 @@ def adapt_keras(cpc, talos=False):
           # WARNING:tensorflow:Early stopping conditioned on metric `val_loss`
           #     which is not available. Available metrics are: loss,acc
           # Write TensorBoard logs to `./logs` directory
-          krs.callbacks.TensorBoard(log_dir=LOG_PATH)
+          krs.callbacks.TensorBoard(log_dir=f"{TFBLOG_PATH}/{ctf.timestr()}")
         ]
 
         steps_per_epoch = cpc.hs.label_steps()
@@ -825,7 +835,7 @@ def adapt_keras(cpc, talos=False):
                   'second_layer_neurons': [40],
                   'last_layer_neurons': [3],
                   'epochs': [2],
-                  'dropout': (0, 0.40, 3),
+                  'dropout': (0.2, 0.4, 2),
                   'kernel_initializer': ['he_uniform'],
                   'optimizer': ['adam'],
                   'losses': ['categorical_crossentropy'],
@@ -837,10 +847,12 @@ def adapt_keras(cpc, talos=False):
                        model=MLP1,
                        debug=True,
                        print_params=True,
+                       clear_tf_session=True,
                        params=params,
-                       dataset_name='xrp_eos',  # 'xrp-eos-bnb-btc-eth-neo-ltc-trx',
+                       # dataset_name='xrp-eos-bnb-btc-eth-neo-ltc-trx',
+                       dataset_name='xrp_eos',
                        grid_downsample=1,
-                       experiment_no='talos_test_001')
+                       experiment_no=f'talos_{ctf.timestr()}')
 
         # ta.Deploy(scan, 'talos_lstm_x', metric='val_loss', asc=True)
     else:
