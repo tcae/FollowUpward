@@ -28,6 +28,20 @@ class CtrlSet:
         except StopIteration:
             raise StopIteration()
 
+# <codecell> dir check and create
+import os
+
+path = "__pycache__/"
+if not os.path.isdir(path):
+    try:
+        os.mkdir(path)
+        print(f"created {path}")
+    except OSError:
+        print ("Creation of the directory %s failed" % path)
+    else:
+        print ("Successfully created the directory %s " % path)
+else:
+    print("{path} exists")
 
 # <codecell> rolling cell
 import numpy as np
@@ -166,6 +180,8 @@ h=a[a.index.isin(f.index)]
 print(h)
 
 # <codecell> split df
+import pandas as pd
+import numpy as np
 
 a = pd.DataFrame(np.arange(6), columns=['created'],\
                  index = pd.date_range('2012-10-08 18:15:05', periods=6, freq='T'))
@@ -179,6 +195,10 @@ print(cl)
 #b = pd.DataFrame(a, columns=cl)
 b = a[cl]
 print(b)
+df = a.iloc[[5]]
+print(df)
+k = np.array_equal(df.values, a.iloc[[5]].values)
+print(k)
 
 # <codecell> dict construct
 import numpy as np

@@ -11,7 +11,7 @@ import talos as ta
 import matplotlib.pyplot as plt
 
 
-r = ta.Reporting('xrp_eos_talos_test_001.csv')
+r = ta.Reporting("xrp-eos-bnb-btc-eth-neo-ltc-trx_talos_2019-06-06_08h39m.csv")
 
 # returns the results dataframe
 r.data
