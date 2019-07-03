@@ -9,7 +9,7 @@ to classify crypto sell/buy actions.
 
 """
 import os
-import pandas as pd
+# import pandas as pd
 import numpy as np
 import timeit
 import itertools
@@ -40,7 +40,6 @@ MODEL_PATH = f"{ctf.OTHER_PATH_PREFIX}classifier/"
 TFBLOG_PATH = f"{ctf.OTHER_PATH_PREFIX}tensorflowlog/"
 
 
-
 class EvalPerf:
     """Evaluates the performance of a buy/sell probability threshold
     """
@@ -54,7 +53,6 @@ class EvalPerf:
         self.open_transaction = False
         self.performance = 0
 
-
     def add_trade_signal(self, prob, close_price, signal):
         if signal == ctf.TARGETS[ctf.BUY]:
             if not self.open_transaction:
@@ -66,7 +64,7 @@ class EvalPerf:
             if self.open_transaction:
                 if prob >= self.spt:
                     self.open_transaction = False
-                    gain = (close_price * (1 - ctf.FEE) - self.open_buy) /self.open_buy
+                    gain = (close_price * (1 - ctf.FEE) - self.open_buy) / self.open_buy
                     self.performance += gain
                     self.transactions += 1
         elif signal == ctf.TARGETS[ctf.HOLD]:
@@ -84,18 +82,17 @@ class PerfMatrix:
     def __init__(self, epoch, set_type="unknown set type"):
 
         self.p_range = range(6, 10)
-        self.perf = np.zeros((len(self.p_range),len(self.p_range)), dtype=EvalPerf)
+        self.perf = np.zeros((len(self.p_range), len(self.p_range)), dtype=EvalPerf)
         for bp in self.p_range:
             for sp in self.p_range:
                 self.perf[bp - self.p_range[0], sp - self.p_range[0]] = \
                     EvalPerf(float((bp)/10), float((sp)/10))
-        self.confusion = np.zeros((len(ctf.TARGETS),len(ctf.TARGETS)), dtype=int)
+        self.confusion = np.zeros((len(ctf.TARGETS), len(ctf.TARGETS)), dtype=int)
         self.epoch = epoch
         self.set_type = set_type
         self.start_ts = timeit.default_timer()
         self.end_ts = None
         self.descr = list()  # list of descriptions that contribute to performance
-
 
     def pix(self, bp, sp):
         return self.perf[bp - self.p_range[0], sp - self.p_range[0]]
@@ -110,7 +107,7 @@ class PerfMatrix:
         values = list()
         for bp in self.p_range:
             for sp in self.p_range:
-                values.append((float((bp)/10), float((sp)/10), \
+                values.append((float((bp)/10), float((sp)/10),
                                self.pix(bp, sp).performance, self.pix(bp, sp).transactions))
                 perf_result = np.array(values, dtype)
                 perf_result = np.sort(perf_result, order="performance")
@@ -147,10 +144,11 @@ class PerfMatrix:
 
     def __str__(self):
         (best, bpt, spt, t) = self.best()
-        return "epoch {}, best performance {:6.0%} with buy threshold {:.1f} / sell threshold {:.1f} at {} transactions".format(self.epoch, best, bpt, spt, t)
+        return f"epoch {self.epoch}, best performance {best:6.0%}" + \
+            f" with buy threshold {bpt:.1f} / sell threshold {spt:.1f} at {t} transactions"
 
     def add_signal(self, prob, close_price, signal, target):
-        assert (prob >=0) and (prob <= 1), \
+        assert (prob >= 0) and (prob <= 1), \
                 print(f"PerfMatrix add_signal: unexpected probability {prob}")
         if signal in ctf.TARGETS.values():
             for bp in self.p_range:
@@ -159,10 +157,9 @@ class PerfMatrix:
             if target not in ctf.TARGETS.values():
                 print(f"PerfMatrix add_signal: unexpected target result {target}")
                 return
-            self.confusion[signal, target] +=1
+            self.confusion[signal, target] += 1
         else:
             raise ValueError(f"PerfMatrix add_signal: unexpected class result {signal}")
-
 
     def assess_sample_prediction(self, pred, skl_close, skl_target, skl_tics, skl_descr):
         """Assess the highest probability of a class prediction
@@ -225,7 +222,8 @@ class PerfMatrix:
         print("")
         print(f"{ctf.timestr()} {self.set_type} performace assessment time: {tdiff:.1f}min")
 
-        pt = lambda bp, sp: (self.pix(bp, sp).performance, self.pix(bp, sp).transactions)
+        def pt(bp, sp): return (self.pix(bp, sp).performance, self.pix(bp, sp).transactions)
+
         print(self)
         print("target:    {: >7}/est%/tgt% {: >7}/est%/tgt% {: >7}/est%/tgt%".format(
                 ctf.HOLD, ctf.BUY, ctf.SELL))
@@ -249,19 +247,18 @@ class PerfMatrix:
         print("performance matrix: estimated probability/number of buy+sell trades")
         print("     {: ^10} {: ^10} {: ^10} {: ^10} < spt".format(0.6, 0.7, 0.8, 0.9))
         print("0.6  {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4}".format(
-                *pt(6,6), *pt(6,7), *pt(6,8), *pt(6,9)))
+                *pt(6, 6), *pt(6, 7), *pt(6, 8), *pt(6, 9)))
         print("0.7  {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4}".format(
-                *pt(7,6), *pt(7,7), *pt(7,8), *pt(7,9)))
+                *pt(7, 6), *pt(7, 7), *pt(7, 8), *pt(7, 9)))
         print("0.8  {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4}".format(
-                *pt(8,6), *pt(8,7), *pt(8,8), *pt(8,9)))
+                *pt(8, 6), *pt(8, 7), *pt(8, 8), *pt(8, 9)))
         print("0.9  {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4}".format(
-                *pt(9,6), *pt(9,7), *pt(9,8), *pt(9,9)))
+                *pt(9, 6), *pt(9, 7), *pt(9, 8), *pt(9, 9)))
         print("^bpt")
 
 
-
 class EpochPerformance(tf.keras.callbacks.Callback):
-    def __init__(self, cpc, patience_mistake_focus = 6, patience_stop = 12):
+    def __init__(self, cpc, patience_mistake_focus=6, patience_stop=12):
         self.cpc = cpc
         self.missing_improvements = 0
         self.best_perf = 0
@@ -301,7 +298,6 @@ class EpochPerformance(tf.keras.callbacks.Callback):
 #        print(f"validation loss: {test_loss} validation acc: {test_acc}")
 
 
-
 class Cpc:
     """Provides methods to adapt single currency performance classifiers
     """
@@ -317,7 +313,6 @@ class Cpc:
         self.hs = None  # only hs_name is saved not the whole hs object
         self.hs_name = None
         self.talos_iter = 0
-
 
     def load(self):
         load_clname = self.load_classifier
@@ -353,10 +348,8 @@ class Cpc:
         except IOError:
             print(f"IO-error when loading classifier from {fname}")
 
-
         # if self.hs_name is not None:
         #     self.hs = ctf.HistorySets(self.hs_name)
-
 
     def save(self):
         """Saves the Cpc object without hs. The classifier is stored in a seperate file
@@ -371,9 +364,9 @@ class Cpc:
                 os.mkdir(self.model_path)
                 print(f"created {self.model_path}")
             except OSError:
-                print (f"Creation of the directory {self.model_path} failed")
+                print(f"Creation of the directory {self.model_path} failed")
             else:
-                print (f"Successfully created the directory {self.model_path}")
+                print(f"Successfully created the directory {self.model_path}")
         fname = str("{}{}_{}{}".format(self.model_path, self.save_classifier,
                     self.epoch, ".h5"))
         # Save entire tensorflow keras model to a HDF5 file
@@ -416,7 +409,6 @@ class Cpc:
                 if pred[ls, ctf.TARGETS[ctf.SELL]] >= sell_trshld:
                     high_prob_cl = ctf.TARGETS[ctf.SELL]
         return high_prob_cl
-
 
     def performance_assessment(self, set_type, epoch):
         """Evaluates the performance on the given set and prints the confusion and
@@ -490,28 +482,27 @@ class Cpc:
                                        activation=params["activation"]))
             if params["use_l3"]:
                 model.add(krs.layers.Dropout(params["dropout"]))
-                model.add(krs.layers.Dense(int(params["l1_neurons"]*params["h_neuron_var"]*
-                                               params["h_neuron_var"]),
-                                           kernel_initializer=params["kernel_initializer"],
-                                           activation=params["activation"]))
+                model.add(krs.layers.Dense(
+                    int(params["l1_neurons"]*params["h_neuron_var"]*params["h_neuron_var"]),
+                    kernel_initializer=params["kernel_initializer"],
+                    activation=params["activation"]))
             model.add(krs.layers.Dense(3,
                                        activation=params["last_activation"]))
             self.classifier = model
             assert model is not None
 
             self.classifier.compile(optimizer=params["optimizer"],
-                                   loss="categorical_crossentropy",
-                                   metrics=["accuracy", km.Precision()])
-            self.save_classifier = "MLP-ti{}-l1{}-h{}-l3{}-do{}-opt{}".format(self.talos_iter,
-                                         params["l1_neurons"], params["h_neuron_var"],
-                                         params["use_l3"], params["dropout"], params["optimizer"])
-
+                                    loss="categorical_crossentropy",
+                                    metrics=["accuracy", km.Precision()])
+            self.save_classifier = "MLP-ti{}-l1{}-h{}-l3{}-do{}-opt{}".format(
+                self.talos_iter, params["l1_neurons"], params["h_neuron_var"],
+                params["use_l3"], params["dropout"], params["optimizer"])
 
             tensorboardpath = f"{TFBLOG_PATH}{ctf.timestr()}talos{self.talos_iter}-"
             tensorfile = "{}epoch{}.hdf5".format(tensorboardpath, "{epoch}")
             callbacks = [
-                EpochPerformance(self, patience_mistake_focus = 5, patience_stop = 10),
-                #Interrupt training if `val_loss` stops improving for over 2 epochs
+                EpochPerformance(self, patience_mistake_focus=5, patience_stop=10),
+                # Interrupt training if `val_loss` stops improving for over 2 epochs
                 # krs.callbacks.EarlyStopping(patience=10),
                 # krs.callbacks.ModelCheckpoint(tensorfile, verbose=1),
                 krs.callbacks.TensorBoard(log_dir=tensorfile)]
@@ -537,7 +528,7 @@ class Cpc:
                     initial_epoch=0)
             assert out is not None
 
-            return out,model
+            return out, model
 
         start_time = timeit.default_timer()
         self.hs = ctf.HistorySets(ctf.sets_config_fname())
@@ -565,16 +556,16 @@ class Cpc:
                   "last_activation": ["softmax"]}
 
         ta.Scan(x=dummy_x,  # real data comes from generator
-                       y=dummy_y,  # real data comes from generator
-                       model=MLP1,
-                       debug=True,
-                       print_params=True,
-                       clear_tf_session=True,
-                       params=params,
-                       dataset_name="xrp-eos-bnb-btc-eth-neo-ltc-trx",
-                       # dataset_name="xrp_eos",
-                       grid_downsample=1,
-                       experiment_no=f"talos_{ctf.timestr()}")
+                y=dummy_y,  # real data comes from generator
+                model=MLP1,
+                debug=True,
+                print_params=True,
+                clear_tf_session=True,
+                params=params,
+                dataset_name="xrp-eos-bnb-btc-eth-neo-ltc-trx",
+                # dataset_name="xrp_eos",
+                grid_downsample=1,
+                experiment_no=f"talos_{ctf.timestr()}")
 
         # ta.Deploy(scan, "talos_lstm_x", metric="val_loss", asc=True)
 
@@ -626,7 +617,7 @@ class Cpc:
                     ts2 = fvec.index[0].to_pydatetime()
                     if (ts2 - ts1) != np.timedelta64(1, "m"):
                         if buy_cl > 0:  # forced sell of last_vec but fvec may already be a buy
-                            close = last_fvec.at[last_fvec.index[0],"close"]
+                            close = last_fvec.at[last_fvec.index[0], "close"]
                             perf += (close * (1 - ctf.FEE) - buy_cl) / buy_cl
                             buy_cl = 0
                             print(f"forced step sell {base} on {fvec.index[0]} at {close}")
@@ -638,7 +629,7 @@ class Cpc:
                         print(f"force_sell: due to end of {base} samples")
                         force_sell = True  # of fvec
 
-                close = fvec.at[fvec.index[0],"close"]
+                close = fvec.at[fvec.index[0], "close"]
                 cl = self.performance_with_features(fvec, 0.7, 0.7)
                 if (cl != ctf.TARGETS[ctf.HOLD]) or force_sell:
                     if buy_cl > 0:
@@ -662,7 +653,8 @@ class Cpc:
 #                assert np.allclose(pred2, pred1[ix:ix+1])
 #                if (ix == 0) or (ix == subset_len-1):
 #                    print(f"ix {ix}, len(fvec)={len(fvec)}, len(pred2)={len(pred2)}", fvec)
-#                pm.assess_sample_prediction(pred2, sample.close, sample.target, sample.tics, sample.descr)
+#                pm.assess_sample_prediction(pred2, sample.close, sample.target, sample.tics,
+#                                            sample.descr)
 #        pm.report_assessment()
         print(f"performance: {perf:6.0%}")
         tdiff = (timeit.default_timer() - start_time) / 60
@@ -670,36 +662,36 @@ class Cpc:
 
 
 def plot_confusion_matrix(cm, class_names):
-  """
-  Returns a matplotlib figure containing the plotted confusion matrix.
+    """
+    Returns a matplotlib figure containing the plotted confusion matrix.
 
-  Args:
-    cm (array, shape = [n, n]): a confusion matrix of integer classes
-    class_names (array, shape = [n]): String names of the integer classes
-  """
-  figure = plt.figure(figsize=(8, 8))
-  plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-  plt.title("Confusion matrix")
-  plt.colorbar()
-  tick_marks = np.arange(len(class_names))
-  plt.xticks(tick_marks, class_names, rotation=45)
-  plt.yticks(tick_marks, class_names)
+    Args:
+        cm (array, shape = [n, n]): a confusion matrix of integer classes
+        class_names (array, shape = [n]): String names of the integer classes
+    """
+    figure = plt.figure(figsize=(8, 8))
+    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title("Confusion matrix")
+    plt.colorbar()
+    tick_marks = np.arange(len(class_names))
+    plt.xticks(tick_marks, class_names, rotation=45)
+    plt.yticks(tick_marks, class_names)
 
-  # Normalize the confusion matrix.
-  cm = np.around(cm.astype('float') / cm.sum(axis=1)[:, np.newaxis], decimals=2)
+    # Normalize the confusion matrix.
+    cm = np.around(cm.astype('float') / cm.sum(axis=1)[:, np.newaxis], decimals=2)
 
-  # Use white text if squares are dark; otherwise black.
-  threshold = cm.max() / 2.
-  for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-    color = "white" if cm[i, j] > threshold else "black"
-    plt.text(j, i, cm[i, j], horizontalalignment="center", color=color)
+    # Use white text if squares are dark; otherwise black.
+    threshold = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        color = "white" if cm[i, j] > threshold else "black"
+        plt.text(j, i, cm[i, j], horizontalalignment="center", color=color)
 
-  plt.tight_layout()
-  plt.ylabel('True label')
-  plt.xlabel('Predicted label')
-  return figure
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    return figure
 
-#def log_confusion_matrix(epoch, logs):
+# def log_confusion_matrix(epoch, logs):
 #  # Use the model to predict the values from the validation dataset.
 #  test_pred_raw = model.predict(test_images)
 #  test_pred = np.argmax(test_pred_raw, axis=1)
@@ -715,12 +707,11 @@ def plot_confusion_matrix(cm, class_names):
 #    tf.summary.image("Confusion Matrix", cm_image, step=epoch)
 
 
-
 if __name__ == "__main__":
     if True:
         tee = ctf.Tee(f"{MODEL_PATH}Log_{ctf.timestr()}.txt")
         load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
-        save_classifier = None # "MLP-110-80relu-40relu-3softmax"
+        save_classifier = None  # "MLP-110-80relu-40relu-3softmax"
         #     load_classifier = str("{}{}".format(BASE, target_key))
         unit_test = False
         cpc = Cpc(load_classifier, save_classifier)
@@ -728,4 +719,3 @@ if __name__ == "__main__":
         cpc.adapt_keras()
         # cpc.use_keras()
         tee.close()
-

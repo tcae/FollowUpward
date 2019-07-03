@@ -308,7 +308,7 @@ def check_loc4():
     print(df)
 
 #check_append()
-check_loc3()
+check_loc()
 #print(str.isdecimal())
 
 # <codecell> isin

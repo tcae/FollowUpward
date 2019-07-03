@@ -17,7 +17,7 @@ from datetime import datetime, timedelta  # , timezone
 import time
 import crypto_targets_features as ctf
 import classify_keras as ck
-from classify_keras import PerfMatrix, EvalPerf
+# from classify_keras import PerfMatrix, EvalPerf
 
 CACHE_PATH = f"{ctf.DATA_PATH_PREFIX}cache/"
 RETRIES = 5  # number of ccxt retry attempts before proceeding without success
@@ -28,7 +28,7 @@ TRADE_VOL_LIMIT_USDT = 100
 BASES = ["BTC", "XRP", "ETH", "BNB", "EOS", "LTC", "NEO", "TRX", "USDT"]
 BLOCKED_ASSET_AMOUNT = {"BNB": 100, "USDT": 20000}  # amounts in base currency
 # BASES = ["USDT"]
-BLACK_BASES = ["TUSD", "USDT", "ONG", "PAX", "BTT", "ATOM", "FET", "USDC", "ONE", "CELR", "TFUEL", "ZIL", "LINK"]
+BLACK_BASES = ["TUSD", "USDT", "ONG", "PAX", "BTT", "ATOM", "FET", "USDC", "ONE", "CELR", "LINK"]
 QUOTE = "USDT"
 DATA_KEYS = ["open", "high", "low", "close", "volume"]
 AUTH_FILE = "/Users/tc/.catalyst/data/exchanges/binance/auth.json"
@@ -37,8 +37,10 @@ ICEBERG_USDT_PART = 450
 MAX_USDT_ORDER = ICEBERG_USDT_PART * 10  # binanace limit is 10 iceberg parts per order
 # logging.basicConfig(level=logging.DEBUG)
 
+
 def nowstr():
     return datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+
 
 class Trading():
     """To simplify trading some constraints and a workflow are defined.
@@ -73,12 +75,12 @@ class Trading():
             with open(fname, "rb") as fp:
                 self.auth = json.load(fp)
             if ("name" not in self.auth) or ("key" not in self.auth) or \
-                ("secret" not in self.auth):
+                    ("secret" not in self.auth):
                 print(f"missing auth keys: {self.auth}")
         except IOError:
             print(f"IO error while trying to open {fname}")
             return
-        self.xch  = ccxt.binance({
+        self.xch = ccxt.binance({
             "apiKey": self.auth["key"],
             "secret": self.auth["secret"],
             "timeout": 10000,
@@ -153,7 +155,6 @@ class Trading():
         if mybal is None:
             print(f"nowstr() {caller} ERROR: cannot fetch_balance")
         return mybal
-
 
     def update_book_entry(self, base, mybal, tickers):
         sym = base + "/" + QUOTE
@@ -258,7 +259,7 @@ class Trading():
                     dfdiff = int((when - dtlast) / timedelta(minutes=1))
                     if dfdiff < remaining:
                         remaining = dfdiff
-                if (remaining <=0):
+                if remaining <= 0:
                     break
                 fromdate = when - timedelta(minutes=remaining)
                 since = int((fromdate - datetime(1970, 1, 1)).total_seconds() * 1000)
@@ -449,10 +450,10 @@ class Trading():
                 break  # order is already closed
             else:
                 break
-         # for a request to cancelOrder a user is required to retry the same call the second time.
-         # If instead of a retry a user calls a fetchOrder, fetchOrders, fetchOpenOrders or
-         # fetchClosedOrders right away without a retry to call cancelOrder, this may cause
-         # the .orders cache to fall out of sync.
+        # for a request to cancelOrder a user is required to retry the same call the second time.
+        # If instead of a retry a user calls a fetchOrder, fetchOrders, fetchOpenOrders or
+        # fetchClosedOrders right away without a retry to call cancelOrder, this may cause
+        # the .orders cache to fall out of sync.
         for i in range(RETRIES):
             try:
                 self.xch.cancel_order(orderid, sym)
@@ -538,16 +539,16 @@ class Trading():
         sym = base + "/" + QUOTE
         # ice_chunk = ICEBERG_USDT_PART / price # about the chunk quantity we want
         ice_chunk = self.book.loc[base, "dayUSDT"] / (24 * 60 * 4)  # 1/4 of average minute volume
-        ice_parts = math.ceil(amount / ice_chunk) # about equal parts
+        ice_parts = math.ceil(amount / ice_chunk)  # about equal parts
 
-        mincost = self.markets[sym]["limits"]["cost"]["min"] # test purposes
-        ice_parts = math.floor(price * amount / mincost) # test purposes
+        mincost = self.markets[sym]["limits"]["cost"]["min"]  # test purposes
+        ice_parts = math.floor(price * amount / mincost)  # test purposes
 
         ice_parts = min(ice_parts, self.book.loc[base, "iceberg_parts"])
         if ice_parts > 1:
             ice_chunk = amount / ice_parts
             ice_chunk = int(ice_chunk / self.book.loc[base, "lot_size_min"]) \
-                        * self.book.loc[base, "lot_size_min"]
+                * self.book.loc[base, "lot_size_min"]
             ice_chunk = round(ice_chunk, self.markets[sym]["precision"]["amount"])
             amount = ice_chunk * ice_parts
             if ice_chunk == amount:
@@ -617,7 +618,7 @@ class Trading():
                 for i in range(RETRIES):
                     try:
                         myorder = self.xch.create_limit_sell_order(sym, amount, price,
-                                           {"icebergQty":ice_chunk, "timeInForce": "GTC"})
+                            {"icebergQty": ice_chunk, "timeInForce": "GTC"})
                     except ccxt.RequestTimeout as err:
                         print(f"{nowstr()} sell_order failed {i}x due to a RequestTimeout error:",
                               str(err))
@@ -674,7 +675,7 @@ class Trading():
                 for i in range(RETRIES):
                     try:
                         myorder = self.xch.create_limit_buy_order(sym, amount, price,
-                                          {"icebergQty":ice_chunk, "timeInForce": "GTC"})
+                            {"icebergQty": ice_chunk, "timeInForce": "GTC"})
                     except ccxt.InsufficientFunds as err:
                         print(f"{nowstr()} buy_order failed due to a InsufficientFunds ",
                               str(err))
@@ -705,7 +706,6 @@ class Trading():
         for base in buylist:
             buydict[base] = free_distribution
         return buydict
-
 
     def trade_loop(self, cpc, buy_trshld, sell_trshld):
         buylist = list()
@@ -758,7 +758,7 @@ class Trading():
                     if cl == ctf.TARGETS[ctf.SELL]:
                         self.sell_order(base, ratio=1)
                     if cl == ctf.TARGETS[ctf.BUY]:
-                        buylist.append(base) # amount to be determined by buy_ratio()
+                        buylist.append(base)  # amount to be determined by buy_ratio()
 
                 if len(buylist) > 0:
                     buydict = self.buy_ratio(buylist)
@@ -798,11 +798,9 @@ if __name__ == "__main__":
     cpc = ck.Cpc(load_classifier, save_classifier)
     cpc.load()
 
-
     start_time = timeit.default_timer()
     buy_trshld = 0.7
     sell_trshld = 0.7
-
 
     # trd.buy_order("ETH", ratio=22/trd.book.loc[QUOTE, "free"])
     # trd.sell_order("ETH", ratio=1)
@@ -812,4 +810,3 @@ if __name__ == "__main__":
     tdiff = (timeit.default_timer() - start_time) / (60*60)
     print(f"total time: {tdiff:.2f} hours")
     tee.close()
-
