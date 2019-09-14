@@ -14,20 +14,31 @@ from sklearn.utils import Bunch
 import numpy as np
 import sys
 
+THIS_ENV = "Ubuntu"
+# THIS_ENV = "OSX"
+# THIS_ENV = "FLOYDHUB"
+# THIS_ENV = "COLAB"
 UNITTEST_LOCAL = True
 PRODUCTION_LOCAL = False
 PRODUCTION_FLOYDHUB = False
 PRODUCTION_COLAB = False
 
-if UNITTEST_LOCAL or PRODUCTION_LOCAL:  # my local computer
-    DATA_PATH_PREFIX = "/Users/tc/crypto/"
-    OTHER_PATH_PREFIX = "/Users/tc/crypto/"
-elif PRODUCTION_COLAB:  # Colab
-    DATA_PATH_PREFIX = "/content/gdrive/My Drive/"
-    OTHER_PATH_PREFIX = "/content/gdrive/My Drive/"
-elif PRODUCTION_FLOYDHUB:  # Floydhub
+if THIS_ENV == "OSX": 
+    HOME = "/Users/tc/"
+    DATA_PATH_PREFIX = HOME + "crypto/"
+    OTHER_PATH_PREFIX = HOME + "crypto/"
+elif THIS_ENV == "Ubuntu":  # Colab
+    HOME = "/home/tor/"
+    DATA_PATH_PREFIX = HOME + "crypto/"
+    OTHER_PATH_PREFIX = HOME + "crypto/"
+elif THIS_ENV == "COLAB":  # Colab
+    HOME = "/content/gdrive/My Drive/"
+    DATA_PATH_PREFIX = HOME
+    OTHER_PATH_PREFIX = HOME
+elif THIS_ENV == "FLOYDHUB":  # Floydhub
+    HOME = ""
     DATA_PATH_PREFIX = "/floyd/input/"
-    OTHER_PATH_PREFIX = ""
+    OTHER_PATH_PREFIX = HOME
 else:
     raise ValueError("configuration fault in local versus non local")
 SMALLER_16GB_RAM = True
@@ -731,7 +742,7 @@ class HistorySets:
             self.release_features_of_base(self.last_base)
         try:
             base_df = self.ctrl[set_type].loc[(self.ctrl[set_type].sym == sym) &
-                                              (self.ctrl[set_type].use is True)]
+                                              (self.ctrl[set_type].use == True)]
             # print(f"{set_type} set with {len(base_df)} samples for {sym}")
             return base_df
         except KeyError:
@@ -753,7 +764,7 @@ class HistorySets:
                                              (self.ctrl[TRAIN].step == buy_step)) |
                                             ((self.ctrl[TRAIN].target == TARGETS[SELL]) &
                                              (self.ctrl[TRAIN].step == sell_step))) &
-                                           (self.ctrl[TRAIN].use is True)]
+                                           (self.ctrl[TRAIN].use == True)]
             # report_setsize(f"{sym} {TRAIN} set step {step}", base_df)
             return base_df
         except KeyError:
@@ -928,7 +939,7 @@ class HistorySets:
                ((df.hold_prop >= df.buy_prob) | (df.sell_prop >= df.buy_prob)), "use"] = True
         df.loc[(df.target == TARGETS[SELL]) &
                ((df.buy_prob >= df.sell_prop) | (df.hold_prop >= df.sell_prop)), "use"] = True
-        return len(df[df.use is True])
+        return len(df[df.use == True])
 
     def base_label_check(self, base):
         print("{} maxsteps of buy:{} sell:{} hold:{} max:{}".format(
@@ -977,10 +988,10 @@ class HistorySets:
             tdf = self.ctrl[TRAIN]
             tdf = tdf[tdf.sym == sym]
             self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0}
-            holds = len(tdf[(tdf.target == TARGETS[HOLD]) & (tdf.use is True)])
-            sells = len(tdf[(tdf.target == TARGETS[SELL]) & (tdf.use is True)])
-            buys = len(tdf[(tdf.target == TARGETS[BUY]) & (tdf.use is True)])
-            all_use = len(tdf[(tdf.use is True)])
+            holds = len(tdf[(tdf.target == TARGETS[HOLD]) & (tdf.use == True)])
+            sells = len(tdf[(tdf.target == TARGETS[SELL]) & (tdf.use == True)])
+            buys = len(tdf[(tdf.target == TARGETS[BUY]) & (tdf.use == True)])
+            all_use = len(tdf[(tdf.use == True)])
             all_sym = len(tdf)
             samples = holds + sells + buys
             # print(f"{sym} buys:{buys} sells:{sells} holds:{holds} total:{samples} on {TRAIN}")

@@ -708,14 +708,14 @@ def plot_confusion_matrix(cm, class_names):
 
 
 if __name__ == "__main__":
-    if True:
-        tee = ctf.Tee(f"{MODEL_PATH}Log_{ctf.timestr()}.txt")
-        load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
-        save_classifier = None  # "MLP-110-80relu-40relu-3softmax"
-        #     load_classifier = str("{}{}".format(BASE, target_key))
-        unit_test = False
-        cpc = Cpc(load_classifier, save_classifier)
-        # cpc.load()
+    tee = ctf.Tee(f"{MODEL_PATH}Log_{ctf.timestr()}.txt")
+    load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
+    save_classifier = None  # "MLP-110-80relu-40relu-3softmax"
+    #     load_classifier = str("{}{}".format(BASE, target_key))
+    cpc = Cpc(load_classifier, save_classifier)
+    if False:
         cpc.adapt_keras()
-        # cpc.use_keras()
-        tee.close()
+    else: 
+        cpc.load()
+        cpc.use_keras()
+    tee.close()
