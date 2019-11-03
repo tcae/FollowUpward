@@ -36,8 +36,13 @@ print(f"Tensorflow version: {tf.VERSION}")
 print(f"Keras version: {krs.__version__}")
 print(__doc__)
 
-MODEL_PATH = f"{ctf.OTHER_PATH_PREFIX}classifier/"
-TFBLOG_PATH = f"{ctf.OTHER_PATH_PREFIX}tensorflowlog/"
+
+def set_environment(test_conf, this_env):
+    global MODEL_PATH
+    global TFBLOG_PATH
+    ctf.set_environment(test_conf, this_env)
+    MODEL_PATH = f"{ctf.OTHER_PATH_PREFIX}classifier/"
+    TFBLOG_PATH = f"{ctf.OTHER_PATH_PREFIX}tensorflowlog/"
 
 
 class EvalPerf:
@@ -715,7 +720,7 @@ if __name__ == "__main__":
     cpc = Cpc(load_classifier, save_classifier)
     if False:
         cpc.adapt_keras()
-    else: 
+    else:
         cpc.load()
         cpc.use_keras()
     tee.close()

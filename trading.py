@@ -18,9 +18,8 @@ from datetime import datetime, timedelta  # , timezone
 import time
 import crypto_targets_features as ctf
 import classify_keras as ck
-from classify_keras import PerfMatrix, EvalPerf
+from classify_keras import PerfMatrix, EvalPerf  # required for pickle  # noqa
 
-CACHE_PATH = f"{ctf.DATA_PATH_PREFIX}cache/"
 RETRIES = 5  # number of ccxt retry attempts before proceeding without success
 MAX_MINBELOW = 0  # max minutes below buy price before emergency sell
 ORDER_TIMEOUT = 45  # in seconds
@@ -32,11 +31,20 @@ BLOCKED_ASSET_AMOUNT = {"BNB": 100, "USDT": 20000}  # amounts in base currency
 BLACK_BASES = ["TUSD", "USDT", "ONG", "PAX", "BTT", "ATOM", "FET", "USDC", "ONE", "CELR", "LINK"]
 QUOTE = "USDT"
 DATA_KEYS = ["open", "high", "low", "close", "volume"]
-AUTH_FILE = ctf.HOME  + ".catalyst/data/exchanges/binance/auth.json"
 MPH = 60  # Minutes Per Hour
 ICEBERG_USDT_PART = 450
 MAX_USDT_ORDER = ICEBERG_USDT_PART * 10  # binanace limitP10 iceberg parts per order
 # logging.basicConfig(level=logging.DEBUG)
+CACHE_PATH = ""
+AUTH_FILE = ""
+
+
+def set_environment(test_conf, this_env):
+    global CACHE_PATH
+    global AUTH_FILE
+    ck.set_environment(test_conf, this_env)
+    CACHE_PATH = f"{ctf.DATA_PATH_PREFIX}cache/"
+    AUTH_FILE = ctf.HOME + ".catalyst/data/exchanges/binance/auth.json"
 
 
 def nowstr():
@@ -65,6 +73,7 @@ class Xch():
         except IOError:
             print(f"IO error while trying to open {fname}")
             return
+        self.ohlcv = dict()
         self.xch = ccxt.binance({
             "apiKey": self.auth["key"],
             "secret": self.auth["secret"],
@@ -89,6 +98,11 @@ class Xch():
 
         self.markets = self.xch.load_markets()
         self.actions = pd.DataFrame(columns=["ccxt", "timestamp"])  # action_id is the index nbr
+        # TODO: load orderbook and trades in case they were stored
+        self.orderbook = pd.DataFrame(columns=["action_id", "base", "sym", "timestamp",
+                                               "side", "price", "amount"])
+        self.trades = pd.DataFrame(columns=["action_id", "base", "sym", "timestamp",
+                                            "side", "price", "amount"])
 
     def load_markets(self):
         return self.xch.load_markets()
@@ -139,6 +153,17 @@ class Xch():
                         if f["filterType"] == "LOT_SIZE":
                             self.book.loc[base, "lot_size_min"] = float(f["minQty"])
                             assert f["minQty"] == f["stepSize"]
+        bdf = self.book[["free", "used", "USDT", "dayUSDT"]]
+        print(bdf)
+        for base in self.book.index:
+            adf = None
+            if base not in BLACK_BASES:
+                try:
+                    adf = ctf.load_asset_dataframe(CACHE_PATH, base.lower())
+                except ctf.MissingHistoryData:
+                    pass
+                if adf is not None:
+                    self.ohlcv[base] = adf
 
     def update_balance(self, tickers):
         mybal = self.xch.myfetch_balance("update_balance")
@@ -227,6 +252,21 @@ class Xch():
 
     def fetch_tickers(self):
         return self.xch.fetch_tickers()
+
+    def myfetch_tickers(self, caller):
+        tickers = None
+        for i in range(RETRIES):
+            try:
+                tickers = self.fetch_tickers()
+            except ccxt.RequestTimeout as err:
+                print(f"{nowstr()} fetch_tickers failed {i}x due to a RequestTimeout error:",
+                      str(err))
+                continue
+            else:
+                break
+        if tickers is None:
+            print(f"nowstr() {caller} ERROR: cannot fetch_tickers")
+        return tickers
 
     def create_limit_sell_order(self, sym, amount, price, *params):
         # return self.xch.create_limit_sell_order(sym, amount, price, *params)
@@ -349,10 +389,6 @@ class Xch():
             self.trades.loc[ix] = [self.aid, base, sym, ts,
                                    trade["side"], trade["price"], trade["amount"]]
 
-    def __del__(self):
-        print(self.actions)
-        print("Trading destructor called, store log pandas.")
-
     def safe_cache(self):
         for base in self.book.index:
             if base in self.ohlcv:
@@ -425,17 +461,17 @@ class Xch():
     def check_limits(self, base, amount, price):
         sym = base + "/" + QUOTE
         # ice_chunk = ICEBERG_USDT_PART / price # about the chunk quantity we want
-        ice_chunk = self.xch.book.loc[base, "dayUSDT"] / (24 * 60 * 4)  # 1/4 of average minute volume
+        ice_chunk = self.book.loc[base, "dayUSDT"] / (24 * 60 * 4)  # 1/4 of average minute volume
         ice_parts = math.ceil(amount / ice_chunk)  # about equal parts
 
         mincost = self.markets[sym]["limits"]["cost"]["min"]  # test purposes
         ice_parts = math.floor(price * amount / mincost)  # test purposes
 
-        ice_parts = min(ice_parts, self.xch.book.loc[base, "iceberg_parts"])
+        ice_parts = min(ice_parts, self.book.loc[base, "iceberg_parts"])
         if ice_parts > 1:
             ice_chunk = amount / ice_parts
-            ice_chunk = int(ice_chunk / self.xch.book.loc[base, "lot_size_min"]) \
-                * self.xch.book.loc[base, "lot_size_min"]
+            ice_chunk = int(ice_chunk / self.book.loc[base, "lot_size_min"]) \
+                * self.book.loc[base, "lot_size_min"]
             ice_chunk = round(ice_chunk, self.markets[sym]["precision"]["amount"])
             amount = ice_chunk * ice_parts
             if ice_chunk == amount:
@@ -478,65 +514,6 @@ class Xch():
         return (amount, price, ice_chunk)
 
 
-class Trading():
-    """To simplify trading some constraints and a workflow are defined.
-
-    Constraints:
-    ============
-    considered currencies are
-    - part of a constant defined set BASES or
-    - they are part of the bookkeeping with > 1 USDT or
-    - the currency is tradable in USDT and has a daily volume >= MIN_AVG_USDT*60*24
-    - shall be tradable with USDT as quote currency --> no need to worry about quote
-    - currently binance is the only supported exchange --> no need to worry about the exchange
-
-    Workflow:
-    =========
-    - considered currencies have an entry in book DataFrame
-    - each minute OHLCV is called to provide a DataFrame that is used to classifiy signals
-    - a percentage of the average minute volume is the upper bound to buy
-    - for sell/buy orders all considered tickers are updated as the last bid/ask is needed anyhow
-    - check order progress is at least called once per minute in case of open orders
-    - summary: OHLCV > classify > sell/buy > check order progress
-
-    TODO: async execution4
-    """
-
-    def __init__(self):
-        self.xch = Xch()
-
-        # FIXME: store order with attributes in order pandas
-        self.openorders = list()
-        self.ohlcv = dict()
-        # TODO: load orderbook and trades in case they were stored
-        self.orderbook = pd.DataFrame(columns=["action_id", "base", "sym", "timestamp",
-                                               "side", "price", "amount"])
-        self.trades = pd.DataFrame(columns=["action_id", "base", "sym", "timestamp",
-                                            "side", "price", "amount"])
-        tickers = self.myfetch_tickers("__init__")
-        if tickers is not None:
-            self.xch.update_bookkeeping(tickers)
-            bdf = self.xch.book[["free", "used", "USDT", "dayUSDT"]]
-            print(bdf)
-            for base in self.xch.book.index:
-                adf = None
-                if base not in BLACK_BASES:
-                    try:
-                        adf = ctf.load_asset_dataframe(CACHE_PATH, base.lower())
-                    except ctf.MissingHistoryData:
-                        pass
-                    if adf is not None:
-                        self.ohlcv[base] = adf
-
-    def last_hour_performance(self, ohlcv_df):
-        cix = ohlcv_df.columns.get_loc("close")
-        tix = len(ohlcv_df.index) - 1
-        last_close = ohlcv_df.iat[tix, cix]
-        tix = max(0, tix - 60)
-        hour_close = ohlcv_df.iat[tix, cix]
-        perf = (last_close - hour_close)/hour_close
-        return perf
-
     def get_ohlcv(self, base, minutes, when):
         """Returns the last 'minutes' OHLCV values of pair before 'when'.
 
@@ -551,7 +528,7 @@ class Trading():
         when = pd.Timestamp(when).replace(second=0, microsecond=0, nanosecond=0, tzinfo=None)
         when = when.to_pydatetime()
         minutes += 1
-        isincheck = True in self.xch.book.index.isin([base])
+        isincheck = True in self.book.index.isin([base])
         df = None
         if isincheck:
             if base in self.ohlcv:
@@ -572,7 +549,7 @@ class Trading():
                 fromdate = when - timedelta(minutes=remaining)
                 since = int((fromdate - datetime(1970, 1, 1)).total_seconds() * 1000)
                 # print(f"{nowstr()} {base} fromdate {ctf.timestr(fromdate)} minutes {remaining}")
-                ohlcvs = self.xch.fetch_ohlcv(sym, "1m", since=since, limit=remaining)
+                ohlcvs = self.fetch_ohlcv(sym, "1m", since=since, limit=remaining)
                 # only 1000 entries are returned by one fetch
                 if ohlcvs is None:
                     return None
@@ -604,10 +581,53 @@ class Trading():
 
             self.ohlcv[base] = df
             assert len(df) >= minutes, f"{base} len(df) {len(df)} < {minutes} minutes"
-            self.xch.book.loc[base, "updated"] = nowstr()
+            self.book.loc[base, "updated"] = nowstr()
         else:
             print(f"unsupported base {base}")
         return df
+
+    def last_hour_performance(self, ohlcv_df):
+        cix = ohlcv_df.columns.get_loc("close")
+        tix = len(ohlcv_df.index) - 1
+        last_close = ohlcv_df.iat[tix, cix]
+        tix = max(0, tix - 60)
+        hour_close = ohlcv_df.iat[tix, cix]
+        perf = (last_close - hour_close)/hour_close
+        return perf
+
+
+class Trading():
+    """To simplify trading some constraints and a workflow are defined.
+
+    Constraints:
+    ============
+    considered currencies are
+    - part of a constant defined set BASES or
+    - they are part of the bookkeeping with > 1 USDT or
+    - the currency is tradable in USDT and has a daily volume >= MIN_AVG_USDT*60*24
+    - shall be tradable with USDT as quote currency --> no need to worry about quote
+    - currently binance is the only supported exchange --> no need to worry about the exchange
+
+    Workflow:
+    =========
+    - considered currencies have an entry in book DataFrame
+    - each minute OHLCV is called to provide a DataFrame that is used to classifiy signals
+    - a percentage of the average minute volume is the upper bound to buy
+    - for sell/buy orders all considered tickers are updated as the last bid/ask is needed anyhow
+    - check order progress is at least called once per minute in case of open orders
+    - summary: OHLCV > classify > sell/buy > check order progress
+
+    TODO: async execution4
+    """
+
+    def __init__(self):
+        self.myxch = Xch()
+
+        # FIXME: store order with attributes in order pandas
+        self.openorders = list()
+        tickers = self.myxch.myfetch_tickers("__init__")
+        if tickers is not None:
+            self.myxch.update_bookkeeping(tickers)
 
     def check_order_progress(self):
         """Check fill status of open orders and adapt price if required.
@@ -640,9 +660,9 @@ class Trading():
         - only samples are used for training that correlate with a buy or sell signal of that market
 
         """
-        for base in self.xch.book.index:
-            if self.xch.book.loc[base, "used"] > 0:
-                oo = self.myfetch_open_orders(base, "check_order_progress")
+        for base in self.myxch.book.index:
+            if self.myxch.book.loc[base, "used"] > 0:
+                oo = self.myxch.myfetch_open_orders(base, "check_order_progress")
                 if oo is not None:
                     for order in oo:
                         is_sell = (order["side"] == "sell")
@@ -652,43 +672,28 @@ class Trading():
                         print(f"now {ctf.timestr(nowts)} - ts {ctf.timestr(ots)} = {tsdiff}s")
                         if tsdiff >= ORDER_TIMEOUT:
                             try:
-                                self.myfetch_cancel_orders(order["id"], base)
-                                self.myfetch_cancel_orders(order["id"], base)
+                                self.myxch.myfetch_cancel_orders(order["id"], base)
+                                self.myxch.myfetch_cancel_orders(order["id"], base)
                             except ccxt.NetworkError:
-                                self.myfetch_cancel_orders(order["id"], base)
+                                self.myxch.myfetch_cancel_orders(order["id"], base)
                             except ccxt.OrderNotFound:
                                 # that's what we are looking for
                                 pass
                             if is_sell:
                                 self.sell_order(base, ratio=1)
 
-    def myfetch_tickers(self, caller):
-        tickers = None
-        for i in range(RETRIES):
-            try:
-                tickers = self.xch.fetch_tickers()
-            except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} fetch_tickers failed {i}x due to a RequestTimeout error:",
-                      str(err))
-                continue
-            else:
-                break
-        if tickers is None:
-            print(f"nowstr() {caller} ERROR: cannot fetch_tickers")
-        return tickers
-
     def sell_order(self, base, ratio=1):
         """ Sells the ratio of free base currency. Constraint: 0 <= ratio <= 1
         """
         assert 0 <= ratio <= 1, f"not compliant to constraint: 0 <= ratio {ratio} <= 1"
-        isincheck = True in self.xch.book.index.isin([base])
+        isincheck = True in self.myxch.book.index.isin([base])
         if isincheck:
             sym = base + "/" + QUOTE
-            tickers = self.myfetch_tickers("sell_order")
+            tickers = self.myxch.myfetch_tickers("sell_order")
             if tickers is None:
                 return
-            self.xch.update_balance(tickers)
-            base_amount = self.xch.book.loc[base, "free"]
+            self.myxch.update_balance(tickers)
+            base_amount = self.myxch.book.loc[base, "free"]
             if base in BLOCKED_ASSET_AMOUNT:
                 base_amount -= BLOCKED_ASSET_AMOUNT[base]
             base_amount *= ratio
@@ -698,10 +703,10 @@ class Trading():
                 price = tickers[sym]["bid"]  # TODO order spread strategy
                 max_chunk = MAX_USDT_ORDER / price
                 ice_chunk = amount = min([base_amount, max_chunk])
-                (amount, price, ice_chunk) = self.xch.check_limits(base, amount, price)
+                (amount, price, ice_chunk) = self.myxch.check_limits(base, amount, price)
                 if (amount == 0) or (price == 0):
                     return
-                myorder = self.xch.create_limit_sell_order(
+                myorder = self.myxch.create_limit_sell_order(
                     sym, amount, price,
                     {"icebergQty": ice_chunk, "timeInForce": "GTC"})
                 if myorder is None:
@@ -715,12 +720,12 @@ class Trading():
 
     def trade_amount(self, base, ratio):
         trade_vol = 0
-        for base in self.xch.book.index:
+        for base in self.myxch.book.index:
             if base not in BLACK_BASES:
-                trade_vol += (self.xch.book.loc[base, "free"] + self.xch.book.loc[base, "used"]) \
-                             * self.xch.book.loc[base, "USDT"]
+                trade_vol += (self.myxch.book.loc[base, "free"] + self.myxch.book.loc[base, "used"]) * \
+                             self.myxch.book.loc[base, "USDT"]
         trade_vol = TRADE_VOL_LIMIT_USDT - trade_vol
-        trade_vol = min(trade_vol, self.xch.book.loc[QUOTE, "free"])
+        trade_vol = min(trade_vol, self.myxch.book.loc[QUOTE, "free"])
         if QUOTE in BLOCKED_ASSET_AMOUNT:
             trade_vol -= BLOCKED_ASSET_AMOUNT[QUOTE]
         usdt_amount = trade_vol * ratio
@@ -730,14 +735,14 @@ class Trading():
         """ Buys the ratio of free quote currency with base currency. Constraint: 0 <= ratio <= 1
         """
         assert 0 <= ratio <= 1, f"not compliant to constraint: 0 <= ratio {ratio} <= 1"
-        isincheck = True in self.xch.book.index.isin([base])
+        isincheck = True in self.myxch.book.index.isin([base])
         if isincheck:
             sym = base + "/" + QUOTE
-            tickers = self.myfetch_tickers("buy_order")
+            tickers = self.myxch.myfetch_tickers("buy_order")
             if tickers is None:
                 return
 
-            self.xch.update_balance(tickers)
+            self.myxch.update_balance(tickers)
             quote_amount = self.trade_amount(base, ratio)
             price = tickers[sym]["ask"]  # TODO order spread strategy
             print(f"{nowstr()} BUY {quote_amount} USDT / {price} {sym}")
@@ -745,10 +750,10 @@ class Trading():
                 price = tickers[sym]["ask"]  # TODO order spread strategy
                 max_chunk = MAX_USDT_ORDER / price
                 ice_chunk = amount = min([quote_amount/price, max_chunk])
-                (amount, price, ice_chunk) = self.xch.check_limits(base, amount, price)
+                (amount, price, ice_chunk) = self.myxch.check_limits(base, amount, price)
                 if (amount == 0) or (price == 0):
                     return
-                myorder = self.xch.create_limit_buy_order(
+                myorder = self.myxch.create_limit_buy_order(
                     base, amount, price,
                     {"icebergQty": ice_chunk, "timeInForce": "GTC"})
                 if myorder is None:
@@ -775,22 +780,22 @@ class Trading():
                 print(f"{nowstr()} next round")
                 # TOD: check order progress
                 ts1 = pd.Timestamp.utcnow()
-                for base in self.xch.book.index:
+                for base in self.myxch.book.index:
                     if base in BLACK_BASES:
                         continue
                     sym = base + "/" + QUOTE
                     ttf = ctf.TargetsFeatures(base, QUOTE)
-                    ohlcv_df = self.get_ohlcv(base, ttf.minimum_minute_df_len, datetime.utcnow())
+                    ohlcv_df = self.myxch.get_ohlcv(base, ttf.minimum_minute_df_len, datetime.utcnow())
                     # print(sym)
                     if ohlcv_df is None:
                         print(f"{nowstr()} removing {base} from book due missing ohlcv")
-                        self.xch.book = self.xch.book.drop([base])
+                        self.myxch.book = self.myxch.book.drop([base])
                         continue
                     try:
                         ttf.calc_features_and_targets(ohlcv_df)
                     except ctf.MissingHistoryData as err:
                         print(f"{nowstr()} removing {base} from book due to error: {err}")
-                        self.xch.book = self.xch.book.drop([base])
+                        self.myxch.book = self.myxch.book.drop([base])
                         continue
                     tfv = ttf.vec.iloc[[len(ttf.vec)-1]]
                     cl = cpc.performance_with_features(tfv, buy_trshld, sell_trshld)
@@ -800,20 +805,20 @@ class Trading():
                     #     cl = ctf.TARGETS[ctf.SELL]
                     if cl != ctf.TARGETS[ctf.BUY]:
                         # emergency sell in case no SELL signal but performance drops
-                        if self.xch.book.loc[base, "buyprice"] > 0:
+                        if self.myxch.book.loc[base, "buyprice"] > 0:
                             pricenow = ohlcv_df.loc[ohlcv_df.index[len(ohlcv_df.index)-1], "close"]
-                            if self.xch.book.loc[base, "buyprice"] > pricenow:
-                                self.xch.book.loc[base, "minbelow"] += 1  # minutes below buy price
+                            if self.myxch.book.loc[base, "buyprice"] > pricenow:
+                                self.myxch.book.loc[base, "minbelow"] += 1  # minutes below buy price
                             else:
-                                self.xch.book.loc[base, "minbelow"] = 0  # reset minute counter
-                            if self.xch.book.loc[base, "minbelow"] > MAX_MINBELOW:  # minutes
+                                self.myxch.book.loc[base, "minbelow"] = 0  # reset minute counter
+                            if self.myxch.book.loc[base, "minbelow"] > MAX_MINBELOW:  # minutes
                                 print("{} Selling {} due to {} minutes < buy price of {}".format(
                                       nowstr(), sym,
-                                      self.xch.book.loc[base, "minbelow"],
-                                      self.xch.book.loc[base, "buyprice"]))
+                                      self.myxch.book.loc[base, "minbelow"],
+                                      self.myxch.book.loc[base, "buyprice"]))
                                 cl = ctf.TARGETS[ctf.SELL]
-                                self.xch.book.loc[base, "buyprice"] = 0  # reset price monitoring
-                                self.xch.book.loc[base, "minbelow"] = 0  # minutes below buy price
+                                self.myxch.book.loc[base, "buyprice"] = 0  # reset price monitoring
+                                self.myxch.book.loc[base, "minbelow"] = 0  # minutes below buy price
                     if cl != ctf.TARGETS[ctf.HOLD]:
                         print(f"{nowstr()} {base} {ctf.TARGET_NAMES[cl]}")
                     if cl == ctf.TARGETS[ctf.SELL]:
@@ -834,7 +839,8 @@ class Trading():
                     time.sleep(tsdiff)
                 self.check_order_progress()
         except KeyboardInterrupt:
-            self.xch.safe_cache()
+            self.myxch.safe_cache()
+            print(self.actions)
             print("finish as requested by keyboard interrupt")
 
     def show_all_binance_commands(self):
@@ -843,7 +849,7 @@ class Trading():
             print(cmd)
 
     def show_binance_base_constraints(self, base):
-        dct = self.xch.public_get_exchangeinfo()
+        dct = self.myxch.public_get_exchangeinfo()
         syms = dct["symbols"]
         for s in syms:
             if (s["baseAsset"] == base) and (s["quoteAsset"] == "USDT"):
@@ -852,6 +858,7 @@ class Trading():
 
 
 if __name__ == "__main__":
+    set_environment(ctf.TestConf.test, ctf.Env.ubuntu)
     tee = ctf.Tee(f"{ck.MODEL_PATH}Log_{ctf.timestr()}.txt")
     trd = Trading()
     load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
@@ -863,7 +870,7 @@ if __name__ == "__main__":
     buy_trshld = 0.7
     sell_trshld = 0.7
 
-    # trd.buy_order("ETH", ratio=22/trd.xch.book.loc[QUOTE, "free"])
+    # trd.buy_order("ETH", ratio=22/trd.book.loc[QUOTE, "free"])
     # trd.sell_order("ETH", ratio=1)
     trd.trade_loop(cpc, buy_trshld, sell_trshld)
     trd = None  # should trigger Trading destructor

@@ -13,51 +13,7 @@ import math
 from sklearn.utils import Bunch
 import numpy as np
 import sys
-
-THIS_ENV = "Ubuntu"
-# THIS_ENV = "OSX"
-# THIS_ENV = "FLOYDHUB"
-# THIS_ENV = "COLAB"
-UNITTEST_LOCAL = True
-PRODUCTION_LOCAL = False
-PRODUCTION_FLOYDHUB = False
-PRODUCTION_COLAB = False
-
-if THIS_ENV == "OSX": 
-    HOME = "/Users/tc/"
-    DATA_PATH_PREFIX = HOME + "crypto/"
-    OTHER_PATH_PREFIX = HOME + "crypto/"
-elif THIS_ENV == "Ubuntu":  # Colab
-    HOME = "/home/tor/"
-    DATA_PATH_PREFIX = HOME + "crypto/"
-    OTHER_PATH_PREFIX = HOME + "crypto/"
-elif THIS_ENV == "COLAB":  # Colab
-    HOME = "/content/gdrive/My Drive/"
-    DATA_PATH_PREFIX = HOME
-    OTHER_PATH_PREFIX = HOME
-elif THIS_ENV == "FLOYDHUB":  # Floydhub
-    HOME = ""
-    DATA_PATH_PREFIX = "/floyd/input/"
-    OTHER_PATH_PREFIX = HOME
-else:
-    raise ValueError("configuration fault in local versus non local")
-SMALLER_16GB_RAM = True
-
-DATA_KEYS = ["open", "high", "low", "close", "volume"]  # , "price"
-
-# DATA_PATH = os.getcwd() # local execution - to be avoided due to Git sync size
-if PRODUCTION_LOCAL or PRODUCTION_FLOYDHUB or PRODUCTION_COLAB:  # full setup
-    DATA_PATH = f"{DATA_PATH_PREFIX}Features/"
-    BASES = ["xrp", "eos", "bnb", "btc", "eth", "neo", "ltc", "trx"]
-    TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
-elif UNITTEST_LOCAL:  # test setup
-    DATA_PATH = f"{DATA_PATH_PREFIX}TestFeatures/"  # local execution
-    TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
-    # BASES = ["xrp", "bnb", "eos"]
-    # BASES = ["xrp", "eos"]
-    BASES = ["xrp"]
-else:
-    raise ValueError("configuration fault in production versus test")
+from enum import Enum
 
 PICKLE_EXT = ".pydata"  # pickle file extension
 JSON_EXT = ".json"  # msgpack file extension
@@ -83,6 +39,79 @@ TARGET_KEY = 5
 LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
 QUOTE = "usdt"
 MANDATORY_STEPS = 2  # number of steps for the smallest class (in general BUY)
+
+SMALLER_16GB_RAM = True
+DATA_KEYS = ["open", "high", "low", "close", "volume"]  # , "price"
+
+DATA_PATH = ""
+OTHER_PATH_PREFIX = ""
+DATA_PATH_PREFIX = ""
+HOME = ""
+BASES = []
+TIME_AGGS = {}
+
+print(f"len BASES: {len(BASES)}")
+print(f"len TIME_AGGS: {len(TIME_AGGS)}")
+print(f"len DATA_PATH: {len(DATA_PATH)}")
+
+
+class Env(Enum):
+    ubuntu = 1
+    osx = 2
+    floydhub = 3
+    colab = 4
+
+
+class TestConf(Enum):
+    test = 1
+    production = 2
+
+
+def config_ok():
+    return len(DATA_PATH) > 0
+
+
+def set_environment(test_conf, this_env):
+    global HOME
+    global DATA_PATH
+    global OTHER_PATH_PREFIX
+    global DATA_PATH_PREFIX
+    global BASES
+    global TIME_AGGS
+
+    if this_env == Env.osx:
+        HOME = "/Users/tc/"
+        DATA_PATH_PREFIX = HOME + "crypto/"
+        OTHER_PATH_PREFIX = HOME + "crypto/"
+    elif this_env == Env.ubuntu:
+        HOME = "/home/tor/"
+        DATA_PATH_PREFIX = HOME + "crypto/"
+        OTHER_PATH_PREFIX = HOME + "crypto/"
+    elif this_env == Env.colab:
+        HOME = "/content/gdrive/My Drive/"
+        DATA_PATH_PREFIX = HOME
+        OTHER_PATH_PREFIX = HOME
+        assert(not test_conf)
+    elif this_env == Env.floydhub:
+        HOME = ""
+        DATA_PATH_PREFIX = "/floyd/input/"
+        OTHER_PATH_PREFIX = HOME
+        assert(not test_conf)
+    else:
+        raise ValueError(f"configuration fault in this_env: {this_env}")
+
+    if test_conf == TestConf.test:
+        DATA_PATH = f"{DATA_PATH_PREFIX}TestFeatures/"  # local execution
+        TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
+        # BASES = ["xrp", "bnb", "eos"]
+        # BASES = ["xrp", "eos"]
+        BASES = ["xrp"]
+    elif test_conf == TestConf.production:
+        DATA_PATH = f"{DATA_PATH_PREFIX}Features/"
+        BASES = ["xrp", "eos", "bnb", "btc", "eth", "neo", "ltc", "trx"]
+        TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
+    else:
+        raise ValueError(f"configuration fault in test_conf: {test_conf}")
 
 
 def sets_config_fname():
@@ -347,6 +376,7 @@ class TargetsFeatures:
 
 
         """
+        assert(config_ok())
         self.base = base
         self.quote = quote
         self.minute_data = None
@@ -742,7 +772,7 @@ class HistorySets:
             self.release_features_of_base(self.last_base)
         try:
             base_df = self.ctrl[set_type].loc[(self.ctrl[set_type].sym == sym) &
-                                              (self.ctrl[set_type].use == True)]
+                                              (self.ctrl[set_type].use is True)]
             # print(f"{set_type} set with {len(base_df)} samples for {sym}")
             return base_df
         except KeyError:
@@ -764,7 +794,7 @@ class HistorySets:
                                              (self.ctrl[TRAIN].step == buy_step)) |
                                             ((self.ctrl[TRAIN].target == TARGETS[SELL]) &
                                              (self.ctrl[TRAIN].step == sell_step))) &
-                                           (self.ctrl[TRAIN].use == True)]
+                                           (self.ctrl[TRAIN].use is True)]
             # report_setsize(f"{sym} {TRAIN} set step {step}", base_df)
             return base_df
         except KeyError:
@@ -939,7 +969,7 @@ class HistorySets:
                ((df.hold_prop >= df.buy_prob) | (df.sell_prop >= df.buy_prob)), "use"] = True
         df.loc[(df.target == TARGETS[SELL]) &
                ((df.buy_prob >= df.sell_prop) | (df.hold_prop >= df.sell_prop)), "use"] = True
-        return len(df[df.use == True])
+        return len(df[df.use is True])
 
     def base_label_check(self, base):
         print("{} maxsteps of buy:{} sell:{} hold:{} max:{}".format(
@@ -988,10 +1018,10 @@ class HistorySets:
             tdf = self.ctrl[TRAIN]
             tdf = tdf[tdf.sym == sym]
             self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0}
-            holds = len(tdf[(tdf.target == TARGETS[HOLD]) & (tdf.use == True)])
-            sells = len(tdf[(tdf.target == TARGETS[SELL]) & (tdf.use == True)])
-            buys = len(tdf[(tdf.target == TARGETS[BUY]) & (tdf.use == True)])
-            all_use = len(tdf[(tdf.use == True)])
+            holds = len(tdf[(tdf.target == TARGETS[HOLD]) & (tdf.use is True)])
+            sells = len(tdf[(tdf.target == TARGETS[SELL]) & (tdf.use is True)])
+            buys = len(tdf[(tdf.target == TARGETS[BUY]) & (tdf.use is True)])
+            all_use = len(tdf[(tdf.use is True)])
             all_sym = len(tdf)
             samples = holds + sells + buys
             # print(f"{sym} buys:{buys} sells:{sells} holds:{holds} total:{samples} on {TRAIN}")
