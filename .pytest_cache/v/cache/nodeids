@@ -2,5 +2,5 @@
   "classify_keras_test.py::ck_test",
   "crypto_targets_features_test.py::ctf_test",
   "trading_test.py::print_test",
-  "trading_test.py::trading_test"
+  "trading_test.py::trade_test"
 ]

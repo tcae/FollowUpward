@@ -18,11 +18,13 @@ Stock trading is a possible future step but cryoto trading offers more opportuni
 - `classify_keras.py main` is used to train and evaluate ML.
 - `trading.py main` is used to trade via ccxt.
 - `visual.ipynb` for analysis
-- `Catalyst2PandasData.ipynb` to convert historical catalyst data to pandas files in msgpack format (due to pickle incompatibilties with pandas)
+
+//: # - `Catalyst2PandasData.ipynb` to convert historical catalyst data to pandas files in msgpack format (due to pickle incompatibilties with pandas)
 
 ## get historical crypto data
 
-`Catalyst2PandasData.ipynb` to load historical Catalyst data into pandas stored as msgpack files.
+`history2pandas.py` to load historical Catalyst data into pandas stored as msgpack files.
+//: # `Catalyst2PandasData.ipynb` to load historical Catalyst data into pandas stored as msgpack files.
 
 ## machine learning
 

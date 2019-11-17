@@ -13,19 +13,17 @@ import math
 from sklearn.utils import Bunch
 import numpy as np
 import sys
-from enum import Enum
+import env_config as env
 
 PICKLE_EXT = ".pydata"  # pickle file extension
 JSON_EXT = ".json"  # msgpack file extension
 MSG_EXT = ".msg"  # msgpack file extension
 
-DT_FORMAT = "%Y-%m-%d_%Hh%Mm"
 FEE = 1/1000  # in per mille, transaction fee is 0.1%
 TRADE_SLIP = 0  # 1/1000  # in per mille, 0.1% trade slip
 BUY_THRESHOLD = 10/1000  # in per mille
 SELL_THRESHOLD = -5/1000  # in per mille
 VOL_BASE_PERIOD = "1D"
-CPC = "CPC"
 HOLD = "-"
 BUY = "buy"
 SELL = "sell"
@@ -37,116 +35,14 @@ TARGETS = {HOLD: 0, BUY: 1, SELL: 2}  # dict with int encoding of target labels
 TARGET_NAMES = {0: HOLD, 1: BUY, 2: SELL}  # dict with int encoding of targets
 TARGET_KEY = 5
 LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
-QUOTE = "usdt"
 MANDATORY_STEPS = 2  # number of steps for the smallest class (in general BUY)
 
-SMALLER_16GB_RAM = True
 DATA_KEYS = ["open", "high", "low", "close", "volume"]  # , "price"
 
-DATA_PATH = ""
-OTHER_PATH_PREFIX = ""
-DATA_PATH_PREFIX = ""
-HOME = ""
-BASES = []
-TIME_AGGS = {}
 
-print(f"len BASES: {len(BASES)}")
-print(f"len TIME_AGGS: {len(TIME_AGGS)}")
-print(f"len DATA_PATH: {len(DATA_PATH)}")
-
-
-class Env(Enum):
-    ubuntu = 1
-    osx = 2
-    floydhub = 3
-    colab = 4
-
-
-class TestConf(Enum):
-    test = 1
-    production = 2
-
-
-def config_ok():
-    return len(DATA_PATH) > 0
-
-
-def set_environment(test_conf, this_env):
-    global HOME
-    global DATA_PATH
-    global OTHER_PATH_PREFIX
-    global DATA_PATH_PREFIX
-    global BASES
-    global TIME_AGGS
-
-    if this_env == Env.osx:
-        HOME = "/Users/tc/"
-        DATA_PATH_PREFIX = HOME + "crypto/"
-        OTHER_PATH_PREFIX = HOME + "crypto/"
-    elif this_env == Env.ubuntu:
-        HOME = "/home/tor/"
-        DATA_PATH_PREFIX = HOME + "crypto/"
-        OTHER_PATH_PREFIX = HOME + "crypto/"
-    elif this_env == Env.colab:
-        HOME = "/content/gdrive/My Drive/"
-        DATA_PATH_PREFIX = HOME
-        OTHER_PATH_PREFIX = HOME
-        assert(not test_conf)
-    elif this_env == Env.floydhub:
-        HOME = ""
-        DATA_PATH_PREFIX = "/floyd/input/"
-        OTHER_PATH_PREFIX = HOME
-        assert(not test_conf)
-    else:
-        raise ValueError(f"configuration fault in this_env: {this_env}")
-
-    if test_conf == TestConf.test:
-        DATA_PATH = f"{DATA_PATH_PREFIX}TestFeatures/"  # local execution
-        TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
-        # BASES = ["xrp", "bnb", "eos"]
-        # BASES = ["xrp", "eos"]
-        BASES = ["xrp"]
-    elif test_conf == TestConf.production:
-        DATA_PATH = f"{DATA_PATH_PREFIX}Features/"
-        BASES = ["xrp", "eos", "bnb", "btc", "eth", "neo", "ltc", "trx"]
-        TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
-    else:
-        raise ValueError(f"configuration fault in test_conf: {test_conf}")
-
-
-def sets_config_fname():
-    cfname = DATA_PATH + "target_5_sets_split.config"
-    return cfname
-
-
-def timestr(ts=None):
-    if ts is None:
-        return datetime.now().strftime(DT_FORMAT)
-    else:
-        return pd.to_datetime(ts).strftime(DT_FORMAT)
-
-
-def time_in_index(dataframe_with_timeseriesindex, tic):
-    return True in dataframe_with_timeseriesindex.index.isin([tic])
-
-
-def sym_of_base(base):
-    s = f"{base.lower()}_{QUOTE}"
-    return s
-
-
-def base_of_sym(sym):
-    s = sym.lower()
-    q = QUOTE.lower()
-    ix = s.find(q)
-    if ix < 0:
-        raise ValueError(f"base_of_sym {sym}: no quote {QUOTE} found")
-    if ix == 0:
-        raise ValueError(f"base_of_sym {sym}: no base found")
-    if not s[ix-1].isalpha():  # seperation character found
-        ix -= 1
-    b = s[0:ix]
-    return b
+print(f"len BASES: {len(env.BASES)}")
+print(f"len TIME_AGGS: {len(env.TIME_AGGS)}")
+print(f"len DATA_PATH: {len(env.DATA_PATH)}")
 
 
 class NoSubsetWarning(Exception):
@@ -174,8 +70,8 @@ def save_asset_dataframe(df, path, cur_pair):
     # cur_pair = cur_pair.replace("/", "_")
     fname = path + cur_pair + "_DataFrame.msg"
     print("{}: writing {} {} tics ({} - {})".format(
-        datetime.now().strftime(DT_FORMAT), cur_pair, len(df), df.index[0].strftime(DT_FORMAT),
-        df.index[len(df)-1].strftime(DT_FORMAT)))
+        datetime.now().strftime(env.DT_FORMAT), cur_pair, len(df), df.index[0].strftime(env.DT_FORMAT),
+        df.index[len(df)-1].strftime(env.DT_FORMAT)))
     df.to_msgpack(fname)
 
 
@@ -185,10 +81,10 @@ def load_asset_dataframefile(fname):
     try:
         df = pd.read_msgpack(fname)
         print("{}: load {} {} tics ({} - {})".format(
-            datetime.now().strftime(DT_FORMAT), fname, len(df), df.index[0].strftime(DT_FORMAT),
-            df.index[len(df)-1].strftime(DT_FORMAT)))
+            datetime.now().strftime(env.DT_FORMAT), fname, len(df), df.index[0].strftime(env.DT_FORMAT),
+            df.index[len(df)-1].strftime(env.DT_FORMAT)))
     except IOError:
-        print(f"{timestr()} load_asset_dataframefile ERROR: cannot load {fname}")
+        print(f"{env.EnvCfg.timestr()} load_asset_dataframefile ERROR: cannot load {fname}")
     except ValueError:
         return None
     return df
@@ -231,14 +127,14 @@ def merge_asset_dataframe(path, base):
         basemerged = btcusdt
     dfdescribe(f"{base}-merged", basemerged)
 
-    save_asset_dataframe(basemerged, DATA_PATH, base + "usdt")
+    save_asset_dataframe(basemerged, env.DATA_PATH, base + "usdt")
 
     return basemerged
 
 
 def load_asset_dataframe(path, base):
     # "loads the object via msgpack"
-    fname = path + base + f"_{QUOTE}" + "_DataFrame.msg"
+    fname = path + base + f"_{env.QUOTE}" + "_DataFrame.msg"
     dfbu = load_asset_dataframefile(fname)
     if dfbu is None:
         raise MissingHistoryData("Cannot load {}".format(fname))
@@ -376,7 +272,7 @@ class TargetsFeatures:
 
 
         """
-        assert(config_ok())
+        assert(env.config_ok())
         self.base = base
         self.quote = quote
         self.minute_data = None
@@ -385,9 +281,9 @@ class TargetsFeatures:
         self.target_key = TARGET_KEY
 
         self.minimum_minute_df_len = 0
-        for agg in TIME_AGGS:
+        for agg in env.TIME_AGGS:
             assert isinstance(agg, int)
-            value = TIME_AGGS[agg]
+            value = env.TIME_AGGS[agg]
             assert isinstance(value, int)
             minlen = agg * value
             if self.minimum_minute_df_len < minlen:
@@ -398,12 +294,247 @@ class TargetsFeatures:
 
     def load_classifier_features(self):
         try:
-            df = load_asset_dataframe(DATA_PATH, self.base)
+            df = load_asset_dataframe(env.DATA_PATH, self.base)
         except MissingHistoryData:
             raise
         else:
             self.calc_features_and_targets(df)
             report_setsize(self.base, self.vec)
+
+    def derive_features(self, df):
+        """derived features in relation to price based on the provided
+        time aggregated dataframe df with the exception of the derived feature 'delta'
+        that is calculated together with targets
+        """
+        # price deltas in 1/1000
+        df["height"] = (df["high"] - df["low"]) / df["close"] * 1000
+        df.loc[df["close"] > df["open"],
+               "top"] = (df["high"] - df["close"]) / df["close"] * 1000
+        df.loc[df["close"] <= df["open"],
+               "top"] = (df["high"] - df["open"]) / df["close"] * 1000
+        df.loc[df["close"] > df["open"],
+               "bottom"] = (df["open"] - df["low"]) / df["close"] * 1000
+        df.loc[df["close"] <= df["open"],
+               "bottom"] = (df["close"] - df["low"]) / df["close"] * 1000
+
+    def calc_aggregation(self, minute_df, time_aggregations):
+        """Time aggregation through rolling aggregation with the consequence that new data is
+        generated every minute and even long time aggregations reflect all minute bumps in their
+        features
+
+        in:
+            dataframe of minute data of a currency pair
+            with the columns: open, high, low, close, volume
+        out:
+            dict of dataframes of aggregations with features and targets
+        """
+        tf_aggs = dict()  # feature and target aggregations
+        mdf = minute_df  # .copy()
+        df = pd.DataFrame(minute_df)  # .copy()
+        df["vol"] = (mdf["volume"] - mdf.volume.rolling(VOL_BASE_PERIOD).mean()) \
+            / mdf.volume.rolling(VOL_BASE_PERIOD).mean()
+        df = df.fillna(value={"vol": 0.000001})
+        maxmin = 0
+        for time_agg in time_aggregations:
+            if isinstance(time_agg, int):
+                if (time_agg * time_aggregations[time_agg]) > maxmin:
+                    maxmin = time_agg * time_aggregations[time_agg]
+        if maxmin > len(df.index):
+            raise MissingHistoryData("History data has {} samples but should have >= {}".format(
+                    len(df.index), maxmin))
+        for time_agg in time_aggregations:
+            # print(f"{datetime.now()}: time_aggregation {time_agg}")
+            if time_agg > 1:
+                df = pd.DataFrame()
+                df["open"] = mdf.open.shift(time_agg-1)
+                df["high"] = mdf.high.rolling(time_agg).max()
+                df["low"] = mdf.low.rolling(time_agg).min()
+                df["close"] = mdf.close
+                df["vol"] = mdf.vol.rolling(time_agg).mean()
+            df["delta"] = (mdf.close - mdf.close.shift(time_agg)) / mdf.close.shift(time_agg)
+            tf_aggs[time_agg] = df
+            self.derive_features(df)
+        return tf_aggs
+
+    def expand_target_feature_vectors(self, tf_aggs, target_key):
+        """Builds a target and feature vector for just the target_key with
+        1 minute DHTBV and D*V feature sequences and the remaining D sequences of
+        n time steps (tics) as configured in time_aggregations in T units.
+        The most important step in expand_target_feature_vectors is
+        1) the concatenation of feature vectors per sample to provide a history
+        for the classifier
+        2) discarding the original currency values that are not used
+        as features (except 'close')
+
+        Result:
+            a self.vecs dict with the single target_key that is
+            referring to a DataFrame with feature vectors as rows. The column name indicates
+            the type of feature, i.e. either 'target', 'close' or 'D|H|T|B|V|DV' in case of
+            1 minute aggregation or just 'D' for all other aggregations with aggregation+'T_'
+            as column prefix
+        """
+        df = pd.DataFrame(tf_aggs[target_key], columns=["close"])
+        skey = smallest_dict_key(tf_aggs)
+        for ta in tf_aggs:
+            for tics in range(env.TIME_AGGS[ta]):
+                ctitle = str(ta) + "T_" + str(tics) + "_"
+                offset = tics*ta
+                # now add feature columns according to aggregation
+                df[ctitle + "D"] = tf_aggs[ta].delta.shift(offset)
+                if ta == skey:  # full set only for smallest aggregation (minute data)
+                    df[ctitle + "H"] = tf_aggs[ta].height.shift(offset)
+                    df[ctitle + "T"] = tf_aggs[ta].top.shift(offset)
+                    df[ctitle + "B"] = tf_aggs[ta].bottom.shift(offset)
+                    df[ctitle + "V"] = tf_aggs[ta].vol.shift(offset)
+                    df[ctitle + "DV"] = tf_aggs[ta].vol.shift(offset) *\
+                        tf_aggs[ta].delta.shift(offset)
+        df = df.dropna()
+        if df.empty:
+            raise MissingHistoryData("empty dataframe from expand_target_feature_vectors")
+        return df
+
+    def add_targets(self, time_agg, df):
+        "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
+        # print(f"{datetime.now()}: self.add_targets {time_agg}")
+        df['target'] = TARGETS[HOLD]
+        lix = df.columns.get_loc('target')
+        cix = df.columns.get_loc('close')
+        win = dict()
+        loss = dict()
+        lossix = dict()
+        winix = dict()
+        ixfifo = Queue()  # will hold all sell ix to smooth out if dip sell does no tpay off
+        closeatsell = closeatbuy = 0
+        lasttarget = dict()
+        for slot in range(0, time_agg):
+            win[slot] = loss[slot] = 0.
+            winix[slot] = lossix[slot] = slot
+            lasttarget[slot] = TARGETS[HOLD]
+        for tix in range(time_agg, len(df), 1):  # tix = time index
+            slot = (tix % time_agg)
+            last_close = df.iat[tix - time_agg, cix]
+            this_close = df.iat[tix, cix]
+            delta = (this_close - last_close) / last_close  # * 1000 no longer in per mille
+            if delta < 0:
+                if loss[slot] < 0:  # loss monitoring is running
+                    loss[slot] += delta
+                else:  # first time bar of decrease period
+                    lossix[slot] = tix
+                    loss[slot] = delta
+                if win[slot] > 0:  # win monitoring is running
+                    win[slot] += delta
+                    if win[slot] < 0:  # reset win monitor because it is below start price
+                        win[slot] = 0.
+                if loss[slot] < SELL_THRESHOLD:  # reset win monitor -> dip exceeded threshold
+                    win[slot] = 0.
+                    df.iat[lossix[slot], lix] = lasttarget[slot] = TARGETS[SELL]
+                    lossix[slot] += 1  # allow multiple signals if conditions hold => FIX this changes slot!
+                    # FIX loss[slot] is not corrected with the index change
+                    #  here comes the smooth execution for BUY peaks:
+                    if closeatbuy > 0:  # smoothing is active
+                        buy_sell = -2 * (FEE + TRADE_SLIP) + this_close - closeatbuy
+                        while not ixfifo.empty():
+                            smooth_ix = ixfifo.get()
+                            if buy_sell < 0:
+                                # if fee loss more than dip loss/gain then smoothing
+                                df.iat[smooth_ix, lix] = TARGETS[HOLD]
+                        closeatbuy = 0
+                    #  here comes the smooth preparation for SELL dips:
+                    if closeatsell == 0:
+                        closeatsell = this_close
+                    ixfifo.put(tix)  # prep after execution due to queue reuse
+            elif delta > 0:
+                if win[slot] > 0:  # win monitoring is running
+                    win[slot] += delta
+                else:  # first time bar of increase period
+                    winix[slot] = tix
+                    win[slot] = delta
+                if loss[slot] < 0:  # loss monitoring is running
+                    loss[slot] += delta
+                    if loss[slot] > 0:
+                        loss[slot] = 0.  # reset loss monitor -> recovered before sell threshold
+                if win[slot] > BUY_THRESHOLD:  # reset win monitor -> dip exceeded threshold
+                    loss[slot] = 0.
+                    df.iat[winix[slot], lix] = lasttarget[slot] = TARGETS[BUY]
+                    winix[slot] += 1  # allow multiple signals if conditions hold => FIX this changes slot!
+                    # FIX win[slot] is not corrected with the index change
+                    #  here comes the smooth execution for SELL dips:
+                    if closeatsell > 0:  # smoothing is active
+                        sell_buy = -2 * (FEE + TRADE_SLIP)
+                        holdgain = this_close - closeatsell
+                        while not ixfifo.empty():
+                            smooth_ix = ixfifo.get()
+                            if sell_buy < holdgain:
+                                # if fee loss more than dip loss/gain then smoothing
+                                df.iat[smooth_ix, lix] = TARGETS[HOLD]
+                        closeatsell = 0
+                    #  here comes the smooth preparation for BUY peaks:
+                    if closeatbuy == 0:
+                        closeatbuy = this_close
+                    ixfifo.put(tix)  # prep after execution due to queue reuse
+        # report_setsize("complete set", df)
+
+    def add_targets_stripped(self, time_agg, df):
+        "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
+
+        def close_delta_ratio(tix1, tix2, cix):
+            assert tix1 <= tix2
+            last_close = df.iat[tix1, cix]
+            this_close = df.iat[tix2, cix]
+            delta = (this_close - last_close) / last_close
+            return delta
+
+        # print(f"{datetime.now()}: self.add_targets {time_agg}")
+        df["target"] = TARGETS[HOLD]
+        lix = df.columns.get_loc("target")
+        cix = df.columns.get_loc("close")
+        win = dict()
+        loss = dict()
+        lossix = dict()
+        winix = dict()
+        for slot in range(0, time_agg):
+            win[slot] = loss[slot] = 0.
+            winix[slot] = lossix[slot] = slot
+        for tix in range(time_agg, len(df), 1):  # tix = time index
+            slot = (tix % time_agg)
+            delta = close_delta_ratio(tix - time_agg, tix, cix)
+            if delta < 0:
+                if loss[slot] < 0:  # loss monitoring is running
+                    loss[slot] = close_delta_ratio(lossix[slot], tix, cix)
+                else:  # first time bar of decrease period
+                    lossix[slot] = tix
+                    loss[slot] = delta
+                if win[slot] > 0:  # win monitoring is running
+                    win[slot] = close_delta_ratio(winix[slot], tix, cix)
+                    if win[slot] < 0:  # reset win monitor because it is below start price
+                        win[slot] = 0.
+                while loss[slot] < SELL_THRESHOLD:
+                    # while loop for multiple small decreases and then a big decrease step
+                    # -> multiple SELL signals required
+                    win[slot] = 0.  # reset win monitor -> dip exceeded threshold
+                    df.iat[lossix[slot], lix] = TARGETS[SELL]
+                    if (lossix[slot] + time_agg) > tix:
+                        break
+                    lossix[slot] += time_agg
+                    loss[slot] = close_delta_ratio(lossix[slot], tix, cix)
+            elif delta > 0:
+                if win[slot] > 0:  # win monitoring is running
+                    win[slot] = close_delta_ratio(winix[slot], tix, cix)
+                else:  # first time bar of increase period
+                    winix[slot] = tix
+                    win[slot] = delta
+                if loss[slot] < 0:  # loss monitoring is running
+                    loss[slot] = close_delta_ratio(lossix[slot], tix, cix)
+                    if loss[slot] > 0:
+                        loss[slot] = 0.  # reset loss monitor -> recovered before sell threshold
+                while win[slot] > BUY_THRESHOLD:
+                    loss[slot] = 0.  # reset win monitor -> dip exceeded threshold
+                    df.iat[winix[slot], lix] = TARGETS[BUY]
+                    if (winix[slot] + time_agg) > tix:
+                        break
+                    winix[slot] += time_agg
+                    win[slot] = close_delta_ratio(winix[slot], tix, cix)
+        # report_setsize("complete set", df)
 
     def calc_features_and_targets(self, minute_dataframe):
         """Assigns minute_dataframe to attribute *minute_data*.
@@ -420,242 +551,6 @@ class TargetsFeatures:
         the columns: open, high, low, close, volume and timestamps as index
         """
 
-        def derive_features(df):
-            """derived features in relation to price based on the provided
-            time aggregated dataframe df with the exception of the derived feature 'delta'
-            that is calculated together with targets
-            """
-            # price deltas in 1/1000
-            df["height"] = (df["high"] - df["low"]) / df["close"] * 1000
-            df.loc[df["close"] > df["open"],
-                   "top"] = (df["high"] - df["close"]) / df["close"] * 1000
-            df.loc[df["close"] <= df["open"],
-                   "top"] = (df["high"] - df["open"]) / df["close"] * 1000
-            df.loc[df["close"] > df["open"],
-                   "bottom"] = (df["open"] - df["low"]) / df["close"] * 1000
-            df.loc[df["close"] <= df["open"],
-                   "bottom"] = (df["close"] - df["low"]) / df["close"] * 1000
-
-        def calc_aggregation(minute_df, time_aggregations):
-            """Time aggregation through rolling aggregation with the consequence that new data is
-            generated every minute and even long time aggregations reflect all minute bumps in their
-            features
-
-            in:
-                dataframe of minute data of a currency pair
-                with the columns: open, high, low, close, volume
-            out:
-                dict of dataframes of aggregations with features and targets
-            """
-            tf_aggs = dict()  # feature and target aggregations
-            mdf = minute_df  # .copy()
-            df = pd.DataFrame(minute_df)  # .copy()
-            df["vol"] = (mdf["volume"] - mdf.volume.rolling(VOL_BASE_PERIOD).mean()) \
-                / mdf.volume.rolling(VOL_BASE_PERIOD).mean()
-            df = df.fillna(value={"vol": 0.000001})
-            maxmin = 0
-            for time_agg in time_aggregations:
-                if isinstance(time_agg, int):
-                    if (time_agg * time_aggregations[time_agg]) > maxmin:
-                        maxmin = time_agg * time_aggregations[time_agg]
-            if maxmin > len(df.index):
-                raise MissingHistoryData("History data has {} samples but should have >= {}".format(
-                        len(df.index), maxmin))
-            for time_agg in time_aggregations:
-                # print(f"{datetime.now()}: time_aggregation {time_agg}")
-                if time_agg > 1:
-                    df = pd.DataFrame()
-                    df["open"] = mdf.open.shift(time_agg-1)
-                    df["high"] = mdf.high.rolling(time_agg).max()
-                    df["low"] = mdf.low.rolling(time_agg).min()
-                    df["close"] = mdf.close
-                    df["vol"] = mdf.vol.rolling(time_agg).mean()
-                df["delta"] = (mdf.close - mdf.close.shift(time_agg)) / mdf.close.shift(time_agg)
-                tf_aggs[time_agg] = df
-                derive_features(df)
-            return tf_aggs
-
-        def expand_target_feature_vectors(tf_aggs, target_key):
-            """Builds a target and feature vector for just the target_key with
-            1 minute DHTBV and D*V feature sequences and the remaining D sequences of
-            n time steps (tics) as configured in time_aggregations in T units.
-            The most important step in expand_target_feature_vectors is
-            1) the concatenation of feature vectors per sample to provide a history
-            for the classifier
-            2) discarding the original currency values that are not used
-            as features (except 'close')
-
-            Result:
-                a self.vecs dict with the single target_key that is
-                referring to a DataFrame with feature vectors as rows. The column name indicates
-                the type of feature, i.e. either 'target', 'close' or 'D|H|T|B|V|DV' in case of
-                1 minute aggregation or just 'D' for all other aggregations with aggregation+'T_'
-                as column prefix
-            """
-            df = pd.DataFrame(tf_aggs[target_key], columns=["close"])
-            skey = smallest_dict_key(tf_aggs)
-            for ta in tf_aggs:
-                for tics in range(TIME_AGGS[ta]):
-                    ctitle = str(ta) + "T_" + str(tics) + "_"
-                    offset = tics*ta
-                    # now add feature columns according to aggregation
-                    df[ctitle + "D"] = tf_aggs[ta].delta.shift(offset)
-                    if ta == skey:  # full set only for smallest aggregation (minute data)
-                        df[ctitle + "H"] = tf_aggs[ta].height.shift(offset)
-                        df[ctitle + "T"] = tf_aggs[ta].top.shift(offset)
-                        df[ctitle + "B"] = tf_aggs[ta].bottom.shift(offset)
-                        df[ctitle + "V"] = tf_aggs[ta].vol.shift(offset)
-                        df[ctitle + "DV"] = tf_aggs[ta].vol.shift(offset) *\
-                            tf_aggs[ta].delta.shift(offset)
-            df = df.dropna()
-            if df.empty:
-                raise MissingHistoryData("empty dataframe from expand_target_feature_vectors")
-            return df
-
-        def add_targets(time_agg, df):
-            "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
-            # print(f"{datetime.now()}: add_targets {time_agg}")
-            df['target'] = TARGETS[HOLD]
-            lix = df.columns.get_loc('target')
-            cix = df.columns.get_loc('close')
-            win = dict()
-            loss = dict()
-            lossix = dict()
-            winix = dict()
-            ixfifo = Queue()  # will hold all sell ix to smooth out if dip sell does no tpay off
-            closeatsell = closeatbuy = 0
-            lasttarget = dict()
-            for slot in range(0, time_agg):
-                win[slot] = loss[slot] = 0.
-                winix[slot] = lossix[slot] = slot
-                lasttarget[slot] = TARGETS[HOLD]
-            for tix in range(time_agg, len(df), 1):  # tix = time index
-                slot = (tix % time_agg)
-                last_close = df.iat[tix - time_agg, cix]
-                this_close = df.iat[tix, cix]
-                delta = (this_close - last_close) / last_close  # * 1000 no longer in per mille
-                if delta < 0:
-                    if loss[slot] < 0:  # loss monitoring is running
-                        loss[slot] += delta
-                    else:  # first time bar of decrease period
-                        lossix[slot] = tix
-                        loss[slot] = delta
-                    if win[slot] > 0:  # win monitoring is running
-                        win[slot] += delta
-                        if win[slot] < 0:  # reset win monitor because it is below start price
-                            win[slot] = 0.
-                    if loss[slot] < SELL_THRESHOLD:  # reset win monitor -> dip exceeded threshold
-                        win[slot] = 0.
-                        df.iat[lossix[slot], lix] = lasttarget[slot] = TARGETS[SELL]
-                        lossix[slot] += 1  # allow multiple signals if conditions hold => FIX this changes slot!
-                        # FIX loss[slot] is not corrected with the index change
-                        #  here comes the smooth execution for BUY peaks:
-                        if closeatbuy > 0:  # smoothing is active
-                            buy_sell = -2 * (FEE + TRADE_SLIP) + this_close - closeatbuy
-                            while not ixfifo.empty():
-                                smooth_ix = ixfifo.get()
-                                if buy_sell < 0:
-                                    # if fee loss more than dip loss/gain then smoothing
-                                    df.iat[smooth_ix, lix] = TARGETS[HOLD]
-                            closeatbuy = 0
-                        #  here comes the smooth preparation for SELL dips:
-                        if closeatsell == 0:
-                            closeatsell = this_close
-                        ixfifo.put(tix)  # prep after execution due to queue reuse
-                elif delta > 0:
-                    if win[slot] > 0:  # win monitoring is running
-                        win[slot] += delta
-                    else:  # first time bar of increase period
-                        winix[slot] = tix
-                        win[slot] = delta
-                    if loss[slot] < 0:  # loss monitoring is running
-                        loss[slot] += delta
-                        if loss[slot] > 0:
-                            loss[slot] = 0.  # reset loss monitor -> recovered before sell threshold
-                    if win[slot] > BUY_THRESHOLD:  # reset win monitor -> dip exceeded threshold
-                        loss[slot] = 0.
-                        df.iat[winix[slot], lix] = lasttarget[slot] = TARGETS[BUY]
-                        winix[slot] += 1  # allow multiple signals if conditions hold => FIX this changes slot!
-                        # FIX win[slot] is not corrected with the index change
-                        #  here comes the smooth execution for SELL dips:
-                        if closeatsell > 0:  # smoothing is active
-                            sell_buy = -2 * (FEE + TRADE_SLIP)
-                            holdgain = this_close - closeatsell
-                            while not ixfifo.empty():
-                                smooth_ix = ixfifo.get()
-                                if sell_buy < holdgain:
-                                    # if fee loss more than dip loss/gain then smoothing
-                                    df.iat[smooth_ix, lix] = TARGETS[HOLD]
-                            closeatsell = 0
-                        #  here comes the smooth preparation for BUY peaks:
-                        if closeatbuy == 0:
-                            closeatbuy = this_close
-                        ixfifo.put(tix)  # prep after execution due to queue reuse
-            # report_setsize("complete set", df)
-
-        def add_targets_stripped(time_agg, df):
-            "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
-
-            def close_delta_ratio(tix1, tix2, cix):
-                assert tix1 <= tix2
-                last_close = df.iat[tix1, cix]
-                this_close = df.iat[tix2, cix]
-                delta = (this_close - last_close) / last_close
-                return delta
-
-            # print(f"{datetime.now()}: add_targets {time_agg}")
-            df["target"] = TARGETS[HOLD]
-            lix = df.columns.get_loc("target")
-            cix = df.columns.get_loc("close")
-            win = dict()
-            loss = dict()
-            lossix = dict()
-            winix = dict()
-            for slot in range(0, time_agg):
-                win[slot] = loss[slot] = 0.
-                winix[slot] = lossix[slot] = slot
-            for tix in range(time_agg, len(df), 1):  # tix = time index
-                slot = (tix % time_agg)
-                delta = close_delta_ratio(tix - time_agg, tix, cix)
-                if delta < 0:
-                    if loss[slot] < 0:  # loss monitoring is running
-                        loss[slot] = close_delta_ratio(lossix[slot], tix, cix)
-                    else:  # first time bar of decrease period
-                        lossix[slot] = tix
-                        loss[slot] = delta
-                    if win[slot] > 0:  # win monitoring is running
-                        win[slot] = close_delta_ratio(winix[slot], tix, cix)
-                        if win[slot] < 0:  # reset win monitor because it is below start price
-                            win[slot] = 0.
-                    while loss[slot] < SELL_THRESHOLD:
-                        # while loop for multiple small decreases and then a big decrease step
-                        # -> multiple SELL signals required
-                        win[slot] = 0.  # reset win monitor -> dip exceeded threshold
-                        df.iat[lossix[slot], lix] = TARGETS[SELL]
-                        if (lossix[slot] + time_agg) > tix:
-                            break
-                        lossix[slot] += time_agg
-                        loss[slot] = close_delta_ratio(lossix[slot], tix, cix)
-                elif delta > 0:
-                    if win[slot] > 0:  # win monitoring is running
-                        win[slot] = close_delta_ratio(winix[slot], tix, cix)
-                    else:  # first time bar of increase period
-                        winix[slot] = tix
-                        win[slot] = delta
-                    if loss[slot] < 0:  # loss monitoring is running
-                        loss[slot] = close_delta_ratio(lossix[slot], tix, cix)
-                        if loss[slot] > 0:
-                            loss[slot] = 0.  # reset loss monitor -> recovered before sell threshold
-                    while win[slot] > BUY_THRESHOLD:
-                        loss[slot] = 0.  # reset win monitor -> dip exceeded threshold
-                        df.iat[winix[slot], lix] = TARGETS[BUY]
-                        if (winix[slot] + time_agg) > tix:
-                            break
-                        winix[slot] += time_agg
-                        win[slot] = close_delta_ratio(winix[slot], tix, cix)
-            # report_setsize("complete set", df)
-
-        # here comes the core of calc_features_and_targets
         if minute_dataframe is None:
             if self.minute_data is None:
                 raise MissingHistoryData("{}–{} target {}min without minute data ({})".format(
@@ -666,15 +561,15 @@ class TargetsFeatures:
             self.minute_data = None
             raise MissingHistoryData("{}–{} target {}min with empty minute data".format(
                                      self.base, self.quote, self.target_key))
-        tf_aggs = calc_aggregation(self.minute_data, TIME_AGGS)
+        tf_aggs = self.calc_aggregation(self.minute_data, env.TIME_AGGS)
         if "target" not in self.minute_data:
-            add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
+            self.add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
             self.minute_data["target"] = tf_aggs[self.target_key]["target"]
             # print("calculating targets")
         else:
             # print("reusing targets")
             pass
-        self.vec = expand_target_feature_vectors(tf_aggs, self.target_key)
+        self.vec = self.expand_target_feature_vectors(tf_aggs, self.target_key)
         if "target" not in self.vec:
             self.vec["target"] = self.minute_data["target"]
 
@@ -737,8 +632,8 @@ class HistorySets:
         - buy_prob, sell_prop, hold_prop are the class probabilities of the last evaluation
         - use is an earmark that this sample shall be used for the next training epoch/validation
         """
-        self.bases = dict.fromkeys(BASES, None)
-        self.max_steps = dict.fromkeys(BASES)
+        self.bases = dict.fromkeys(env.BASES, None)
+        self.max_steps = dict.fromkeys(env.BASES)
         for base in self.max_steps:
             self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0, "max": 0}
         self.max_steps["total"] = 0
@@ -760,15 +655,15 @@ class HistorySets:
         # for base in self.bases:
         #     merge_asset_dataframe(DATA_PATH, base)
         self.load_sets_config(sets_config_fname)
-        assert not self.analysis.empty, f"{timestr()}: missing sets config"
+        assert not self.analysis.empty, f"{env.timestr()}: missing sets config"
         report_setsize(TRAIN, self.ctrl[TRAIN])
         report_setsize(VAL, self.ctrl[VAL])
         report_setsize(TEST, self.ctrl[TEST])
         # self.analyze_bases()
 
     def set_of_type(self, base, set_type):
-        sym = base + "_" + QUOTE
-        if SMALLER_16GB_RAM and (self.last_base != base):
+        sym = base + "_" + env.QUOTE
+        if env.SMALLER_16GB_RAM and (self.last_base != base):
             self.release_features_of_base(self.last_base)
         try:
             base_df = self.ctrl[set_type].loc[(self.ctrl[set_type].sym == sym) &
@@ -780,8 +675,8 @@ class HistorySets:
             pass
 
     def trainset_step(self, base, step):
-        sym = base + "_" + QUOTE
-        if SMALLER_16GB_RAM and (self.last_base != base):
+        sym = base + "_" + env.QUOTE
+        if env.SMALLER_16GB_RAM and (self.last_base != base):
             self.release_features_of_base(self.last_base)
         try:
             hold_step = step % self.max_steps[base][HOLD]
@@ -824,7 +719,7 @@ class HistorySets:
         if df.empty:
             raise NoSubsetWarning("empty {} subset for {}".format(set_type, base))
         sym = df.at[df.index[0], "sym"]
-        df_base = base_of_sym(sym)
+        df_base = env.base_of_sym(sym)
         if base != df_base:
             raise ValueError(f"features_from_targets: base(df)={df_base} != base={base}")
         tfv = self.get_targets_features_of_base(base)
@@ -834,11 +729,72 @@ class HistorySets:
             print("features_from_targets  {} {} set step {}: {}".format(
                         base, set_type, step, msg))
             raise
-        descr = "{} {} {} set step {}: {}".format(timestr(), base, set_type,
+        descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
                                                   step, str_setsize(subset_df))
         # print(descr)
         samples = to_scikitlearn(subset_df, np_data=None, descr=descr)
         return samples
+
+    def samples_concat(self, target, to_be_added):
+        if target.empty:
+            target = to_be_added
+            # print("target empty --> target = to_be_added", target.head(), target.tail())
+            return to_be_added
+        if False:
+            # debugging output
+            elen = len(target)
+            xdf = target.tail()
+            if ("step" in xdf.columns):
+                xdf = xdf[["target", "timestamp", "step"]]
+            else:
+                xdf = xdf[["target", "timestamp"]]
+            print(f"target len: {elen}", xdf)
+            ydf = to_be_added.head()
+            if ("step" in ydf.columns):
+                ydf = ydf[["target", "timestamp", "step"]]
+            else:
+                ydf = ydf[["target", "timestamp"]]
+            print(f"time agg timeblock len: {len(to_be_added)}", ydf)
+        target = pd.concat([target, to_be_added], sort=False)
+        if False:
+            # debugging output
+            zdf = target.iloc[range(elen-5, elen+5)]
+            elen = len(target)
+            if ("step" in zdf.columns):
+                zdf = zdf[["target", "timestamp", "step"]]
+            else:
+                zdf = zdf[["target", "timestamp"]]
+            print(f"concat with new len {elen} result at interface: ", zdf)
+        return target
+
+    def extract_set_type_targets(self, base, tf, set_type):
+        sym = base + "_" + env.QUOTE
+        try:
+            # print(f"extracting {set_type} for {sym}")
+            dfcfg = self.analysis.loc[(self.analysis.set_type == set_type) &
+                                      (self.analysis.sym == sym)]
+        except KeyError:
+            print(f"no {set_type} set for {sym}")
+            return None
+        dft = tf.minute_data
+        extract = None
+        for block in dfcfg.index:
+            df = dft.loc[(dft.index >= dfcfg.at[block, "start"]) &
+                         (dft.index <= dfcfg.at[block, "end"]), ["target", "close"]]
+            df["timestamp"] = df.index
+            df["sym"] = sym
+            df["use"] = True
+            df["buy_prob"] = float(0)
+            df["sell_prop"] = float(0)
+            df["hold_prop"] = float(0)
+            if set_type == TRAIN:
+                df["tcount"] = int(0)
+                df["step"] = int(0)
+            if extract is None:
+                extract = df
+            else:
+                extract = self.samples_concat(extract, df)
+        return extract
 
     def prepare_training(self):
         """Prepares training, validation and test sets with targets and admin info
@@ -849,92 +805,30 @@ class HistorySets:
         proper config fiel content.
         """
 
-        def samples_concat(target, to_be_added):
-            if target.empty:
-                target = to_be_added
-                # print("target empty --> target = to_be_added", target.head(), target.tail())
-                return to_be_added
-            if False:
-                # debugging output
-                elen = len(target)
-                xdf = target.tail()
-                if ("step" in xdf.columns):
-                    xdf = xdf[["target", "timestamp", "step"]]
-                else:
-                    xdf = xdf[["target", "timestamp"]]
-                print(f"target len: {elen}", xdf)
-                ydf = to_be_added.head()
-                if ("step" in ydf.columns):
-                    ydf = ydf[["target", "timestamp", "step"]]
-                else:
-                    ydf = ydf[["target", "timestamp"]]
-                print(f"time agg timeblock len: {len(to_be_added)}", ydf)
-            target = pd.concat([target, to_be_added], sort=False)
-            if False:
-                # debugging output
-                zdf = target.iloc[range(elen-5, elen+5)]
-                elen = len(target)
-                if ("step" in zdf.columns):
-                    zdf = zdf[["target", "timestamp", "step"]]
-                else:
-                    zdf = zdf[["target", "timestamp"]]
-                print(f"concat with new len {elen} result at interface: ", zdf)
-            return target
-
-        def extract_set_type_targets(base, tf, set_type):
-            sym = base + "_" + QUOTE
-            try:
-                # print(f"extracting {set_type} for {sym}")
-                dfcfg = self.analysis.loc[(self.analysis.set_type == set_type) &
-                                          (self.analysis.sym == sym)]
-            except KeyError:
-                print(f"no {set_type} set for {sym}")
-                return None
-            dft = tf.minute_data
-            extract = None
-            for block in dfcfg.index:
-                df = dft.loc[(dft.index >= dfcfg.at[block, "start"]) &
-                             (dft.index <= dfcfg.at[block, "end"]), ["target", "close"]]
-                df["timestamp"] = df.index
-                df["sym"] = sym
-                df["use"] = True
-                df["buy_prob"] = float(0)
-                df["sell_prop"] = float(0)
-                df["hold_prop"] = float(0)
-                if set_type == TRAIN:
-                    df["tcount"] = int(0)
-                    df["step"] = int(0)
-                if extract is None:
-                    extract = df
-                else:
-                    extract = samples_concat(extract, df)
-            return extract
-
-        # here comes the core of prepare_training()
         for base in self.bases:
-            tf = TargetsFeatures(base, QUOTE)
+            tf = TargetsFeatures(base, env.QUOTE)
             try:
                 tf.load_classifier_features()
             except MissingHistoryData:
                 continue
             self.bases[base] = tf
             tfv = tf.vec
-            tdf = extract_set_type_targets(base, tf, TRAIN)
+            tdf = self.extract_set_type_targets(base, tf, TRAIN)
             tdf = tdf[tdf.index.isin(tfv.index)]
-            self.ctrl[TRAIN] = samples_concat(self.ctrl[TRAIN], tdf)
-            vdf = extract_set_type_targets(base, tf, VAL)
+            self.ctrl[TRAIN] = self.samples_concat(self.ctrl[TRAIN], tdf)
+            vdf = self.extract_set_type_targets(base, tf, VAL)
             vdf = vdf[vdf.index.isin(tfv.index)]
-            self.ctrl[VAL] = samples_concat(self.ctrl[VAL], vdf)
-            tstdf = extract_set_type_targets(base, tf, TEST)
+            self.ctrl[VAL] = self.samples_concat(self.ctrl[VAL], vdf)
+            tstdf = self.extract_set_type_targets(base, tf, TEST)
             tstdf = tstdf[tstdf.index.isin(tfv.index)]
-            self.ctrl[TEST] = samples_concat(self.ctrl[TEST], tstdf)
+            self.ctrl[TEST] = self.samples_concat(self.ctrl[TEST], tstdf)
 
     def get_targets_features_of_base(self, base):
         if base not in self.bases:
             raise KeyError()
         tf = self.bases[base]
         if tf is None:
-            tf = TargetsFeatures(base, QUOTE)
+            tf = TargetsFeatures(base, env.QUOTE)
             tf.load_classifier_features()
         if tf is not None:
             if tf.vec is None:
@@ -953,7 +847,7 @@ class HistorySets:
     def register_probabilties(self, base, set_type, pred, target_df):
         df = self.ctrl[set_type]
         tdf = target_df
-        sym = base + "_" + QUOTE
+        sym = base + "_" + env.QUOTE
         df.loc[df.index.isin(tdf.index) & (df.sym == sym), "hold_prop"] = pred[:, TARGETS[HOLD]]
         df.loc[df.index.isin(tdf.index) & (df.sym == sym), "buy_prob"] = pred[:, TARGETS[BUY]]
         df.loc[df.index.isin(tdf.index) & (df.sym == sym), "sell_prop"] = pred[:, TARGETS[SELL]]
@@ -1014,7 +908,7 @@ class HistorySets:
         """
         self.max_steps["total"] = 0
         for base in self.bases:
-            sym = base + "_" + QUOTE
+            sym = base + "_" + env.QUOTE
             tdf = self.ctrl[TRAIN]
             tdf = tdf[tdf.sym == sym]
             self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0}
@@ -1103,7 +997,7 @@ class HistorySets:
         blocks = set()
         for base in self.bases:
             sym = base + "_usdt"
-            tf = TargetsFeatures(base, QUOTE)
+            tf = TargetsFeatures(base, env.QUOTE)
             tf.load_classifier_features()
             (wsts, wets) = first_week_ts(tf)
             while wets is not None:
@@ -1123,7 +1017,7 @@ class HistorySets:
             lastix = len(self.analysis)
             sym = "total"
             self.analysis.loc[lastix] = [sym, NA, wsts, wets, vcount, buys, sells, avgvol, novol]
-        cfname = sets_config_fname()
+        cfname = env.sets_config_fname()
         self.analysis.to_csv(cfname, sep="\t", index=False)
 
 
