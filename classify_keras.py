@@ -360,7 +360,7 @@ class Cpc:
         """Saves the Cpc object without hs. The classifier is stored in a seperate file
         """
         classifier = self.classifier
-        self.classifier = None
+        self.classifier = None  # because TF classifier is stored in seperate file
         hs = self.hs
         self.hs = None
 
@@ -372,10 +372,11 @@ class Cpc:
                 print(f"Creation of the directory {self.model_path} failed")
             else:
                 print(f"Successfully created the directory {self.model_path}")
-        fname = str("{}{}_{}{}".format(self.model_path, self.save_classifier,
-                    self.epoch, ".h5"))
-        # Save entire tensorflow keras model to a HDF5 file
-        classifier.save(fname)
+        if classifier is not None:
+            fname = str("{}{}_{}{}".format(self.model_path, self.save_classifier,
+                        self.epoch, ".h5"))
+            # Save entire tensorflow keras model to a HDF5 file
+            classifier.save(fname)
 
         fname = str("{}{}_{}{}".format(self.model_path, self.save_classifier,
                     self.epoch, ctf.PICKLE_EXT))

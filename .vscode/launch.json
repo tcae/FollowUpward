@@ -5,27 +5,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "trading",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/trading_test.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "classify_keras",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/classify_keras_test.py",
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "crypto_targets_features",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/crypto_targets_features_test.py",
-            "console": "integratedTerminal"
-        },
-        {
             "name": "Python: Current File (Integrated Terminal)",
             "type": "python",
             "request": "launch",

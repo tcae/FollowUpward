@@ -840,7 +840,7 @@ class Trading():
                 self.check_order_progress()
         except KeyboardInterrupt:
             self.myxch.safe_cache()
-            print(self.actions)
+            print(self.myxch.actions)
             print("finish as requested by keyboard interrupt")
 
     def show_all_binance_commands(self):
@@ -855,26 +855,3 @@ class Trading():
             if (s["baseAsset"] == base) and (s["quoteAsset"] == "USDT"):
                 for f in s["filters"]:
                     print(f)
-
-
-if __name__ == "__main__":
-    set_environment(ctf.TestConf.test, ctf.Env.ubuntu)
-    tee = ctf.Tee(f"{ck.MODEL_PATH}Log_{ctf.timestr()}.txt")
-    trd = Trading()
-    load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
-    save_classifier = None
-    cpc = ck.Cpc(load_classifier, save_classifier)
-    cpc.load()
-
-    start_time = timeit.default_timer()
-    buy_trshld = 0.7
-    sell_trshld = 0.7
-
-    # trd.buy_order("ETH", ratio=22/trd.book.loc[QUOTE, "free"])
-    # trd.sell_order("ETH", ratio=1)
-    trd.trade_loop(cpc, buy_trshld, sell_trshld)
-    trd = None  # should trigger Trading destructor
-
-    tdiff = (timeit.default_timer() - start_time) / (60*60)
-    print(f"total time: {tdiff:.2f} hours")
-    tee.close()
