@@ -304,6 +304,15 @@ Explanation for outdated: too many features; furthermore preference for binary c
 - strong sell, if loss >1%
 - sell, if worse than hold and better than strong sell
 
+The module hierarchie:
+
+- `env_config` provides the computing and usage environment. Changing from production to test or from a linux to a floydhub or colab environment shall only be switched here and shall have no functional impact to the rest of the code.
+- `local_xch` is the local exchange abstraction layer that either provides live or historic data.
+- `crypto_target_features` provides the feature and target class calculation. It shall abstract from the origin of the data, i.e. whether it is live data or historic data. classes can only be calculated when future data vectors are available to calculate the target class.
+- `history_sets` provides training, validation and test data.
+- `classify_keras` provide MLP neural nets with training, evaluation and classification (e.g. for production usage) methods.
+- `trading` provdes live trading methods
+
 ## Notes
 
 Conda, pip, ipython, jupyter

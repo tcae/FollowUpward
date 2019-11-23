@@ -30,19 +30,13 @@ import matplotlib.pyplot as plt
 # from sklearn.model_selection import ShuffleSplit
 # from sklearn.utils import Bunch
 
+import env_config as env
 import crypto_targets_features as ctf
+import crypto_history_sets as chs
 
 print(f"Tensorflow version: {tf.VERSION}")
 print(f"Keras version: {krs.__version__}")
 print(__doc__)
-
-
-def set_environment(test_conf, this_env):
-    global MODEL_PATH
-    global TFBLOG_PATH
-    ctf.set_environment(test_conf, this_env)
-    MODEL_PATH = f"{ctf.OTHER_PATH_PREFIX}classifier/"
-    TFBLOG_PATH = f"{ctf.OTHER_PATH_PREFIX}tensorflowlog/"
 
 
 class EvalPerf:
@@ -309,7 +303,7 @@ class Cpc:
     def __init__(self, load_classifier, save_classifier):
         self.load_classifier = load_classifier
         self.save_classifier = save_classifier
-        self.model_path = MODEL_PATH
+        self.model_path = env.MODEL_PATH
         self.scaler = None
         self.classifier = None
         self.pmlist = list()
@@ -354,7 +348,7 @@ class Cpc:
             print(f"IO-error when loading classifier from {fname}")
 
         # if self.hs_name is not None:
-        #     self.hs = ctf.HistorySets(self.hs_name)
+        #     self.hs = chs.CryptoHistorySets(self.hs_name)
 
     def save(self):
         """Saves the Cpc object without hs. The classifier is stored in a seperate file
@@ -504,7 +498,7 @@ class Cpc:
                 self.talos_iter, params["l1_neurons"], params["h_neuron_var"],
                 params["use_l3"], params["dropout"], params["optimizer"])
 
-            tensorboardpath = f"{TFBLOG_PATH}{ctf.timestr()}talos{self.talos_iter}-"
+            tensorboardpath = f"{env.TFBLOG_PATH}{ctf.timestr()}talos{self.talos_iter}-"
             tensorfile = "{}epoch{}.hdf5".format(tensorboardpath, "{epoch}")
             callbacks = [
                 EpochPerformance(self, patience_mistake_focus=5, patience_stop=10),
@@ -537,7 +531,7 @@ class Cpc:
             return out, model
 
         start_time = timeit.default_timer()
-        self.hs = ctf.HistorySets(ctf.sets_config_fname())
+        self.hs = chs.CryptoHistorySets(ctf.sets_config_fname())
         self.talos_iter = 0
 
         scaler = preprocessing.StandardScaler(copy=False)
@@ -580,7 +574,7 @@ class Cpc:
 
     def use_keras(self):
         start_time = timeit.default_timer()
-        self.hs = ctf.HistorySets(ctf.sets_config_fname())
+        self.hs = chs.CryptoHistorySets(ctf.sets_config_fname())
         self.talos_iter = 0
 
         self.performance_assessment(ctf.VAL, 0)
@@ -714,7 +708,7 @@ def plot_confusion_matrix(cm, class_names):
 
 
 if __name__ == "__main__":
-    tee = ctf.Tee(f"{MODEL_PATH}Log_{ctf.timestr()}.txt")
+    tee = ctf.Tee(f"{env.MODEL_PATH}Log_{ctf.timestr()}.txt")
     load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
     save_classifier = None  # "MLP-110-80relu-40relu-3softmax"
     #     load_classifier = str("{}{}".format(BASE, target_key))

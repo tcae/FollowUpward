@@ -13,6 +13,14 @@ SMALLER_16GB_RAM = True
 DT_FORMAT = "%Y-%m-%d_%Hh%Mm"
 
 
+def nowstr():
+    return datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+
+
+class MissingHistoryData(Exception):
+    pass
+
+
 class Calc(Enum):
     ubuntu = 1
     osx = 2
@@ -32,6 +40,10 @@ def set_environment(test_conf, this_env):
     global DATA_PATH_PREFIX
     global BASES
     global TIME_AGGS
+    global CACHE_PATH
+    global AUTH_FILE
+    global MODEL_PATH
+    global TFBLOG_PATH
 
     if this_env == Calc.osx:
         HOME = "/Users/tc/"
@@ -66,6 +78,11 @@ def set_environment(test_conf, this_env):
         TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
     else:
         raise ValueError(f"configuration fault in test_conf: {test_conf}")
+
+    MODEL_PATH = f"{OTHER_PATH_PREFIX}classifier/"
+    TFBLOG_PATH = f"{OTHER_PATH_PREFIX}tensorflowlog/"
+    CACHE_PATH = f"{DATA_PATH_PREFIX}cache/"
+    AUTH_FILE = HOME + ".catalyst/data/exchanges/binance/auth.json"
 
 
 def config_ok():
