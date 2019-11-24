@@ -5,6 +5,7 @@ import math
 # import numpy as np
 # import sys
 import env_config as env
+from env_config import Env
 # import cached_crypto_data as ccd
 import crypto_targets_features as ctf
 from crypto_targets_features import HOLD, BUY, SELL, NA, TRAIN, VAL, TEST, TARGETS, MANDATORY_STEPS
@@ -28,8 +29,8 @@ class CryptoHistorySets:
         - buy_prob, sell_prob, hold_prob are the class probabilities of the last evaluation
         - use is an earmark that this sample shall be used for the next training epoch/validation
         """
-        self.bases = dict.fromkeys(env.BASES, None)
-        self.max_steps = dict.fromkeys(env.BASES)
+        self.bases = dict.fromkeys(Env.bases, None)
+        self.max_steps = dict.fromkeys(Env.bases)
         for base in self.max_steps:
             self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0, "max": 0}
         self.max_steps["total"] = 0
@@ -61,8 +62,8 @@ class CryptoHistorySets:
         """ returns the base data of a specific type: TRAIN, VAL, TEST
             if the system is configured as having less than 16GB RAM then the last base data is released
         """
-        sym = base + "_" + env.QUOTE
-        if env.SMALLER_16GB_RAM and (self.last_base != base):
+        sym = base + "_" + Env.quote
+        if Env.smaller_16gb_ram and (self.last_base != base):
             self.release_features_of_base(self.last_base)
         try:
             base_df = self.ctrl[set_type].loc[(self.ctrl[set_type].sym == sym) &
@@ -76,8 +77,8 @@ class CryptoHistorySets:
     def trainset_step(self, base, step):
         """ returns the training subset of base for the next training step
         """
-        sym = base + "_" + env.QUOTE
-        if env.SMALLER_16GB_RAM and (self.last_base != base):
+        sym = base + "_" + Env.quote
+        if Env.smaller_16gb_ram and (self.last_base != base):
             self.release_features_of_base(self.last_base)
         try:
             hold_step = step % self.max_steps[base][HOLD]
@@ -171,7 +172,7 @@ class CryptoHistorySets:
         return target
 
     def extract_set_type_targets(self, base, tf, set_type):
-        sym = base + "_" + env.QUOTE
+        sym = base + "_" + Env.quote
         try:
             # print(f"extracting {set_type} for {sym}")
             dfcfg = self.analysis.loc[(self.analysis.set_type == set_type) &
@@ -209,7 +210,7 @@ class CryptoHistorySets:
         """
 
         for base in self.bases:
-            tf = ctf.TargetsFeatures(base, env.QUOTE)
+            tf = ctf.TargetsFeatures(base, Env.quote)
             try:
                 tf.load_classifier_features()
             except ctf.MissingHistoryData:
@@ -231,7 +232,7 @@ class CryptoHistorySets:
             raise KeyError()
         tf = self.bases[base]
         if tf is None:
-            tf = ctf.TargetsFeatures(base, env.QUOTE)
+            tf = ctf.TargetsFeatures(base, Env.quote)
             tf.load_classifier_features()
         if tf is not None:
             if tf.vec is None:
@@ -252,7 +253,7 @@ class CryptoHistorySets:
     def register_probabilties(self, base, set_type, pred, target_df):
         df = self.ctrl[set_type]
         tdf = target_df
-        sym = base + "_" + env.QUOTE
+        sym = base + "_" + Env.quote
         df.loc[df.index.isin(tdf.index) & (df.sym == sym), "hold_prob"] = pred[:, TARGETS[HOLD]]
         df.loc[df.index.isin(tdf.index) & (df.sym == sym), "buy_prob"] = pred[:, TARGETS[BUY]]
         df.loc[df.index.isin(tdf.index) & (df.sym == sym), "sell_prob"] = pred[:, TARGETS[SELL]]
@@ -313,7 +314,7 @@ class CryptoHistorySets:
         """
         self.max_steps["total"] = 0
         for base in self.bases:
-            sym = base + "_" + env.QUOTE
+            sym = base + "_" + Env.quote
             tdf = self.ctrl[TRAIN]
             tdf = tdf[tdf.sym == sym]
             self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0}
@@ -402,7 +403,7 @@ class CryptoHistorySets:
         blocks = set()
         for base in self.bases:
             sym = base + "_usdt"
-            tf = ctf.TargetsFeatures(base, env.QUOTE)
+            tf = ctf.TargetsFeatures(base, Env.quote)
             tf.load_classifier_features()
             (wsts, wets) = first_week_ts(tf)
             while wets is not None:

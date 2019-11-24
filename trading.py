@@ -226,7 +226,7 @@ class Trading():
                         continue
                     try:
                         ttf.calc_features_and_targets(ohlcv_df)
-                    except ctf.MissingHistoryData as err:
+                    except env.MissingHistoryData as err:
                         print(f"{env.nowstr()} removing {base} from book due to error: {err}")
                         self.myxch.book = self.myxch.book.drop([base])
                         continue
@@ -279,8 +279,8 @@ class Trading():
 
 def trading_main():
     print("executing trading_test")
-    env.set_environment(env.Usage.test, env.Calc.ubuntu)
-    tee = ctf.Tee(f"{env.MODEL_PATH}Log_{env.timestr()}.txt")
+    # env.set_environment(env.Usage.test, env.Calc.ubuntu)
+    tee = env.Tee()
     trading = Trading()
     load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
     save_classifier = None

@@ -5,14 +5,14 @@ import ccxt
 import json
 from datetime import datetime, timedelta  # , timezone
 from env_config import nowstr
+from env_config import Env
 import env_config as env
-import crypto_targets_features as ctf
+import cached_crypto_data as ccd
 
 # logging.basicConfig(level=logging.DEBUG)
 RETRIES = 5  # number of ccxt retry attempts before proceeding without success
 BASES = ["BTC", "XRP", "ETH", "BNB", "EOS", "LTC", "NEO", "TRX", "USDT"]
-MIN_AVG_USDT = 1500  # minimum average minute volume in USDT to be considered
-DATA_KEYS = ["open", "high", "low", "close", "volume"]
+# TODO can this BASES be replaced by bases from env that is equal but missing USDT?
 
 
 class Xch():
@@ -24,11 +24,13 @@ class Xch():
     """
     quote = "USDT"
     black_bases = ["TUSD", "USDT", "ONG", "PAX", "BTT", "ATOM", "FET", "USDC", "ONE", "CELR", "LINK"]
+    data_keys = ["open", "high", "low", "close", "volume"]
+    min_daily_avg_usdt = 1500*60*24  # minimum average daily volume in USDT to be considered
 
     def __init__(self):
-        fname = env.AUTH_FILE
-        if not os.path.isfile(env.AUTH_FILE):
-            print(f"file {env.AUTH_FILE} not found")
+        fname = Env.auth_file
+        if not os.path.isfile(Env.auth_file):
+            print(f"file {Env.auth_file} not found")
             return
         try:
             with open(fname, "rb") as fp:
@@ -107,7 +109,7 @@ class Xch():
             if sym.endswith("/USDT"):  # add markets above MIN_AVG_USDT*60*24 daily volume
                 base = sym[:-5]
                 if base not in Xch.black_bases:
-                    if tickers[sym]["quoteVolume"] >= (MIN_AVG_USDT*60*24):
+                    if tickers[sym]["quoteVolume"] >= (Xch.min_daily_avg_usdt):
                         bases.append(base)
         for base in bases:
             self.update_book_entry(base, mybal, tickers)
@@ -128,8 +130,8 @@ class Xch():
             adf = None
             if base not in Xch.black_bases:
                 try:
-                    adf = ctf.load_asset_dataframe(env.CACHE_PATH, base.lower())
-                except ctf.MissingHistoryData:
+                    adf = ccd.load_cache_dataframe(base.lower())
+                except env.MissingHistoryData:
                     pass
                 if adf is not None:
                     self.ohlcv[base] = adf
@@ -362,9 +364,9 @@ class Xch():
         for base in self.book.index:
             if base in self.ohlcv:
                 df = self.ohlcv[base]
-                df = df[DATA_KEYS]
+                df = df[Xch.data_keys]
                 df = df.drop([df.index[len(df.index)-1]])  # the last candle is incomplete
-                ctf.save_asset_dataframe(df, env.CACHE_PATH, env.sym_of_base(base))
+                ccd.save_asset_dataframe(df, Env.cache_path, env.sym_of_base(base))
 
     def update_book_entry(self, base, mybal, tickers):
         sym = base + "/" + Xch.quote
@@ -489,9 +491,8 @@ class Xch():
         that is used in buy orders to determine the max buy volume.
 
         Exceptions:
-            1) gaps in tics (e.g. maintenance)
-        ==> will be filled with last values before the gap,
-        2) when before df cache coverage (e.g. simulation) ==> # TODO
+            1) gaps in tics (e.g. maintenance) ==> will be filled with last values before the gap,
+            2) when before df cache coverage (e.g. simulation) ==> # TODO
         """
         when = pd.Timestamp(when).replace(second=0, microsecond=0, nanosecond=0, tzinfo=None)
         when = when.to_pydatetime()
@@ -501,7 +502,7 @@ class Xch():
         if isincheck:
             if base in self.ohlcv:
                 df = self.ohlcv[base]
-                df = df[DATA_KEYS]
+                df = df[Xch.data_keys]
                 df = df.drop([df.index[len(df.index)-1]])  # because the last candle is incomplete
             sym = base + "/" + Xch.quote
             remaining = minutes
@@ -516,7 +517,7 @@ class Xch():
                     break
                 fromdate = when - timedelta(minutes=remaining)
                 since = int((fromdate - datetime(1970, 1, 1)).total_seconds() * 1000)
-                # print(f"{nowstr()} {base} fromdate {ctf.timestr(fromdate)} minutes {remaining}")
+                # print(f"{nowstr()} {base} fromdate {env.timestr(fromdate)} minutes {remaining}")
                 ohlcvs = self.fetch_ohlcv(sym, "1m", since=since, limit=remaining)
                 # only 1000 entries are returned by one fetch
                 if ohlcvs is None:
@@ -525,7 +526,7 @@ class Xch():
                 itic = None
                 for ohlcv in ohlcvs:
                     if df is None:
-                        df = pd.DataFrame(columns=DATA_KEYS)
+                        df = pd.DataFrame(columns=Xch.data_keys)
                     tic = pd.to_datetime(datetime.utcfromtimestamp(ohlcv[0]/1000))
                     if int((tic - prev_tic)/timedelta(minutes=1)) > 1:
                         print(f"ohlcv time gap for {base} between {prev_tic} and {tic}")

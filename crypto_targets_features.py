@@ -10,8 +10,8 @@ import pandas as pd
 from queue import Queue
 from sklearn.utils import Bunch
 import numpy as np
-import sys
 import env_config as env
+from env_config import Env
 import cached_crypto_data as ccd
 
 
@@ -37,13 +37,6 @@ TARGET_KEY = 5
 LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
 MANDATORY_STEPS = 2  # number of steps for the smallest class (in general BUY)
 
-DATA_KEYS = ["open", "high", "low", "close", "volume"]  # , "price"
-
-
-print(f"len BASES: {len(env.BASES)}")
-print(f"len TIME_AGGS: {len(env.TIME_AGGS)}")
-print(f"len DATA_PATH: {len(env.DATA_PATH)}")
-
 
 class NoSubsetWarning(Exception):
     pass
@@ -63,48 +56,6 @@ def targets_to_features(tfv_ta_df, target_df):
     if d > 0:
         raise NoSubsetWarning(f"subset({b}) with {c}/{d} rows that are/are not in superset({p})")
     return df
-
-
-def dfdescribe(desc, df):
-    print(desc)
-    print(df.describe())
-    print(df.head())
-    print(df.tail())
-
-
-def merge_asset_dataframe(path, base):
-    # "loads the object via msgpack"
-    fname = path + "btc_usdt" + "_DataFrame.msg"
-    btcusdt = ccd.load_asset_dataframefile(fname)
-    if base != "btc":
-        fname = path + base + "_btc" + "_DataFrame.msg"
-        basebtc = ccd.load_asset_dataframefile(fname)
-        dfdescribe(f"{base}-btc", basebtc)
-        fname = path + base + "_usdt" + "_DataFrame.msg"
-        baseusdt = ccd.load_asset_dataframefile(fname)
-        dfdescribe(f"{base}-usdt", baseusdt)
-        if (baseusdt.index[0] <= basebtc.index[0]) or (baseusdt.index[0] <= btcusdt.index[0]):
-            basemerged = baseusdt
-        else:
-            basebtc = basebtc[basebtc.index.isin(btcusdt.index)]
-            basemerged = pd.DataFrame(btcusdt)
-            basemerged = basemerged[basemerged.index.isin(basebtc.index)]
-            for key in DATA_KEYS:
-                if key != "volume":
-                    basemerged[key] = basebtc[key] * btcusdt[key]
-            basemerged["volume"] = basebtc.volume
-            dfdescribe(f"{base}-btc-usdt", basemerged)
-
-            baseusdt = baseusdt[baseusdt.index.isin(basemerged.index)]
-            assert not baseusdt.empty
-            basemerged.loc[baseusdt.index] = baseusdt[:]  # take values of cusdt where available
-    else:
-        basemerged = btcusdt
-    dfdescribe(f"{base}-merged", basemerged)
-
-    ccd.save_asset_dataframe(basemerged, env.DATA_PATH, base + "usdt")
-
-    return basemerged
 
 
 def report_setsize(setname, df):
@@ -162,33 +113,6 @@ def to_scikitlearn(df, np_data=None, descr=None):
                  feature_names=feature_names)
 
 
-class Tee(object):
-
-    def __init__(self, name, mode="w"):
-        self.file = open(name, mode)
-        self.stdout = sys.stdout
-        sys.stdout = self
-
-    def close(self):
-        if self.stdout is not None:
-            sys.stdout = self.stdout
-            self.stdout = None
-        if self.file is not None:
-            self.file.close()
-            self.file = None
-
-    def write(self, data):
-        self.file.write(data)
-        self.stdout.write(data)
-
-    def flush(self):
-        self.file.flush()
-        self.stdout.flush()
-
-    def __del__(self):
-        self.close()
-
-
 class TargetsFeatures:
     """Receives a dict of currency pairs with associated minute candle data and
     transforms it into a dict of currency pairs with associated dicts of
@@ -243,9 +167,9 @@ class TargetsFeatures:
         self.target_key = TARGET_KEY
 
         self.minimum_minute_df_len = 0
-        for agg in env.TIME_AGGS:
+        for agg in Env.time_aggs:
             assert isinstance(agg, int)
-            value = env.TIME_AGGS[agg]
+            value = Env.time_aggs[agg]
             assert isinstance(value, int)
             minlen = agg * value
             if self.minimum_minute_df_len < minlen:
@@ -256,7 +180,7 @@ class TargetsFeatures:
 
     def load_classifier_features(self):
         try:
-            df = ccd.load_asset_dataframe(env.DATA_PATH, self.base)
+            df = ccd.load_asset_dataframe(self.base)
         except env.MissingHistoryData:
             raise
         else:
@@ -338,7 +262,7 @@ class TargetsFeatures:
         df = pd.DataFrame(tf_aggs[target_key], columns=["close"])
         skey = smallest_dict_key(tf_aggs)
         for ta in tf_aggs:
-            for tics in range(env.TIME_AGGS[ta]):
+            for tics in range(Env.time_aggs[ta]):
                 ctitle = str(ta) + "T_" + str(tics) + "_"
                 offset = tics*ta
                 # now add feature columns according to aggregation
@@ -523,7 +447,7 @@ class TargetsFeatures:
             self.minute_data = None
             raise env.MissingHistoryData("{}–{} target {}min with empty minute data".format(
                                      self.base, self.quote, self.target_key))
-        tf_aggs = self.calc_aggregation(self.minute_data, env.TIME_AGGS)
+        tf_aggs = self.calc_aggregation(self.minute_data, Env.time_aggs)
         if "target" not in self.minute_data:
             self.add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
             self.minute_data["target"] = tf_aggs[self.target_key]["target"]

@@ -31,6 +31,7 @@ import matplotlib.pyplot as plt
 # from sklearn.utils import Bunch
 
 import env_config as env
+from env_config import Env
 import crypto_targets_features as ctf
 import crypto_history_sets as chs
 
@@ -166,7 +167,7 @@ class PerfMatrix:
         at the end of the sample sequence
         """
         pred_cnt = len(pred)
-        # begin = ctf.timestr(skl_tics[0])
+        # begin = env.timestr(skl_tics[0])
         for sample in range(pred_cnt):
             high_prob_cl = 0
             for cl in range(len(pred[0])):
@@ -185,17 +186,17 @@ class PerfMatrix:
 
         """
         pred_cnt = len(pred)
-        # begin = ctf.timestr(skl_tics[0])
+        # begin = env.timestr(skl_tics[0])
         for sample in range(pred_cnt):
             if (sample + 1) >= pred_cnt:
                 self.add_signal(1, skl_close[sample], ctf.TARGETS[ctf.SELL], ctf.TARGETS[ctf.SELL])
-                # end = ctf.timestr(skl_tics[sample])
+                # end = env.timestr(skl_tics[sample])
                 # print("assessment between {} and {}".format(begin, end))
             elif (skl_tics[sample+1] - skl_tics[sample]) > np.timedelta64(1, "m"):
                 self.add_signal(1, skl_close[sample], ctf.TARGETS[ctf.SELL], ctf.TARGETS[ctf.SELL])
-                # end = ctf.timestr(skl_tics[sample])
+                # end = env.timestr(skl_tics[sample])
                 # print("assessment between {} and {}".format(begin, end))
-                # begin = ctf.timestr(skl_tics[sample+1])
+                # begin = env.timestr(skl_tics[sample+1])
             else:
                 high_prob_cl = 0
 
@@ -219,7 +220,7 @@ class PerfMatrix:
         self.end_ts = timeit.default_timer()
         tdiff = (self.end_ts - self.start_ts) / 60
         print("")
-        print(f"{ctf.timestr()} {self.set_type} performace assessment time: {tdiff:.1f}min")
+        print(f"{env.timestr()} {self.set_type} performace assessment time: {tdiff:.1f}min")
 
         def pt(bp, sp): return (self.pix(bp, sp).performance, self.pix(bp, sp).transactions)
 
@@ -270,7 +271,7 @@ class EpochPerformance(tf.keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         print("{} epoch end ==> talos iteration: {} epoch: {} classifier config: {}".format(
-                ctf.timestr(), self.cpc.talos_iter, epoch, self.cpc.save_classifier))
+                env.timestr(), self.cpc.talos_iter, epoch, self.cpc.save_classifier))
         (best, bpt, spt, transactions) = self.cpc.performance_assessment(ctf.TRAIN, epoch)
         (best, bpt, spt, transactions) = self.cpc.performance_assessment(ctf.VAL, epoch)
         if best > self.best_perf:
@@ -303,7 +304,7 @@ class Cpc:
     def __init__(self, load_classifier, save_classifier):
         self.load_classifier = load_classifier
         self.save_classifier = save_classifier
-        self.model_path = env.MODEL_PATH
+        self.model_path = Env.model_path
         self.scaler = None
         self.classifier = None
         self.pmlist = list()
@@ -380,7 +381,7 @@ class Cpc:
 
         self.classifier = classifier
         self.hs = hs
-        print(f"{ctf.timestr()} classifier saved in {fname}")
+        print(f"{env.timestr()} classifier saved in {fname}")
 
     def performance_with_features(self, tfv, buy_trshld, sell_trshld):
         """Ignores targets of tfv and just evaluates the tfv features in respect
@@ -498,7 +499,7 @@ class Cpc:
                 self.talos_iter, params["l1_neurons"], params["h_neuron_var"],
                 params["use_l3"], params["dropout"], params["optimizer"])
 
-            tensorboardpath = f"{env.TFBLOG_PATH}{ctf.timestr()}talos{self.talos_iter}-"
+            tensorboardpath = Env.tensorboardpath()
             tensorfile = "{}epoch{}.hdf5".format(tensorboardpath, "{epoch}")
             callbacks = [
                 EpochPerformance(self, patience_mistake_focus=5, patience_stop=10),
@@ -539,7 +540,7 @@ class Cpc:
             # print("scaler fit")
             scaler.partial_fit(samples)
         self.scaler = scaler
-        print(f"{ctf.timestr()} scaler adapted")
+        print(f"{env.timestr()} scaler adapted")
 
         dummy_x = np.empty((1, samples.shape[1]))
         dummy_y = np.empty((1, targets.shape[1]))
@@ -565,12 +566,12 @@ class Cpc:
                 dataset_name="xrp-eos-bnb-btc-eth-neo-ltc-trx",
                 # dataset_name="xrp_eos",
                 grid_downsample=1,
-                experiment_no=f"talos_{ctf.timestr()}")
+                experiment_no=f"talos_{env.timestr()}")
 
         # ta.Deploy(scan, "talos_lstm_x", metric="val_loss", asc=True)
 
         tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"{ctf.timestr()} MLP adaptation time: {tdiff:.0f} min")
+        print(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
 
     def use_keras(self):
         start_time = timeit.default_timer()
@@ -580,7 +581,7 @@ class Cpc:
         self.performance_assessment(ctf.VAL, 0)
 
         tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"{ctf.timestr()} MLP performance assessment bulk time: {tdiff:.0f} min")
+        print(f"{env.timestr()} MLP performance assessment bulk time: {tdiff:.0f} min")
 
         start_time = timeit.default_timer()
         pm = PerfMatrix(0, ctf.VAL)
@@ -597,7 +598,7 @@ class Cpc:
         pm.report_assessment()
 
         tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"{ctf.timestr()} MLP performance assessment bulk split time: {tdiff:.0f} min")
+        print(f"{env.timestr()} MLP performance assessment bulk split time: {tdiff:.0f} min")
 
         start_time = timeit.default_timer()
         pm = PerfMatrix(0, ctf.VAL)
@@ -658,7 +659,7 @@ class Cpc:
 #        pm.report_assessment()
         print(f"performance: {perf:6.0%}")
         tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"{ctf.timestr()} MLP performance assessment samplewise time: {tdiff:.0f} min")
+        print(f"{env.timestr()} MLP performance assessment samplewise time: {tdiff:.0f} min")
 
 
 def plot_confusion_matrix(cm, class_names):
@@ -708,7 +709,7 @@ def plot_confusion_matrix(cm, class_names):
 
 
 if __name__ == "__main__":
-    tee = ctf.Tee(f"{env.MODEL_PATH}Log_{ctf.timestr()}.txt")
+    tee = env.Tee()
     load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
     save_classifier = None  # "MLP-110-80relu-40relu-3softmax"
     #     load_classifier = str("{}{}".format(BASE, target_key))
