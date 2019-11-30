@@ -4,10 +4,15 @@ import pandas as pd
 import env_config as env
 from env_config import Env
 # from local_xch import Xch, DATA_KEYS
-from local_xch import Xch
+
+print("cached_crypto_data init")
 
 
-""" provides pandas prepresentation of cached crypto data. """
+""" provides pandas prepresentation of cached crypto data.
+    The module shall abstract from the actual features, i.e. provide
+    service functions and a base class that can be subclasses for
+    different types of features.
+"""
 
 
 def dfdescribe(desc, df):
@@ -64,38 +69,5 @@ def load_cache_dataframe(base):
     return dfbu
 
 
-def merge_asset_dataframe(path, base):
-    """ extends the time range of availble usdt data into the past by mapping base_btc * btc_usdt
-    """
-    # "loads the object via msgpack"
-    fname = path + "btc_usdt" + "_DataFrame.msg"
-    btcusdt = load_asset_dataframe("btc")
-    if base != "btc":
-        fname = path + base + "_btc" + "_DataFrame.msg"
-        basebtc = load_asset_dataframefile(fname)
-        dfdescribe(f"{base}-btc", basebtc)
-        fname = path + base + "_usdt" + "_DataFrame.msg"
-        baseusdt = load_asset_dataframefile(fname)
-        dfdescribe(f"{base}-usdt", baseusdt)
-        if (baseusdt.index[0] <= basebtc.index[0]) or (baseusdt.index[0] <= btcusdt.index[0]):
-            basemerged = baseusdt
-        else:
-            basebtc = basebtc[basebtc.index.isin(btcusdt.index)]
-            basemerged = pd.DataFrame(btcusdt)
-            basemerged = basemerged[basemerged.index.isin(basebtc.index)]
-            for key in Xch.data_keys:
-                if key != "volume":
-                    basemerged[key] = basebtc[key] * btcusdt[key]
-            basemerged["volume"] = basebtc.volume
-            dfdescribe(f"{base}-btc-usdt", basemerged)
-
-            baseusdt = baseusdt[baseusdt.index.isin(basemerged.index)]
-            assert not baseusdt.empty
-            basemerged.loc[baseusdt.index] = baseusdt[:]  # take values of cusdt where available
-    else:
-        basemerged = btcusdt
-    dfdescribe(f"{base}-merged", basemerged)
-
-    save_asset_dataframe(basemerged, Env.data_path, base + "usdt")
-
-    return basemerged
+if __name__ == "__main__":
+    print("chached crypto data with no actions in __main__")

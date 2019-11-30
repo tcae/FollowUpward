@@ -210,7 +210,7 @@ class CryptoHistorySets:
         """
 
         for base in self.bases:
-            tf = ctf.TargetsFeatures(base, Env.quote)
+            tf = ctf.TargetsFeatures(base)
             try:
                 tf.load_classifier_features()
             except ctf.MissingHistoryData:
@@ -232,7 +232,7 @@ class CryptoHistorySets:
             raise KeyError()
         tf = self.bases[base]
         if tf is None:
-            tf = ctf.TargetsFeatures(base, Env.quote)
+            tf = ctf.TargetsFeatures(base)
             tf.load_classifier_features()
         if tf is not None:
             if tf.vec is None:
@@ -372,7 +372,7 @@ class CryptoHistorySets:
                 self.fixtic = last_tic
             fullweeks = math.ceil((self.fixtic - first_tic) / timedelta(minutes=self.timeblock))
             assert fullweeks > 0, \
-                f"{tf.cur_pair} {len(df)} {len(df.index)} {first_tic} {last_tic} {fullweeks}"
+                f"{len(df)} {len(df.index)} {first_tic} {last_tic} {fullweeks}"
             wsts = self.fixtic - timedelta(minutes=fullweeks*self.timeblock-1)
             wets = wsts + timedelta(minutes=self.timeblock-1)
             return (wsts, wets)
@@ -403,7 +403,7 @@ class CryptoHistorySets:
         blocks = set()
         for base in self.bases:
             sym = base + "_usdt"
-            tf = ctf.TargetsFeatures(base, Env.quote)
+            tf = ctf.TargetsFeatures(base)
             tf.load_classifier_features()
             (wsts, wets) = first_week_ts(tf)
             while wets is not None:

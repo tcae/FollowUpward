@@ -26,6 +26,14 @@ class Env():
         Env.model_path = f"{calc.other_path_prefix}classifier/"
         Env.tfblog_path = f"{calc.other_path_prefix}tensorflowlog/"
         Env.auth_file = calc.auth_path_prefix + "auth.json"
+        Env.minimum_minute_df_len = 0
+        for agg in Env.time_aggs:
+            assert isinstance(agg, int)
+            value = Env.time_aggs[agg]
+            assert isinstance(value, int)
+            minlen = agg * value
+            if Env.minimum_minute_df_len < minlen:
+                Env.minimum_minute_df_len = minlen
 
     def tensorboardpath():
         path = f"{Env.tfblog_path}{timestr()}"

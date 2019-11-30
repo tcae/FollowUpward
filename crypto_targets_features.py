@@ -147,7 +147,7 @@ class TargetsFeatures:
 
     """
 
-    def __init__(self, base, quote):
+    def __init__(self, base):
         """Receives the key attributes for feature generation
 
         aggregations:
@@ -160,25 +160,15 @@ class TargetsFeatures:
         """
         assert(env.config_ok())
         self.base = base
-        self.quote = quote
+        self.quote = Env.quote
         self.minute_data = None
-        self.minimum_minute_data = 0
         self.vec = None
         self.target_key = TARGET_KEY
 
-        self.minimum_minute_df_len = 0
-        for agg in Env.time_aggs:
-            assert isinstance(agg, int)
-            value = Env.time_aggs[agg]
-            assert isinstance(value, int)
-            minlen = agg * value
-            if self.minimum_minute_df_len < minlen:
-                self.minimum_minute_df_len = minlen
-
-    def cur_pair(self):
-        return self.base + "_" + self.quote
-
     def load_classifier_features(self):
+        """ Loads the historic data temporarily, calculates the features and targets
+            and releases the original data afterwards
+        """
         try:
             df = ccd.load_asset_dataframe(self.base)
         except env.MissingHistoryData:
@@ -187,7 +177,7 @@ class TargetsFeatures:
             self.calc_features_and_targets(df)
             report_setsize(self.base, self.vec)
 
-    def derive_features(self, df):
+    def __derive_features(self, df):
         """derived features in relation to price based on the provided
         time aggregated dataframe df with the exception of the derived feature 'delta'
         that is calculated together with targets
@@ -203,7 +193,7 @@ class TargetsFeatures:
         df.loc[df["close"] <= df["open"],
                "bottom"] = (df["close"] - df["low"]) / df["close"] * 1000
 
-    def calc_aggregation(self, minute_df, time_aggregations):
+    def __calc_aggregation(self, minute_df, time_aggregations):
         """Time aggregation through rolling aggregation with the consequence that new data is
         generated every minute and even long time aggregations reflect all minute bumps in their
         features
@@ -239,10 +229,10 @@ class TargetsFeatures:
                 df["vol"] = mdf.vol.rolling(time_agg).mean()
             df["delta"] = (mdf.close - mdf.close.shift(time_agg)) / mdf.close.shift(time_agg)
             tf_aggs[time_agg] = df
-            self.derive_features(df)
+            self.__derive_features(df)
         return tf_aggs
 
-    def expand_target_feature_vectors(self, tf_aggs, target_key):
+    def __expand_target_feature_vectors(self, tf_aggs, target_key):
         """Builds a target and feature vector for just the target_key with
         1 minute DHTBV and D*V feature sequences and the remaining D sequences of
         n time steps (tics) as configured in time_aggregations in T units.
@@ -279,7 +269,7 @@ class TargetsFeatures:
             raise env.MissingHistoryData("empty dataframe from expand_target_feature_vectors")
         return df
 
-    def add_targets(self, time_agg, df):
+    def __add_targets(self, time_agg, df):
         "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
         # print(f"{datetime.now()}: self.add_targets {time_agg}")
         df['target'] = TARGETS[HOLD]
@@ -360,7 +350,7 @@ class TargetsFeatures:
                     ixfifo.put(tix)  # prep after execution due to queue reuse
         # report_setsize("complete set", df)
 
-    def add_targets_stripped(self, time_agg, df):
+    def __add_targets_stripped(self, time_agg, df):
         "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
 
         def close_delta_ratio(tix1, tix2, cix):
@@ -447,21 +437,23 @@ class TargetsFeatures:
             self.minute_data = None
             raise env.MissingHistoryData("{}–{} target {}min with empty minute data".format(
                                      self.base, self.quote, self.target_key))
-        tf_aggs = self.calc_aggregation(self.minute_data, Env.time_aggs)
+        tf_aggs = self.__calc_aggregation(self.minute_data, Env.time_aggs)
         if "target" not in self.minute_data:
-            self.add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
+            self.__add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
             self.minute_data["target"] = tf_aggs[self.target_key]["target"]
             # print("calculating targets")
         else:
             # print("reusing targets")
             pass
-        self.vec = self.expand_target_feature_vectors(tf_aggs, self.target_key)
+        self.vec = self.__expand_target_feature_vectors(tf_aggs, self.target_key)
         if "target" not in self.vec:
             self.vec["target"] = self.minute_data["target"]
 
         # print(f"{len(self.vec)} feature vectors of {len(self.vec.iloc[0])-2} features")
 
-    def append_minute_df_with_targets(self, minute_df):
+    def __append_minute_df_with_targets(self, minute_df):
+        """ unused?
+        """
         self.vec = None
         if "target" not in minute_df:
             raise ValueError("append_minute_df_with_targets: missing target column")
@@ -470,8 +462,9 @@ class TargetsFeatures:
         else:
             self.minute_data = pd.concat([self.minute_data, minute_df], sort=False)
 
-    def target_performance(self):
-        """calculates the time aggregation specific performance of target_key
+    def __target_performance(self):
+        """ calculates the time aggregation specific performance of target_key
+            unused?
         """
         # print(f"{datetime.now()}: calculate target_performance")
         target_df = self.minute_data
