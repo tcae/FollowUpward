@@ -62,7 +62,7 @@ class CryptoHistorySets:
         """ returns the base data of a specific type: TRAIN, VAL, TEST
             if the system is configured as having less than 16GB RAM then the last base data is released
         """
-        sym = base + "_" + Env.quote
+        sym = env.sym_of_base(base)
         if Env.smaller_16gb_ram and (self.last_base != base):
             self.release_features_of_base(self.last_base)
         try:
@@ -77,7 +77,7 @@ class CryptoHistorySets:
     def trainset_step(self, base, step):
         """ returns the training subset of base for the next training step
         """
-        sym = base + "_" + Env.quote
+        sym = env.sym_of_base(base)
         if Env.smaller_16gb_ram and (self.last_base != base):
             self.release_features_of_base(self.last_base)
         try:
@@ -172,7 +172,7 @@ class CryptoHistorySets:
         return target
 
     def extract_set_type_targets(self, base, tf, set_type):
-        sym = base + "_" + Env.quote
+        sym = env.sym_of_base(base)
         try:
             # print(f"extracting {set_type} for {sym}")
             dfcfg = self.analysis.loc[(self.analysis.set_type == set_type) &
@@ -253,7 +253,7 @@ class CryptoHistorySets:
     def register_probabilties(self, base, set_type, pred, target_df):
         df = self.ctrl[set_type]
         tdf = target_df
-        sym = base + "_" + Env.quote
+        sym = env.sym_of_base(base)
         df.loc[df.index.isin(tdf.index) & (df.sym == sym), "hold_prob"] = pred[:, TARGETS[HOLD]]
         df.loc[df.index.isin(tdf.index) & (df.sym == sym), "buy_prob"] = pred[:, TARGETS[BUY]]
         df.loc[df.index.isin(tdf.index) & (df.sym == sym), "sell_prob"] = pred[:, TARGETS[SELL]]
@@ -314,7 +314,7 @@ class CryptoHistorySets:
         """
         self.max_steps["total"] = 0
         for base in self.bases:
-            sym = base + "_" + Env.quote
+            sym = env.sym_of_base(base)
             tdf = self.ctrl[TRAIN]
             tdf = tdf[tdf.sym == sym]
             self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0}

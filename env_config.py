@@ -14,8 +14,12 @@ class MissingHistoryData(Exception):
 
 class Env():
     quote = "usdt"
+    sym_sep = "_"  # symbol seperator
+    xch_sym_sep = "/"  # ccxt symbol seperator
     smaller_16gb_ram = True
     dt_format = "%Y-%m-%d_%Hh%Mm"
+    calc = None
+    usage = None
 
     def __init__(self, calc, usage):
         print(f"{type(calc)}/{type(usage)}")
@@ -27,6 +31,8 @@ class Env():
         Env.tfblog_path = f"{calc.other_path_prefix}tensorflowlog/"
         Env.auth_file = calc.auth_path_prefix + "auth.json"
         Env.minimum_minute_df_len = 0
+        Env.calc = calc
+        Env.usage = usage
         for agg in Env.time_aggs:
             assert isinstance(agg, int)
             value = Env.time_aggs[agg]
@@ -114,8 +120,20 @@ def time_in_index(dataframe_with_timeseriesindex, tic):
 
 
 def sym_of_base(base):
-    s = f"{base.lower()}_{Env.quote}"
+    s = base.lower() + Env.sym_sep + Env.quote.lower()
     return s
+
+
+def base_and_quote(symbol):
+    """ returns base and quote as lowercase tuple of a given symbol
+    """
+    symbol = symbol.lower()
+    symbol = symbol.replace(Env.xch_sym_sep, Env.sym_sep)  # if required convert ccxt separtor
+    slist = symbol.split(Env.sym_sep)
+    assert(len(slist) == 2)
+    base = slist[0]
+    quote = slist[1]
+    return (base, quote)
 
 
 def base_of_sym(sym):

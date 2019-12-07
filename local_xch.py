@@ -1,8 +1,10 @@
 import os
 import math
 import pandas as pd
+import numpy as np
 import ccxt
 import json
+import pytz  # 3rd party: $ pip install pytz
 from datetime import datetime, timedelta  # , timezone
 from env_config import nowstr
 from env_config import Env
@@ -37,6 +39,7 @@ class Bk():
         - lot_size_min: minimum sie of single/part offer for base
 
     """
+    quote = Env.quote.upper()
     actions = pd.DataFrame(columns=["ccxt", "timestamp"])  # action_id is the index nbr
     ats = None
     aid = None
@@ -54,11 +57,12 @@ class Bk():
         if mybal is None:
             return
         Bk.log_action("fetch_balance (update_bookkeeping)")
-        bases = BASES.copy()
+        bases = [base.upper() for base in Env.bases.copy()]
+        bases.append(Env.quote.upper())
         Bk.book = pd.DataFrame(index=bases, columns=["action_id", "free", "used", "USDT",
                                                      "dayUSDT", "updated"])
         for base in mybal:
-            sym = base + "/" + Env.quote
+            sym = Xch.xhc_sym_of_base(base)
             if (base not in bases) and (base not in ["free", "info", "total", "used"]):
                 if sym in tickers:
                     bval = (mybal[base]["free"] + mybal[base]["used"]) * tickers[sym]["last"]
@@ -70,8 +74,9 @@ class Bk():
                         #  print(f"balance value of {bval} {base} not traded in USDT")
                         pass
         for sym in tickers:
-            if sym.endswith("/USDT"):  # add markets above MIN_AVG_USDT*60*24 daily volume
-                base = sym[:-5]
+            suffix = "/" + Env.quote.upper()
+            if sym.endswith(suffix):  # add markets above MIN_AVG_USDT*60*24 daily volume
+                base = sym[:-len(suffix)]
                 if base not in Xch.black_bases:
                     if tickers[sym]["quoteVolume"] >= (Xch.min_daily_avg_usdt):
                         bases.append(base)
@@ -81,7 +86,7 @@ class Bk():
             Bk.book.loc[base, "minbelow"] = 0  # minutes below buy price
             syms = xch_info["symbols"]
             for s in syms:
-                if (s["baseAsset"] == base) and (s["quoteAsset"] == Env.quote):
+                if (s["baseAsset"] == base) and (s["quoteAsset"] == Bk.quote):
                     for f in s["filters"]:
                         if f["filterType"] == "ICEBERG_PARTS":
                             Bk.book.loc[base, "iceberg_parts"] = int(f["limit"])
@@ -126,7 +131,7 @@ class Bk():
         """
         if base in Xch.black_bases:
             return
-        sym = base + "/" + Env.quote
+        sym = Xch.xhc_sym_of_base(base)
         ob = None
         for i in range(RETRIES):
             try:
@@ -166,12 +171,12 @@ class Bk():
                 ccd.save_asset_dataframe(df, Env.cache_path, env.sym_of_base(base))
 
     def update_book_entry(base, mybal, tickers):
-        sym = base + "/" + Env.quote
-        if (sym in tickers) or (base == Env.quote):
+        sym = Xch.xhc_sym_of_base(base)
+        if (sym in tickers) or (base == Bk.quote):
             Bk.book.loc[base, "action_id"] = Bk.aid
             Bk.book.loc[base, "free"] = mybal[base]["free"]
             Bk.book.loc[base, "used"] = mybal[base]["used"]
-            if base == Env.quote:
+            if base == Bk.quote:
                 Bk.book.loc[base, "USDT"] = 1
                 Bk.book.loc[base, "dayUSDT"] = 0
             else:
@@ -187,7 +192,6 @@ class Xch():
 
 
     """
-    # quote = upper(Env.quote)  # "USDT"
     black_bases = ["TUSD", "USDT", "ONG", "PAX", "BTT", "ATOM", "FET", "USDC", "ONE", "CELR", "LINK"]
     data_keys = ["open", "high", "low", "close", "volume"]
     min_daily_avg_usdt = 1500*60*24  # minimum average daily volume in USDT to be considered
@@ -214,7 +218,8 @@ class Xch():
         "apiKey": auth["key"],
         "secret": auth["secret"],
         "timeout": 10000,
-        "enableRateLimit": True,
+        "rateLimit": 250,
+        "enableRateLimit": False
     })
     assert lxch.has["fetchTickers"]
     assert lxch.has["fetchOpenOrders"]
@@ -236,6 +241,12 @@ class Xch():
 
     # def quote():
     #     return Xch.lxch.load_markets()
+
+    def xhc_sym_of_base(base):
+        sym = env.sym_of_base(base)
+        sym = sym.replace(Env.sym_sep, Env.xch_sym_sep)
+        sym = sym.upper()
+        return sym
 
     def load_markets():
         return Xch.lxch.load_markets()
@@ -362,7 +373,7 @@ class Xch():
 
     def create_limit_buy_order(base, amount, price, *params):
         # return Xch.lxch.create_limit_buy_order(sym, amount, price, *params)
-        sym = base + "/" + Env.quote
+        sym = base + "/" + Bk.quote
         myorder = None
         for i in range(RETRIES):
             try:
@@ -418,7 +429,7 @@ class Xch():
 
     def myfetch_open_orders(base, caller):
         oo = None
-        sym = base + "/" + Env.quote
+        sym = base + "/" + Bk.quote
         for i in range(RETRIES):
             try:
                 oo = Xch.lxch.fetch_open_orders(sym)
@@ -435,7 +446,7 @@ class Xch():
         return oo
 
     def myfetch_cancel_orders(orderid, base):
-        sym = base + "/" + Env.quote
+        sym = base + "/" + Bk.quote
         for i in range(RETRIES):
             try:
                 Xch.lxch.cancel_order(orderid, sym)
@@ -464,7 +475,7 @@ class Xch():
                 break
 
     def check_limits(base, amount, price):
-        sym = base + "/" + Env.quote
+        sym = base + "/" + Bk.quote
         # ice_chunk = ICEBERG_USDT_PART / price # about the chunk quantity we want
         ice_chunk = Bk.book.loc[base, "dayUSDT"] / (24 * 60 * 4)  # 1/4 of average minute volume
         ice_parts = math.ceil(amount / ice_chunk)  # about equal parts
@@ -528,27 +539,31 @@ class Xch():
             1) gaps in tics (e.g. maintenance) ==> will be filled with last values before the gap,
             2) when before df cache coverage (e.g. simulation) ==> # TODO
         """
-        when = pd.Timestamp(when).replace(second=0, microsecond=0, nanosecond=0, tzinfo=None)
+        when = pd.Timestamp(when).replace(second=0, microsecond=0, nanosecond=0)  # ! , tzinfo=None)
         when = when.to_pydatetime()
+        when = when.replace(tzinfo=pytz.utc)
         minutes += 1
+        start = when - timedelta(minutes=minutes-1)
         df = None
         if base in Xch.ohlcv:
             df = Xch.ohlcv[base]
             df = df[Xch.data_keys]
             df = df.drop([df.index[len(df.index)-1]])  # because the last candle is incomplete
-        sym = base + "/" + Env.quote
+        sym = Xch.xhc_sym_of_base(base)
         remaining = minutes
+        count = 0
+        if df is None:
+            df = pd.DataFrame(index=pd.DatetimeIndex(freq="T", start=start, end=when, tz="UTC"),
+                                dtype=np.float64, columns=Xch.data_keys)
+        else:
+            last_tic = df.index[len(df.index)-1].to_pydatetime()
+            dtlast = last_tic  # ! .replace(tzinfo=None)
+            dfdiff = int((when - dtlast) / timedelta(minutes=1))
+            if dfdiff < remaining:
+                remaining = dfdiff
         while remaining > 0:
-            if df is not None:
-                last_tic = df.index[len(df.index)-1].to_pydatetime()
-                dtlast = last_tic.replace(tzinfo=None)
-                dfdiff = int((when - dtlast) / timedelta(minutes=1))
-                if dfdiff < remaining:
-                    remaining = dfdiff
-            if remaining <= 0:
-                break
-            fromdate = when - timedelta(minutes=remaining)
-            since = int((fromdate - datetime(1970, 1, 1)).total_seconds() * 1000)
+            fromdate = when - timedelta(minutes=remaining-1)
+            since = int((fromdate - datetime(1970, 1, 1, tzinfo=pytz.utc)).total_seconds() * 1000)
             # print(f"{nowstr()} {base} fromdate {env.timestr(fromdate)} minutes {remaining}")
             ohlcvs = Xch.fetch_ohlcv(sym, "1m", since=since, limit=remaining)
             # only 1000 entries are returned by one fetch
@@ -556,32 +571,38 @@ class Xch():
                 return None
             prev_tic = fromdate - timedelta(minutes=1)
             itic = None
+            lastohlcv = None
             for ohlcv in ohlcvs:
-                if df is None:
-                    df = pd.DataFrame(columns=Xch.data_keys)
                 tic = pd.to_datetime(datetime.utcfromtimestamp(ohlcv[0]/1000))
+                tic = tic.replace(tzinfo=pytz.utc)
                 if int((tic - prev_tic)/timedelta(minutes=1)) > 1:
                     print(f"ohlcv time gap for {base} between {prev_tic} and {tic}")
                     if prev_tic < fromdate:  # repair first tics
                         print(f"no repair of missing history data for {base}")
                         return None
                         prev_tic += timedelta(minutes=1)
-                        iptic = itic = pd.Timestamp(prev_tic, tz=None)
+                        iptic = itic = pd.Timestamp(prev_tic, tz="UTC")
                         df.loc[iptic] = [ohlcv[1], ohlcv[2], ohlcv[3], ohlcv[4], ohlcv[5]]
+                        df.loc[iptic, "volume"] = 0  # indicate gap fillers with volume == 0
                         remaining -= 1
                     prev_tic += timedelta(minutes=1)
                     while (prev_tic < tic):
-                        iptic = pd.Timestamp(prev_tic, tz=None)
+                        iptic = pd.Timestamp(prev_tic, tz="UTC")
                         df.loc[iptic] = df.loc[itic]
                         remaining -= 1
                         prev_tic += timedelta(minutes=1)
-                itic = pd.Timestamp(tic, tz=None)
+                itic = pd.Timestamp(tic, tz="UTC")
                 df.loc[itic] = [ohlcv[1], ohlcv[2], ohlcv[3], ohlcv[4], ohlcv[5]]
                 remaining -= 1
                 prev_tic += timedelta(minutes=1)
+                count += 1
+                if lastohlcv == ohlcv:
+                    print(f"no progress count: {count}  ohlv: {ohlcv}  lastohlcv: {lastohlcv}")
+                lastohlcv = ohlcv
 
         Xch.ohlcv[base] = df
-        assert len(df) >= minutes, f"{base} len(df) {len(df)} < {minutes} minutes"
+        if len(df) < minutes:
+            print(f"{base} len(df) {len(df)} < {minutes} minutes")
 
         if Bk.book is not None:
             isincheck = True in Bk.book.index.isin([base])
@@ -614,8 +635,11 @@ class Xch():
                     print(f)
 
 
-def merge_asset_dataframe(path, base):
+def OBSOLETE_merge_asset_dataframe(path, base):
     """ extends the time range of availble usdt data into the past by mapping base_btc * btc_usdt
+
+        ! obsolete now because this was only needed to build up an extended data set when base/USDT was not
+        available but base/BTC was
     """
     # "loads the object via msgpack"
     fname = path + "btc_usdt" + "_DataFrame.msg"
@@ -639,7 +663,7 @@ def merge_asset_dataframe(path, base):
             basemerged["volume"] = basebtc.volume
             ccd.dfdescribe(f"{base}-btc-usdt", basemerged)
 
-            baseusdt = baseusdt[baseusdt.index.isin(basemerged.index)]
+            baseusdt = baseusdt[baseusdt.index.isin(basemerged.index)]  # ! why limit to basebtc range?
             assert not baseusdt.empty
             basemerged.loc[baseusdt.index] = baseusdt[:]  # take values of cusdt where available
     else:
@@ -651,13 +675,54 @@ def merge_asset_dataframe(path, base):
     return basemerged
 
 
+def check_df(df):
+    diff = pd.Timedelta(value=1, unit="m")
+    last = this = df.index[0]
+    ok = True
+    for tix in df.index:
+        if this != tix:
+            print(f"last: {last} tix: {tix} this: {this}")
+            ok = False
+            this = tix
+        last = tix
+        this += diff
+    return ok
+
+
 def load_asset(base):
     """ Loads the cached history data as well as live data from the xch
     """
-    hdf = ccd.load_asset_dataframe(base)
-    ccd.dfdescribe(f"load_asset_dataframe({base})", hdf)
-    ohlcv_df = Xch.get_ohlcv(base, Env.minimum_minute_df_len, datetime.utcnow())
-    ccd.dfdescribe(f"Xch.get_ohlcv({base})", ohlcv_df)
+
+    # now = datetime.utcnow()
+    # diffmin = 2000
+    # ohlcv_df = Xch.get_ohlcv(base, diffmin, now)
+    # ccd.dfdescribe(f"ohlcv_df({diffmin})", ohlcv_df)
+    # print(f"loaded asset df checked: {check_df(ohlcv_df)}")
+
+    # ohlcv_df = ohlcv_df.drop([ohlcv_df.index[diffmin-2]])
+    # ccd.dfdescribe(f"ohlcv_df({diffmin-1})", ohlcv_df)
+    # print(f"dropped asset df checked: {check_df(ohlcv_df)}")
+    # return
+
+    print(Env.usage.bases)  # Env.usage.bases)
+    for base in Env.usage.bases:
+        print(f"supplementing {base}")
+        hdf = ccd.load_asset_dataframe(base)
+
+        last = (hdf.index[len(hdf)-1]).to_pydatetime()
+        last = last.replace(tzinfo=None)
+        now = datetime.utcnow()
+        diffmin = int((now - last)/timedelta(minutes=1))
+        ohlcv_df = Xch.get_ohlcv(base, diffmin, now)
+
+        tix = hdf.index[len(hdf)-1]
+        while tix == ohlcv_df.index[0]:
+            ohlcv_df = ohlcv_df.drop([tix])
+        hdf = pd.concat([hdf, ohlcv_df], sort=False)
+        ok2save = check_df(hdf)
+        print(f"merged df checked: {ok2save}")
+        if ok2save:
+            ccd.save_asset_dataframe(hdf, base)
 
 
 if __name__ == "__main__":

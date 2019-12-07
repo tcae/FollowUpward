@@ -9,6 +9,7 @@ import timeit
 # import logging
 import time
 import env_config as env
+from env_config import Env
 import crypto_targets_features as ctf
 import classify_keras as ck
 from classify_keras import PerfMatrix, EvalPerf  # required for pickle  # noqa
@@ -119,7 +120,7 @@ class Trading():
         assert 0 <= ratio <= 1, f"not compliant to constraint: 0 <= ratio {ratio} <= 1"
         isincheck = True in Bk.book.index.isin([base])
         if isincheck:
-            sym = base + "/" + Env.quote
+            sym = Xch.xhc_sym_of_base(base)
             tickers = Xch.myfetch_tickers("sell_order")
             if tickers is None:
                 return
@@ -168,7 +169,7 @@ class Trading():
         assert 0 <= ratio <= 1, f"not compliant to constraint: 0 <= ratio {ratio} <= 1"
         isincheck = True in Bk.book.index.isin([base])
         if isincheck:
-            sym = base + "/" + Env.quote
+            sym = Xch.xhc_sym_of_base(base)
             tickers = Xch.myfetch_tickers("buy_order")
             if tickers is None:
                 return
@@ -214,7 +215,7 @@ class Trading():
                 for base in Bk.book.index:
                     if base in Xch.black_bases:
                         continue
-                    sym = base + "/" + Env.quote
+                    sym = Xch.xhc_sym_of_base(base)
                     ttf = ctf.TargetsFeatures(base)
                     ohlcv_df = Xch.get_ohlcv(base, env.Env.minimum_minute_df_len, datetime.utcnow())
                     # print(sym)

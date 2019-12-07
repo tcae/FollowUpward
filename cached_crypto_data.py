@@ -22,19 +22,28 @@ def dfdescribe(desc, df):
     print(df.tail())
 
 
-def save_asset_dataframe(df, path, cur_pair):
-    """saves the object via msgpack
+def asset_fname(base):
+    fname = Env.data_path + env.sym_of_base(base) + "_DataFrame.msg"
+    return fname
+
+
+def save_asset_dataframefile(df, fname):
+    """saves the file fname data via msgpack
     """
-    # cur_pair = cur_pair.replace("/", "_")
-    fname = path + cur_pair + "_DataFrame.msg"
-    print("{}: writing {} {} tics ({} - {})".format(
-        datetime.now().strftime(Env.dt_format), cur_pair, len(df), df.index[0].strftime(Env.dt_format),
-        df.index[len(df)-1].strftime(Env.dt_format)))
     df.to_msgpack(fname)
 
 
+def save_asset_dataframe(df, base):
+    """ saves the base/quote data via msgpack
+    """
+    print("{}: writing {} {} tics ({} - {})".format(
+        datetime.now().strftime(Env.dt_format), env.sym_of_base(base), len(df), df.index[0].strftime(Env.dt_format),
+        df.index[len(df)-1].strftime(Env.dt_format)))
+    save_asset_dataframefile(df, asset_fname(base))
+
+
 def load_asset_dataframefile(fname):
-    """ loads the object via msgpack
+    """ loads the file fname data via msgpack
     """
     df = None
     try:
@@ -46,16 +55,15 @@ def load_asset_dataframefile(fname):
         print(f"{env.EnvCfg.timestr()} load_asset_dataframefile ERROR: cannot load {fname}")
     except ValueError:
         return None
+    if df is None:
+        raise env.MissingHistoryData("Cannot load {}".format(fname))
     return df
 
 
 def load_asset_dataframe(base):
-    """ loads the object via msgpack
+    """ loads the base/quote data via msgpack
     """
-    fname = Env.data_path + base + f"_{Env.quote}" + "_DataFrame.msg"
-    dfbu = load_asset_dataframefile(fname)
-    if dfbu is None:
-        raise env.MissingHistoryData("Cannot load {}".format(fname))
+    dfbu = load_asset_dataframefile(asset_fname(base))
     return dfbu
 
 
