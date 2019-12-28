@@ -99,7 +99,7 @@ class Bk():
             adf = None
             if base not in Xch.black_bases:
                 try:
-                    adf = ccd.load_cache_dataframe(base.lower())
+                    adf = ccd.load_asset_dataframe(base.lower())
                 except env.MissingHistoryData:
                     pass
                 if adf is not None:
@@ -321,10 +321,10 @@ class Xch():
             else:
                 break
         if ohlcvs is None:
-            print(f"{nowstr()} get_ohlcv ERROR: cannot fetch_ohlcv")
+            print(f"{nowstr()} fetch_ohlcv ERROR: cannot fetch_ohlcv")
             return None
         if len(ohlcvs) == 0:
-            print(f"{nowstr()} get_ohlcv ERROR: empty fetch_ohlcv {since} {limit}")
+            print(f"{nowstr()} fetch_ohlcv ERROR: empty when requesting {limit} minutes")
             return None
         Bk.log_action("fetch_ohlcv")
         return ohlcvs
@@ -553,8 +553,11 @@ class Xch():
         remaining = minutes
         count = 0
         if df is None:
-            df = pd.DataFrame(index=pd.DatetimeIndex(freq="T", start=start, end=when, tz="UTC"),
-                                dtype=np.float64, columns=Xch.data_keys)
+            # df = pd.DataFrame(index=pd.DatetimeIndex(freq="T", start=start, end=when, tz="UTC"),
+            df = pd.DataFrame(index=pd.DatetimeIndex(pd.date_range(freq="T", start=start, end=when, tz="UTC")),
+                              dtype=np.float64, columns=Xch.data_keys)
+            assert df is not None, "failed to create ohlcv df for {}-{} = {} minutes".format(
+                start.strftime(Env.dt_format), when.strftime(Env.dt_format), minutes)
         else:
             last_tic = df.index[len(df.index)-1].to_pydatetime()
             dtlast = last_tic  # ! .replace(tzinfo=None)
@@ -568,6 +571,8 @@ class Xch():
             ohlcvs = Xch.fetch_ohlcv(sym, "1m", since=since, limit=remaining)
             # only 1000 entries are returned by one fetch
             if ohlcvs is None:
+                print("failed to fetch_ohlcv from {} requesting {} minutes".format(fromdate.strftime(Env.dt_format),
+                                                                                   remaining))
                 return None
             prev_tic = fromdate - timedelta(minutes=1)
             itic = None
@@ -591,7 +596,7 @@ class Xch():
                         df.loc[iptic] = df.loc[itic]
                         remaining -= 1
                         prev_tic += timedelta(minutes=1)
-                itic = pd.Timestamp(tic, tz="UTC")
+                itic = pd.Timestamp(tic).tz_convert("UTC")
                 df.loc[itic] = [ohlcv[1], ohlcv[2], ohlcv[3], ohlcv[4], ohlcv[5]]
                 remaining -= 1
                 prev_tic += timedelta(minutes=1)
@@ -714,7 +719,9 @@ def load_asset(base):
         now = datetime.utcnow()
         diffmin = int((now - last)/timedelta(minutes=1))
         ohlcv_df = Xch.get_ohlcv(base, diffmin, now)
-
+        if ohlcv_df is None:
+            print("skipping {}".format(base))
+            continue
         tix = hdf.index[len(hdf)-1]
         while tix == ohlcv_df.index[0]:
             ohlcv_df = ohlcv_df.drop([tix])

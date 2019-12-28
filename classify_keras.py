@@ -15,6 +15,7 @@ import timeit
 import itertools
 # import math
 import pickle
+import h5py
 
 # Import datasets, classifiers and performance metrics
 from sklearn import preprocessing
@@ -23,6 +24,7 @@ from sklearn import preprocessing
 import tensorflow as tf
 import tensorflow.keras as krs
 import tensorflow.keras.metrics as km
+# import tensorflow.compat.v1 as tf1
 import talos as ta
 
 import matplotlib.pyplot as plt
@@ -35,7 +37,7 @@ from env_config import Env
 import crypto_targets_features as ctf
 import crypto_history_sets as chs
 
-print(f"Tensorflow version: {tf.VERSION}")
+print(f"Tensorflow version: {tf.version.VERSION}")
 print(f"Keras version: {krs.__version__}")
 print(__doc__)
 
@@ -343,7 +345,7 @@ class Cpc:
             with open(fname, "rb") as df_f:
                 df_f.close()
 
-                self.classifier = tf.keras.models.load_model(fname)
+                self.classifier = tf.keras.models.load_model(fname, custom_objects=None, compile=True)
                 print(f"classifier loaded from {fname}")
         except IOError:
             print(f"IO-error when loading classifier from {fname}")
@@ -372,6 +374,7 @@ class Cpc:
                         self.epoch, ".h5"))
             # Save entire tensorflow keras model to a HDF5 file
             classifier.save(fname)
+            # tf.keras.models.save_model(classifier, fname, overwrite=True, include_optimizer=True)  # , save_format="tf", signatures=None)
 
         fname = str("{}{}_{}{}".format(self.model_path, self.save_classifier,
                     self.epoch, ctf.PICKLE_EXT))
@@ -421,6 +424,8 @@ class Cpc:
         pm = PerfMatrix(epoch, set_type)
         for bix, base in enumerate(self.hs.bases):
             df = self.hs.set_of_type(base, set_type)
+            if (df is None) or (len(df) == 0):
+                continue
             samples = self.hs.features_from_targets(df, base, set_type, bix)
             if self.scaler is not None:
                 samples.data = self.scaler.transform(samples.data)
@@ -477,12 +482,12 @@ class Cpc:
                                        input_dim=samples.shape[1],
                                        kernel_initializer=params["kernel_initializer"],
                                        activation=params["activation"]))
-            model.add(krs.layers.Dropout(params["dropout"]))
+            # model.add(krs.layers.Dropout(params["dropout"]))
             model.add(krs.layers.Dense(int(params["l1_neurons"]*params["h_neuron_var"]),
                                        kernel_initializer=params["kernel_initializer"],
                                        activation=params["activation"]))
             if params["use_l3"]:
-                model.add(krs.layers.Dropout(params["dropout"]))
+                # model.add(krs.layers.Dropout(params["dropout"]))
                 model.add(krs.layers.Dense(
                     int(params["l1_neurons"]*params["h_neuron_var"]*params["h_neuron_var"]),
                     kernel_initializer=params["kernel_initializer"],
@@ -495,9 +500,9 @@ class Cpc:
             self.classifier.compile(optimizer=params["optimizer"],
                                     loss="categorical_crossentropy",
                                     metrics=["accuracy", km.Precision()])
-            self.save_classifier = "MLP-ti{}-l1{}-h{}-l3{}-do{}-opt{}".format(
+            self.save_classifier = "MLP-ti{}-l1{}-h{}-l3{}-opt{}".format(
                 self.talos_iter, params["l1_neurons"], params["h_neuron_var"],
-                params["use_l3"], params["dropout"], params["optimizer"])
+                params["use_l3"], params["optimizer"])
 
             tensorboardpath = Env.tensorboardpath()
             tensorfile = "{}epoch{}.hdf5".format(tensorboardpath, "{epoch}")
@@ -532,7 +537,7 @@ class Cpc:
             return out, model
 
         start_time = timeit.default_timer()
-        self.hs = chs.CryptoHistorySets(ctf.sets_config_fname())
+        self.hs = chs.CryptoHistorySets(env.sets_config_fname())
         self.talos_iter = 0
 
         scaler = preprocessing.StandardScaler(copy=False)
@@ -546,27 +551,26 @@ class Cpc:
         dummy_y = np.empty((1, targets.shape[1]))
 
         params = {"l1_neurons": [60, 80, 100],
-                  "h_neuron_var": [0.4, 0.6, 0.8],
+                  "h_neuron_var": [0.8],  # 0.4, 0.6,
                   "epochs": [50],
-                  "use_l3": [True, False],
-                  "dropout": [0.6, 0.8],
+                  "use_l3": [False],  # True
                   "kernel_initializer": ["he_uniform"],
-                  "optimizer": ["adam", "adadelta"],
+                  "optimizer": ["Adam"],
                   "losses": ["categorical_crossentropy"],
                   "activation": ["relu"],
                   "last_activation": ["softmax"]}
+        #   "dropout": [0.8],  # 0.6,
 
         ta.Scan(x=dummy_x,  # real data comes from generator
                 y=dummy_y,  # real data comes from generator
                 model=MLP1,
-                debug=True,
                 print_params=True,
-                clear_tf_session=True,
+                clear_session=True,
                 params=params,
-                dataset_name="xrp-eos-bnb-btc-eth-neo-ltc-trx",
+                # dataset_name="xrp-eos-bnb-btc-eth-neo-ltc-trx",
                 # dataset_name="xrp_eos",
-                grid_downsample=1,
-                experiment_no=f"talos_{env.timestr()}")
+                # grid_downsample=1,
+                experiment_name=f"talos_{env.timestr()}")
 
         # ta.Deploy(scan, "talos_lstm_x", metric="val_loss", asc=True)
 
@@ -575,7 +579,7 @@ class Cpc:
 
     def use_keras(self):
         start_time = timeit.default_timer()
-        self.hs = chs.CryptoHistorySets(ctf.sets_config_fname())
+        self.hs = chs.CryptoHistorySets(env.sets_config_fname())
         self.talos_iter = 0
 
         self.performance_assessment(ctf.VAL, 0)
@@ -590,6 +594,11 @@ class Cpc:
             tfv = self.hs.get_targets_features_of_base(base)
             subset_df = ctf.targets_to_features(tfv.vec, df)
             samples = ctf.to_scikitlearn(subset_df, np_data=None, descr=f"{base}")
+            if (samples is None) or (samples.data is None) or (len(samples.data) == 0):
+                print(
+                    "skipping {} len(VAL): {} len(tfv): {} len(subset): {} len(samples)".format(
+                        base, len(df), len(tfv.vec), len(subset_df), (len(samples.data))))
+                continue
             if self.scaler is not None:
                 samples.data = self.scaler.transform(samples.data)
             pred1 = self.classifier.predict_on_batch(samples.data)
@@ -623,8 +632,8 @@ class Cpc:
                             buy_cl = 0
                             print(f"forced step sell {base} on {fvec.index[0]} at {close}")
                         print("force_sell: diff({} - {}) {} min > 1 min".format(
-                                ts2.strftime(ctf.DT_FORMAT),
-                                ts1.strftime(ctf.DT_FORMAT),
+                                ts2.strftime(Env.dt_format),
+                                ts1.strftime(Env.dt_format),
                                 (ts2 - ts1)))
                     if ix == (subset_len - 1):
                         print(f"force_sell: due to end of {base} samples")
@@ -710,13 +719,14 @@ def plot_confusion_matrix(cm, class_names):
 
 if __name__ == "__main__":
     tee = env.Tee()
-    load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
-    save_classifier = None  # "MLP-110-80relu-40relu-3softmax"
+    load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
+    save_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"  # None
     #     load_classifier = str("{}{}".format(BASE, target_key))
     cpc = Cpc(load_classifier, save_classifier)
-    if False:
+    if True:
         cpc.adapt_keras()
     else:
         cpc.load()
-        cpc.use_keras()
+        # cpc.save()
+        # cpc.use_keras()
     tee.close()

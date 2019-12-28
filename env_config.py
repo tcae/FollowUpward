@@ -24,6 +24,7 @@ class Env():
     def __init__(self, calc, usage):
         print(f"{type(calc)}/{type(usage)}")
         Env.data_path = calc.data_path_prefix + usage.data_path_suffix
+        Env.conf_fname = usage.conf_fname
         Env.cache_path = f"{calc.data_path_prefix}cache/"
         Env.bases = usage.bases
         Env.time_aggs = usage.time_aggs
@@ -82,21 +83,25 @@ class Floydhub(Calc):
 
 
 class Usage():
-    data_path = ""
+    data_path = "data path not initialized"
     bases = []
     time_aggs = {}
+    conf_fname = "conf fname not initialized"
 
 
 class Production(Usage):
     data_path_suffix = "Features/"
-    bases = ["xrp", "eos", "bnb", "btc", "eth", "neo", "ltc", "trx"]
+    bases = ["btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
     time_aggs = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
+    conf_fname = "target_5_sets_split.config"
 
 
 class Test(Usage):
     data_path_suffix = "TestFeatures/"
     bases = ["xrp"]
     time_aggs = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
+    # conf_fname = "target_5_sets_split_unit-test.config"
+    conf_fname = "target_5_sets_split.config"
 
 
 def config_ok():
@@ -104,7 +109,7 @@ def config_ok():
 
 
 def sets_config_fname():
-    cfname = Env.data_path + "target_5_sets_split.config"
+    cfname = Env.data_path + Env.conf_fname
     return cfname
 
 

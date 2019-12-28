@@ -22,59 +22,37 @@ def dfdescribe(desc, df):
     print(df.tail())
 
 
-def asset_fname(base):
-    fname = Env.data_path + env.sym_of_base(base) + "_DataFrame.msg"
-    return fname
-
-
-def save_asset_dataframefile(df, fname):
-    """saves the file fname data via msgpack
-    """
-    df.to_msgpack(fname)
-
-
 def save_asset_dataframe(df, base):
-    """ saves the base/quote data via msgpack
+    """ saves the base/quote data
     """
     print("{}: writing {} {} tics ({} - {})".format(
         datetime.now().strftime(Env.dt_format), env.sym_of_base(base), len(df), df.index[0].strftime(Env.dt_format),
         df.index[len(df)-1].strftime(Env.dt_format)))
-    save_asset_dataframefile(df, asset_fname(base))
+    sym = env.sym_of_base(base)
+    fname = Env.data_path + sym + "_DataFrame.h5"
+    # df.to_msgpack(fname)
+    df.to_hdf(fname, sym, mode="w")
 
 
-def load_asset_dataframefile(fname):
-    """ loads the file fname data via msgpack
+def load_asset_dataframe(base):
+    """ loads the base/quote data
     """
     df = None
+    fname = Env.data_path + env.sym_of_base(base) + "_DataFrame.h5"
+    sym = env.sym_of_base(base)
     try:
-        df = pd.read_msgpack(fname)
+        # df = pd.read_msgpack(fname)
+        df = pd.read_hdf(fname, sym)
         print("{}: load {} {} tics ({} - {})".format(
             datetime.now().strftime(Env.dt_format), fname, len(df), df.index[0].strftime(Env.dt_format),
             df.index[len(df)-1].strftime(Env.dt_format)))
     except IOError:
-        print(f"{env.EnvCfg.timestr()} load_asset_dataframefile ERROR: cannot load {fname}")
+        print(f"{env.timestr()} load_asset_dataframefile ERROR: cannot load {fname}")
     except ValueError:
         return None
     if df is None:
         raise env.MissingHistoryData("Cannot load {}".format(fname))
     return df
-
-
-def load_asset_dataframe(base):
-    """ loads the base/quote data via msgpack
-    """
-    dfbu = load_asset_dataframefile(asset_fname(base))
-    return dfbu
-
-
-def load_cache_dataframe(base):
-    """ loads the object via msgpack
-    """
-    fname = Env.cache_path + base + f"_{Env.quote}" + "_DataFrame.msg"
-    dfbu = load_asset_dataframefile(fname)
-    if dfbu is None:
-        raise env.MissingHistoryData("Cannot load {}".format(fname))
-    return dfbu
 
 
 if __name__ == "__main__":

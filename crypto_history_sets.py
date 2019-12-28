@@ -67,7 +67,7 @@ class CryptoHistorySets:
             self.release_features_of_base(self.last_base)
         try:
             base_df = self.ctrl[set_type].loc[(self.ctrl[set_type].sym == sym) &
-                                              (self.ctrl[set_type].use is True)]
+                                              (self.ctrl[set_type].use == True)]
             # print(f"{set_type} set with {len(base_df)} samples for {sym}")
             return base_df
         except KeyError:
@@ -91,7 +91,7 @@ class CryptoHistorySets:
                                              (self.ctrl[TRAIN].step == buy_step)) |
                                             ((self.ctrl[TRAIN].target == TARGETS[SELL]) &
                                              (self.ctrl[TRAIN].step == sell_step))) &
-                                           (self.ctrl[TRAIN].use is True)]
+                                           (self.ctrl[TRAIN].use == True)]
             # report_setsize(f"{sym} {TRAIN} set step {step}", base_df)
             return base_df
         except KeyError:
@@ -206,14 +206,14 @@ class CryptoHistorySets:
         they are used in a step.
 
         It is assumed that load_sets_config was called and self.analysis contains the
-        proper config fiel content.
+        proper config file content.
         """
 
         for base in self.bases:
             tf = ctf.TargetsFeatures(base)
             try:
                 tf.load_classifier_features()
-            except ctf.MissingHistoryData:
+            except env.MissingHistoryData:
                 continue
             self.bases[base] = tf
             tfv = tf.vec
@@ -238,7 +238,7 @@ class CryptoHistorySets:
             if tf.vec is None:
                 try:
                     tf.calc_features_and_targets(None)
-                except ctf.MissingHistoryData as msg:
+                except env.MissingHistoryData as msg:
                     print(f"get_targets_features_of_base {base}: {msg}")
         return tf
 
@@ -254,9 +254,9 @@ class CryptoHistorySets:
         df = self.ctrl[set_type]
         tdf = target_df
         sym = env.sym_of_base(base)
-        df.loc[df.index.isin(tdf.index) & (df.sym == sym), "hold_prob"] = pred[:, TARGETS[HOLD]]
-        df.loc[df.index.isin(tdf.index) & (df.sym == sym), "buy_prob"] = pred[:, TARGETS[BUY]]
-        df.loc[df.index.isin(tdf.index) & (df.sym == sym), "sell_prob"] = pred[:, TARGETS[SELL]]
+        df.loc[df.index.isin(tdf.index) & (df.sym == sym), "hold_prob"] = pd.DataFrame(pred[:, TARGETS[HOLD]])
+        df.loc[df.index.isin(tdf.index) & (df.sym == sym), "buy_prob"] = pd.DataFrame(pred[:, TARGETS[BUY]])
+        df.loc[df.index.isin(tdf.index) & (df.sym == sym), "sell_prob"] = pd.DataFrame(pred[:, TARGETS[SELL]])
         if set_type == TRAIN:
             df.loc[tdf.index, "tcount"] = df.loc[tdf.index, "tcount"] + 1
 
@@ -269,7 +269,7 @@ class CryptoHistorySets:
                ((df.hold_prob >= df.buy_prob) | (df.sell_prob >= df.buy_prob)), "use"] = True
         df.loc[(df.target == TARGETS[SELL]) &
                ((df.buy_prob >= df.sell_prob) | (df.hold_prob >= df.sell_prob)), "use"] = True
-        return len(df[df.use is True])
+        return len(df[df.use == True])
 
     def base_label_check(self, base):
         print("{} maxsteps of buy:{} sell:{} hold:{} max:{}".format(
@@ -318,10 +318,10 @@ class CryptoHistorySets:
             tdf = self.ctrl[TRAIN]
             tdf = tdf[tdf.sym == sym]
             self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0}
-            holds = len(tdf[(tdf.target == TARGETS[HOLD]) & (tdf.use is True)])
-            sells = len(tdf[(tdf.target == TARGETS[SELL]) & (tdf.use is True)])
-            buys = len(tdf[(tdf.target == TARGETS[BUY]) & (tdf.use is True)])
-            all_use = len(tdf[(tdf.use is True)])
+            holds = len(tdf[(tdf.target == TARGETS[HOLD]) & (tdf.use == True)])
+            sells = len(tdf[(tdf.target == TARGETS[SELL]) & (tdf.use == True)])
+            buys = len(tdf[(tdf.target == TARGETS[BUY]) & (tdf.use == True)])
+            all_use = len(tdf[(tdf.use == True)])
             all_sym = len(tdf)
             samples = holds + sells + buys
             # print(f"{sym} buys:{buys} sells:{sells} holds:{holds} total:{samples} on {TRAIN}")
