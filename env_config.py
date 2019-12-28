@@ -183,5 +183,7 @@ class Tee(object):
         self.close()
 
 
-Env(Ubuntu(), Production())
+# Env(Ubuntu(), Production())
+Env(Osx(), Production())
 # Env(Ubuntu(), Test())
+# Env(Osx(), Test())

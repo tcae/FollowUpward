@@ -15,7 +15,7 @@ import timeit
 import itertools
 # import math
 import pickle
-import h5py
+# import h5py
 
 # Import datasets, classifiers and performance metrics
 from sklearn import preprocessing
@@ -374,7 +374,8 @@ class Cpc:
                         self.epoch, ".h5"))
             # Save entire tensorflow keras model to a HDF5 file
             classifier.save(fname)
-            # tf.keras.models.save_model(classifier, fname, overwrite=True, include_optimizer=True)  # , save_format="tf", signatures=None)
+            # tf.keras.models.save_model(classifier, fname, overwrite=True, include_optimizer=True)
+            # , save_format="tf", signatures=None)
 
         fname = str("{}{}_{}{}".format(self.model_path, self.save_classifier,
                     self.epoch, ctf.PICKLE_EXT))
@@ -719,14 +720,14 @@ def plot_confusion_matrix(cm, class_names):
 
 if __name__ == "__main__":
     tee = env.Tee()
-    load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
-    save_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"  # None
+    load_classifier = "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
+    save_classifier = None
     #     load_classifier = str("{}{}".format(BASE, target_key))
     cpc = Cpc(load_classifier, save_classifier)
-    if True:
+    if False:
         cpc.adapt_keras()
     else:
         cpc.load()
         # cpc.save()
-        # cpc.use_keras()
+        cpc.use_keras()
     tee.close()

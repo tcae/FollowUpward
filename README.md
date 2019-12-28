@@ -9,15 +9,15 @@ Stock trading is a possible future step but cryoto trading offers more opportuni
 
 ## Environment
 
-- Scilab-learn and Tensorflow Keras for machine learning.
-- Catalyst to get historical crypto data.
+- Tensorflow 2 servings Keras for machine learning.
 - ccxt for crypto trading.
 
 ## Main code entry points
 
 - `classify_keras.py main` is used to train and evaluate ML.
 - `trading.py main` is used to trade via ccxt.
-- `visual.ipynb` for analysis
+- `training_dashboard and live_dashboard` are for visual analysis
+- `local_xch` updates the historic prices
 
 //: # - `Catalyst2PandasData.ipynb` to convert historical catalyst data to pandas files in msgpack format (due to pickle incompatibilties with pandas)
 

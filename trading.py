@@ -3,7 +3,7 @@
 # pylama:{name1}={value1}:{name2}={value2}:...
 import pandas as pd
 from datetime import timedelta
-from datetime import datetime
+# from datetime import datetime
 import timeit
 
 # import logging
@@ -15,7 +15,7 @@ import classify_keras as ck
 from classify_keras import PerfMatrix, EvalPerf  # required for pickle  # noqa
 from local_xch import Xch, Bk
 
-MAX_MINBELOW = 0  # max minutes below buy price before emergency sell
+MAX_MINBELOW = 5  # max minutes below buy price before emergency sell
 ORDER_TIMEOUT = 45  # in seconds
 TRADE_VOL_LIMIT_USDT = 100
 BLOCKED_ASSET_AMOUNT = {"BNB": 100, "USDT": 20000}  # amounts in base currency
@@ -52,9 +52,7 @@ class Trading():
     def __init__(self):
         # FIXME: store order with attributes in order pandas
         self.openorders = list()
-        tickers = Xch.myfetch_tickers("__init__")
-        if tickers is not None:
-            Bk.update_bookkeeping(tickers)
+        Bk()
 
     def check_order_progress(self):
         """Check fill status of open orders and adapt price if required.
@@ -197,15 +195,61 @@ class Trading():
         else:
             print(f"unsupported base {base}")
 
-    def buy_ratio(self, buylist):
-        buydict = dict()
-        free_distribution = 1/len(buylist)  # equally distributed weight
-        # TODO: 50% of weight via Alpha of that currency
-        for base in buylist:
-            buydict[base] = free_distribution
-        return buydict
+    def __force_sell_check(self, base, last_close, trade_signal):
+        """ Changes trade_signal into a forced sell if the classifier fails
+            and the close price is below the buy price for more
+            than a configurable number of minutes MAX_MINBELOW
+        """
+        if trade_signal != ctf.TARGETS[ctf.BUY]:
+            # emergency sell in case no SELL signal but performance drops
+            if Bk.book.loc[base, "buyprice"] > 0:
+                if Bk.book.loc[base, "buyprice"] > last_close:
+                    Bk.book.loc[base, "minbelow"] += 1  # minutes below buy price
+                else:
+                    Bk.book.loc[base, "minbelow"] = 0  # reset minute counter
+                if Bk.book.loc[base, "minbelow"] > MAX_MINBELOW:  # minutes
+                    sym = Xch.xhc_sym_of_base(base)
+                    print("{} !!! Forced selling {} due to {} minutes < buy price of {}".format(
+                            env.nowstr(), sym,
+                            Bk.book.loc[base, "minbelow"],
+                            Bk.book.loc[base, "buyprice"]))
+                    trade_signal = ctf.TARGETS[ctf.SELL]
+                    Bk.book.loc[base, "buyprice"] = 0  # reset price monitoring
+                    Bk.book.loc[base, "minbelow"] = 0  # minutes below buy price
+        return trade_signal
+
+    def __get_signal(self, cpc, buy_trshld, sell_trshld, base, date_time):
+        """ Encapsulates all handling to get the trade signal of a base at a
+            given python datetime
+        """
+        if base in Xch.black_bases:  # USDT is in Bk.book
+            trade_signal = None
+        ttf = ctf.TargetsFeatures(base)
+        ohlcv_df = Xch.get_ohlcv(base, env.Env.minimum_minute_df_len, date_time)
+        if ohlcv_df is None:
+            print(f"{env.nowstr()} skipping {base} from book due to missing ohlcv")
+            trade_signal = None
+        ttf.calc_features_and_targets(ohlcv_df)
+        tfv = ttf.vec.iloc[[len(ttf.vec)-1]]
+        trade_signal = cpc.performance_with_features(tfv, buy_trshld, sell_trshld)
+        # trade_signal will be HOLD if insufficient data history is available
+        last_close = ohlcv_df.loc[ohlcv_df.index[len(ohlcv_df.index)-1], "close"]
+        return trade_signal, last_close
+
+    def __distribute_buy_amount(self, buylist):
+        """ distributes the available buy amount among collected buy orders candidates
+        """
+        if len(buylist) > 0:
+            free_distribution = 1/len(buylist)  # equally distributed weight
+            # TODO: 50% of weight via Alpha of that currency
+            for base in buylist:
+                self.buy_order(base, ratio=free_distribution)
+            buylist.clear()
 
     def trade_loop(self, cpc, buy_trshld, sell_trshld):
+        """ endless loop than can be interrupted by Ctrl-C that
+            executes the trading logic
+        """
         buylist = list()
         try:
             while True:
@@ -213,58 +257,20 @@ class Trading():
                 # TOD: check order progress
                 ts1 = pd.Timestamp.utcnow()
                 for base in Bk.book.index:
-                    if base in Xch.black_bases:
+                    trade_signal, last_close = self.__get_signal(
+                        cpc, buy_trshld, sell_trshld, base, ts1.to_pydatetime())
+                    if trade_signal is None:
                         continue
-                    sym = Xch.xhc_sym_of_base(base)
-                    ttf = ctf.TargetsFeatures(base)
-                    ohlcv_df = Xch.get_ohlcv(base, env.Env.minimum_minute_df_len, datetime.utcnow())
-                    # print(sym)
-                    if ohlcv_df is None:
-                        print(f"{env.nowstr()} removing {base} from book due missing ohlcv")
-                        Bk.book = Bk.book.drop([base])
-                        continue
-                    try:
-                        ttf.calc_features_and_targets(ohlcv_df)
-                    except env.MissingHistoryData as err:
-                        print(f"{env.nowstr()} removing {base} from book due to error: {err}")
-                        Bk.book = Bk.book.drop([base])
-                        continue
-                    tfv = ttf.vec.iloc[[len(ttf.vec)-1]]
-                    cl = cpc.performance_with_features(tfv, buy_trshld, sell_trshld)
-                    # cl will be HOLD if insufficient data history is available
 
-                    # if (base == "ONT") and (cl == ctf.TARGETS[ctf.HOLD]):  # test purposes
-                    #     cl = ctf.TARGETS[ctf.SELL]
-                    if cl != ctf.TARGETS[ctf.BUY]:
-                        # emergency sell in case no SELL signal but performance drops
-                        if Bk.book.loc[base, "buyprice"] > 0:
-                            pricenow = ohlcv_df.loc[ohlcv_df.index[len(ohlcv_df.index)-1], "close"]
-                            if Bk.book.loc[base, "buyprice"] > pricenow:
-                                Bk.book.loc[base, "minbelow"] += 1  # minutes below buy price
-                            else:
-                                Bk.book.loc[base, "minbelow"] = 0  # reset minute counter
-                            if Bk.book.loc[base, "minbelow"] > MAX_MINBELOW:  # minutes
-                                print("{} Selling {} due to {} minutes < buy price of {}".format(
-                                      env.nowstr(), sym,
-                                      Bk.book.loc[base, "minbelow"],
-                                      Bk.book.loc[base, "buyprice"]))
-                                cl = ctf.TARGETS[ctf.SELL]
-                                Bk.book.loc[base, "buyprice"] = 0  # reset price monitoring
-                                Bk.book.loc[base, "minbelow"] = 0  # minutes below buy price
-                    if cl != ctf.TARGETS[ctf.HOLD]:
-                        print(f"{env.nowstr()} {base} {ctf.TARGET_NAMES[cl]}")
-                    if cl == ctf.TARGETS[ctf.SELL]:
+                    trade_signal = self.__force_sell_check(base, last_close, trade_signal)
+                    if trade_signal != ctf.TARGETS[ctf.HOLD]:
+                        print(f"{env.nowstr()} {base} {ctf.TARGET_NAMES[trade_signal]}")
+                    if trade_signal == ctf.TARGETS[ctf.SELL]:
                         self.sell_order(base, ratio=1)
-                    if cl == ctf.TARGETS[ctf.BUY]:
-                        buylist.append(base)  # amount to be determined by buy_ratio()
+                    if trade_signal == ctf.TARGETS[ctf.BUY]:
+                        buylist.append(base)  # amount to be determined by __distribute_buy_amount
 
-                if len(buylist) > 0:
-                    buydict = self.buy_ratio(buylist)
-                    for base in buydict:
-                        self.buy_order(base, ratio=buydict[base])
-                    buydict = None
-                    buylist.clear()
-
+                self.__distribute_buy_amount(buylist)
                 ts2 = pd.Timestamp.utcnow()
                 tsdiff = 59 - int((ts2 - ts1) / timedelta(seconds=1))  # 1 seconds order progress
                 if tsdiff > 1:

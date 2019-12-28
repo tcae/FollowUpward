@@ -51,28 +51,29 @@ class Bk():
                                    "side", "price", "amount"])
     book = None
 
-    def update_bookkeeping(tickers):
-        xch_info = Xch.lxch.public_get_exchangeinfo()
-        mybal = Xch.myfetch_balance("update_bookkeeping")
-        if mybal is None:
-            return
-        Bk.log_action("fetch_balance (update_bookkeeping)")
-        bases = [base.upper() for base in Env.bases.copy()]
-        bases.append(Env.quote.upper())
-        Bk.book = pd.DataFrame(index=bases, columns=["action_id", "free", "used", "USDT",
-                                                     "dayUSDT", "updated"])
-        for base in mybal:
+    def __init__(self):
+        tickers = Xch.myfetch_tickers("__init__")
+        assert tickers is not None
+        Bk.update_bookkeeping(tickers)
+
+    def __all_my_bases_with_minimum_value(mybalance, tickers):
+        bases = list()
+        for base in mybalance:
             sym = Xch.xhc_sym_of_base(base)
             if (base not in bases) and (base not in ["free", "info", "total", "used"]):
                 if sym in tickers:
-                    bval = (mybal[base]["free"] + mybal[base]["used"]) * tickers[sym]["last"]
+                    bval = (mybalance[base]["free"] + mybalance[base]["used"]) * tickers[sym]["last"]
                     if bval > 1:
                         bases.append(base)
                 else:
-                    bval = mybal[base]["free"] + mybal[base]["used"]
+                    bval = mybalance[base]["free"] + mybalance[base]["used"]
                     if bval > 0.01:  # whatever USDT value
                         #  print(f"balance value of {bval} {base} not traded in USDT")
                         pass
+        return bases
+
+    def __all_symbols_with_volume(tickers):
+        bases = list()
         for sym in tickers:
             suffix = "/" + Env.quote.upper()
             if sym.endswith(suffix):  # add markets above MIN_AVG_USDT*60*24 daily volume
@@ -80,8 +81,12 @@ class Bk():
                 if base not in Xch.black_bases:
                     if tickers[sym]["quoteVolume"] >= (Xch.min_daily_avg_usdt):
                         bases.append(base)
+        return bases
+
+    def __init_book_entries(bases, mybalance, tickers):
+        xch_info = Xch.lxch.public_get_exchangeinfo()
         for base in bases:
-            Bk.update_book_entry(base, mybal, tickers)
+            Bk.update_book_entry(base, mybalance, tickers)
             Bk.book.loc[base, "buyprice"] = 0  # indicating no open buy
             Bk.book.loc[base, "minbelow"] = 0  # minutes below buy price
             syms = xch_info["symbols"]
@@ -93,26 +98,40 @@ class Bk():
                         if f["filterType"] == "LOT_SIZE":
                             Bk.book.loc[base, "lot_size_min"] = float(f["minQty"])
                             assert f["minQty"] == f["stepSize"]
+
+    def update_bookkeeping(tickers):
+        mybalance = Xch.myfetch_balance("update_bookkeeping")
+        assert mybalance is not None
+        Bk.log_action("fetch_balance (update_bookkeeping)")
+        bases = [base.upper() for base in Env.bases]
+        bases.append(Env.quote.upper())
+        Bk.book = pd.DataFrame(index=bases, columns=["action_id", "free", "used", "USDT",
+                                                     "dayUSDT", "updated"])
+        bases = bases + Bk.__all_my_bases_with_minimum_value(mybalance)
+        bases = bases + Bk.__all_symbols_with_volume(tickers)
+        Bk.__init_book_entries(bases, mybalance, tickers)
         bdf = Bk.book[["free", "used", "USDT", "dayUSDT"]]
         print(bdf)
         for base in Bk.book.index:
             adf = None
             if base not in Xch.black_bases:
-                try:
-                    adf = ccd.load_asset_dataframe(base.lower())
+                try:  # load cached cnadlestick data
+                    adf = ccd.load_asset_dataframe(base.lower(), limit=Env.minimum_minute_df_len)
                 except env.MissingHistoryData:
                     pass
                 if adf is not None:
                     Xch.ohlcv[base] = adf
 
     def update_balance(tickers):
-        mybal = Xch.lxch.myfetch_balance("update_balance")
-        if mybal is None:
+        """ Update bookkeeping of actively traded cryptos
+        """
+        mybalance = Xch.lxch.myfetch_balance("update_balance")
+        if mybalance is None:
             return
         Bk.log_action("fetch_balance (update_balance)")
         for base in Bk.book.index:
-            assert base in mybal, f"unexpectedly missing {base} in balance"
-            Bk.update_book_entry(base, mybal, tickers)
+            assert base in mybalance, f"unexpectedly missing {base} in balance"
+            Bk.update_book_entry(base, mybalance, tickers)
 
     def log_action(ccxt_action):
         """
@@ -170,12 +189,12 @@ class Bk():
                 df = df.drop([df.index[len(df.index)-1]])  # the last candle is incomplete
                 ccd.save_asset_dataframe(df, Env.cache_path, env.sym_of_base(base))
 
-    def update_book_entry(base, mybal, tickers):
+    def update_book_entry(base, mybalance, tickers):
         sym = Xch.xhc_sym_of_base(base)
         if (sym in tickers) or (base == Bk.quote):
             Bk.book.loc[base, "action_id"] = Bk.aid
-            Bk.book.loc[base, "free"] = mybal[base]["free"]
-            Bk.book.loc[base, "used"] = mybal[base]["used"]
+            Bk.book.loc[base, "free"] = mybalance[base]["free"]
+            Bk.book.loc[base, "used"] = mybalance[base]["used"]
             if base == Bk.quote:
                 Bk.book.loc[base, "USDT"] = 1
                 Bk.book.loc[base, "dayUSDT"] = 0
@@ -257,7 +276,7 @@ class Xch():
     def public_get_exchangeinfo():
         return Xch.lxch.public_get_exchangeinfo()
 
-    def fetch_ohlcv(sym, timeframe, since, limit):
+    def fetch_ohlcv(sym, timeframe, since, limit):  # noqa C901
         # return Xch.lxch.fetch_ohlcv(sym, timeframe, since=since, limit=limit)
         ohlcvs = None
         sym = sym.upper()
@@ -396,10 +415,10 @@ class Xch():
         Bk.log_action("create_limit_buy_order")
 
     def myfetch_balance(caller):
-        mybal = None
+        mybalance = None
         for i in range(RETRIES):
             try:
-                mybal = Xch.lxch.fetch_balance()
+                mybalance = Xch.lxch.fetch_balance()
             except ccxt.RequestTimeout as err:
                 print(f"{nowstr()} fetch_balance failed {i}x due to a RequestTimeout error:",
                       str(err))
@@ -407,9 +426,9 @@ class Xch():
             else:
                 Bk.log_action(f"fetch_balance ({caller})")
                 break
-        if mybal is None:
+        if mybalance is None:
             print(f"nowstr() {caller} ERROR: cannot fetch_balance")
-        return mybal
+        return mybalance
 
     def fetch_trades(sym):
         trades = None
@@ -474,13 +493,12 @@ class Xch():
             else:
                 break
 
-    def check_limits(base, amount, price):
+    def __ice_chunk(base, price, amount, mincost):
         sym = base + "/" + Bk.quote
         # ice_chunk = ICEBERG_USDT_PART / price # about the chunk quantity we want
         ice_chunk = Bk.book.loc[base, "dayUSDT"] / (24 * 60 * 4)  # 1/4 of average minute volume
         ice_parts = math.ceil(amount / ice_chunk)  # about equal parts
 
-        mincost = Xch.markets[sym]["limits"]["cost"]["min"]  # test purposes
         ice_parts = math.floor(price * amount / mincost)  # test purposes
 
         ice_parts = min(ice_parts, Bk.book.loc[base, "iceberg_parts"])
@@ -494,6 +512,12 @@ class Xch():
                 ice_chunk = 0
         else:
             ice_chunk = 0
+        return ice_chunk
+
+    def check_limits(base, amount, price):  # noqa C901  all checks in an overview is OK
+        sym = base + "/" + Bk.quote
+        mincost = Xch.markets[sym]["limits"]["cost"]["min"]  # test purposes
+        ice_chunk = Xch.__calc_ice_chunk(base, price, amount, mincost)
         # amount = round(amount, Xch.markets[sym]["precision"]["amount"]) is ensured by ice_chunk
         price = round(price, Xch.markets[sym]["precision"]["price"])
         minamount = Xch.markets[sym]["limits"]["amount"]["min"]
@@ -586,13 +610,13 @@ class Xch():
                         print(f"no repair of missing history data for {base}")
                         return None
                         prev_tic += timedelta(minutes=1)
-                        iptic = itic = pd.Timestamp(prev_tic, tz="UTC")
+                        iptic = itic = pd.Timestamp(prev_tic).tz_convert(tz="UTC")
                         df.loc[iptic] = [ohlcv[1], ohlcv[2], ohlcv[3], ohlcv[4], ohlcv[5]]
                         df.loc[iptic, "volume"] = 0  # indicate gap fillers with volume == 0
                         remaining -= 1
                     prev_tic += timedelta(minutes=1)
                     while (prev_tic < tic):
-                        iptic = pd.Timestamp(prev_tic, tz="UTC")
+                        iptic = pd.Timestamp(prev_tic).tz_convert(tz="UTC")
                         df.loc[iptic] = df.loc[itic]
                         remaining -= 1
                         prev_tic += timedelta(minutes=1)

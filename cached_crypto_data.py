@@ -26,7 +26,8 @@ def save_asset_dataframe(df, base):
     """ saves the base/quote data
     """
     print("{}: writing {} {} tics ({} - {})".format(
-        datetime.now().strftime(Env.dt_format), env.sym_of_base(base), len(df), df.index[0].strftime(Env.dt_format),
+        datetime.now().strftime(Env.dt_format), env.sym_of_base(base),
+        len(df), df.index[0].strftime(Env.dt_format),
         df.index[len(df)-1].strftime(Env.dt_format)))
     sym = env.sym_of_base(base)
     fname = Env.data_path + sym + "_DataFrame.h5"
@@ -34,7 +35,7 @@ def save_asset_dataframe(df, base):
     df.to_hdf(fname, sym, mode="w")
 
 
-def load_asset_dataframe(base):
+def load_asset_dataframe(base, limit=None):
     """ loads the base/quote data
     """
     df = None
@@ -52,6 +53,8 @@ def load_asset_dataframe(base):
         return None
     if df is None:
         raise env.MissingHistoryData("Cannot load {}".format(fname))
+    if (limit is not None) and (limit < len(df)):
+        df = df.drop(df.index[:len(df)-limit])  # only hold the last `limit` minutes
     return df
 
 
