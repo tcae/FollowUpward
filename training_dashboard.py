@@ -40,8 +40,9 @@ app.layout = html.Div([
             html.Button('none', id='none-button', style={'display': 'inline-block'}),
         ], style={'display': 'inline-block'}),
         # html.H1("Crypto Price"),  # style={'textAlign': "center"},
-        dcc.Graph(id="half-day-time-graph"),
+        dcc.Graph(id="full-day-time-graph"),
         dcc.Graph(id="ten-day-time-graph"),
+        dcc.Graph(id="halfyear-graph"),
         dcc.Graph(id="full-time-graph"),
         html.Div(className='row', children=[
             html.Div([
@@ -204,8 +205,79 @@ def display_relayout_data(relayoutData):
 
 
 @app.callback(
-    dash.dependencies.Output('ten-day-time-graph', 'figure'),
+    dash.dependencies.Output('halfyear-graph', 'figure'),
     [dash.dependencies.Input('full-time-graph', 'clickData'),
+     dash.dependencies.Input('crossfilter-crypto-select', 'value'),
+     dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
+def update_halfyear_by_click(click_data, bases, regression_base):
+    """ Displays candlestick charts of the selected time and max time aggs back
+        and a one dimensional data regression df with the same Datetimeindex as the input df.
+    """
+    graph_bases = []
+    aggregation = "H"
+    end = pd.Timestamp.now(tz='UTC')
+    if bases is not None and len(bases) > 0:
+        if click_data is None:
+            end = cdf[bases[0]].index[len(cdf[bases[0]])-1]
+        else:
+            end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
+    start = end - pd.Timedelta(365/2, "D")  # one year
+
+    aggmin = (end-start)/pd.Timedelta(60, "m")  # aggregate hourly
+    if regression_base is not None:
+        dcdf = cdf[regression_base]
+        dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
+        dcdf = dcdf.resample(aggregation).agg({"open": "first"})
+        if (dcdf is not None) and (len(dcdf) > 0):
+            normfactor = dcdf.iloc[0].open
+            dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
+        delta, Y_pred = time_linear_regression(dcdf["open"])
+        legendname = "{:4.0f} h = delta/h: {:4.3f}".format(aggmin, delta)
+        graph_bases.append(
+            dict(
+                x=dcdf.index,
+                y=Y_pred,
+                mode='lines',  # 'lines+markers'
+                name=legendname))
+
+    if bases is None:
+        bases = []
+
+    timeinfo = aggregation + ": " + start.strftime(Env.dt_format) + " - " + end.strftime(Env.dt_format)
+    for base in bases:
+        # dcdf = cdf[base].resample(aggregation).agg({"open": "first"})
+        dcdf = cdf[base]
+        dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
+        dcdf = dcdf.resample(aggregation).agg({"open": "first"})
+        if (dcdf is not None) and (len(dcdf) > 0):
+            normfactor = dcdf.iloc[0].open
+            dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
+        graph_bases.append(dict(
+            x=dcdf.index,
+            y=dcdf["open"],
+            mode='lines',  # 'lines+markers'
+            name=base
+        ))
+    return {
+        'data': graph_bases,
+        'layout': {
+            'height': 450,
+            'margin': {'l': 20, 'b': 30, 'r': 10, 't': 10},
+            'annotations': [{
+                'x': 0, 'y': 0.85, 'xanchor': 'left', 'yanchor': 'bottom',
+                'xref': 'paper', 'yref': 'paper', 'showarrow': False,
+                'align': 'left', 'bgcolor': 'rgba(255, 255, 255, 0.5)',
+                'text': "normalized crypto prices"
+            }],
+            'yaxis': {'type': 'linear'},
+            'xaxis': {'showgrid': False, 'title': timeinfo}
+        }
+    }
+
+
+@app.callback(
+    dash.dependencies.Output('ten-day-time-graph', 'figure'),
+    [dash.dependencies.Input('halfyear-graph', 'clickData'),
      dash.dependencies.Input('crossfilter-crypto-select', 'value'),
      dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
 def update_ten_day_by_click(click_data, bases, regression_base):
@@ -298,11 +370,11 @@ def time_linear_regression(df):
 
 
 @app.callback(
-    dash.dependencies.Output('half-day-time-graph', 'figure'),
+    dash.dependencies.Output('full-day-time-graph', 'figure'),
     [dash.dependencies.Input('ten-day-time-graph', 'clickData'),
      dash.dependencies.Input('crossfilter-crypto-select', 'value'),
      dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
-def update_half_day_by_click(click_data, bases, regression_base):
+def update_full_day_by_click(click_data, bases, regression_base):
     """ Displays candlestick charts of the selected time and max time aggs back
         together with the 10 day regression line from the radioi selected base
     """
@@ -372,7 +444,7 @@ def update_half_day_by_click(click_data, bases, regression_base):
 
 @app.callback(
     dash.dependencies.Output('zoom-in-graph', 'figure'),
-    [dash.dependencies.Input('half-day-time-graph', 'clickData'),
+    [dash.dependencies.Input('full-day-time-graph', 'clickData'),
      dash.dependencies.Input('crossfilter-crypto-radio', 'value'),
      dash.dependencies.Input('crossfilter-indicator-select', 'value')])
 def update_detail_graph_by_click(click_data, base, indicators):

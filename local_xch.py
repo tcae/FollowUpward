@@ -84,7 +84,7 @@ class Bk():
         return bases
 
     def __init_book_entries(bases, mybalance, tickers):
-        xch_info = Xch.lxch.public_get_exchangeinfo()
+        xch_info = Xch.public_get_exchangeinfo()
         for base in bases:
             Bk.update_book_entry(base, mybalance, tickers)
             Bk.book.loc[base, "buyprice"] = 0  # indicating no open buy
@@ -125,7 +125,7 @@ class Bk():
     def update_balance(tickers):
         """ Update bookkeeping of actively traded cryptos
         """
-        mybalance = Xch.lxch.myfetch_balance("update_balance")
+        mybalance = Xch.myfetch_balance("update_balance")
         if mybalance is None:
             return
         Bk.log_action("fetch_balance (update_balance)")
@@ -151,20 +151,9 @@ class Bk():
         if base in Xch.black_bases:
             return
         sym = Xch.xhc_sym_of_base(base)
-        ob = None
-        for i in range(RETRIES):
-            try:
-                ob = Xch.lxch.fetch_order_book(sym)  # returns 100 bids and 100 asks
-            except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} fetch_order_book failed {i}x due to a RequestTimeout error:",
-                      str(err))
-                continue
-            else:
-                break
+        ob = Xch.fetch_order_book(sym)
         if ob is None:
-            print(f"nowstr() log_trades_orderbook ERROR: cannot fetch_order_book")
             return
-        Bk.log_action("fetch_order_book")
         for pa in ob["bids"]:
             oix = len(Bk.orderbook.index)
             Bk.orderbook.loc[oix] = [Bk.aid, base, sym, Bk.ats, "bid", pa[0], pa[1]]
@@ -172,7 +161,7 @@ class Bk():
             oix = len(Bk.orderbook.index)
             Bk.orderbook.loc[oix] = [Bk.aid, base, sym, Bk.ats, "ask", pa[0], pa[1]]
 
-        trades = Xch.lxch.fetch_trades(sym)
+        trades = Xch.fetch_trades(sym)
         if trades is None:
             return
         for trade in trades:
@@ -430,6 +419,22 @@ class Xch():
             print(f"nowstr() {caller} ERROR: cannot fetch_balance")
         return mybalance
 
+    def fetch_order_book(sym):
+        ob = None
+        for i in range(RETRIES):
+            try:
+                ob = Xch.lxch.fetch_order_book(sym)  # returns 100 bids and 100 asks
+            except ccxt.RequestTimeout as err:
+                print(f"{nowstr()} fetch_order_book failed {i}x due to a RequestTimeout error:",
+                      str(err))
+                continue
+            else:
+                break
+        if ob is None:
+            print(f"nowstr() log_trades_orderbook ERROR: cannot fetch_order_book")
+        Bk.log_action("fetch_order_book")
+        return ob
+
     def fetch_trades(sym):
         trades = None
         for i in range(RETRIES):
@@ -443,8 +448,8 @@ class Xch():
                 break
         if trades is None:
             print(f"nowstr() ERROR: cannot fetch_trades")
-            return
         Bk.log_action("fetch_trades")
+        return trades
 
     def myfetch_open_orders(base, caller):
         oo = None
@@ -553,6 +558,28 @@ class Xch():
                 return (0, 0, 0)
         return (amount, price, ice_chunk)
 
+    def __get_ohlcv_cache(base, when, minutes):
+        start = when - timedelta(minutes=minutes-1)
+        df = None
+        if base in Xch.ohlcv:
+            df = Xch.ohlcv[base]
+            df = df[Xch.data_keys]
+            df = df.drop([df.index[len(df.index)-1]])  # because the last candle is incomplete
+        remaining = minutes
+        if df is None:
+            # df = pd.DataFrame(index=pd.DatetimeIndex(freq="T", start=start, end=when, tz="UTC"),
+            df = pd.DataFrame(index=pd.DatetimeIndex(pd.date_range(freq="T", start=start, end=when, tz="UTC")),
+                              dtype=np.float64, columns=Xch.data_keys)
+            assert df is not None, "failed to create ohlcv df for {}-{} = {} minutes".format(
+                start.strftime(Env.dt_format), when.strftime(Env.dt_format), minutes)
+        else:
+            last_tic = df.index[len(df.index)-1].to_pydatetime()
+            dtlast = last_tic  # ! .replace(tzinfo=None)
+            dfdiff = int((when - dtlast) / timedelta(minutes=1))
+            if dfdiff < remaining:
+                remaining = dfdiff
+        return df, remaining
+
     def get_ohlcv(base, minutes, when):
         """Returns the last 'minutes' OHLCV values of pair before 'when'.
 
@@ -567,27 +594,9 @@ class Xch():
         when = when.to_pydatetime()
         when = when.replace(tzinfo=pytz.utc)
         minutes += 1
-        start = when - timedelta(minutes=minutes-1)
-        df = None
-        if base in Xch.ohlcv:
-            df = Xch.ohlcv[base]
-            df = df[Xch.data_keys]
-            df = df.drop([df.index[len(df.index)-1]])  # because the last candle is incomplete
+        df, remaining = Xch.__get_ohlcv_cache(base, when, minutes)
         sym = Xch.xhc_sym_of_base(base)
-        remaining = minutes
         count = 0
-        if df is None:
-            # df = pd.DataFrame(index=pd.DatetimeIndex(freq="T", start=start, end=when, tz="UTC"),
-            df = pd.DataFrame(index=pd.DatetimeIndex(pd.date_range(freq="T", start=start, end=when, tz="UTC")),
-                              dtype=np.float64, columns=Xch.data_keys)
-            assert df is not None, "failed to create ohlcv df for {}-{} = {} minutes".format(
-                start.strftime(Env.dt_format), when.strftime(Env.dt_format), minutes)
-        else:
-            last_tic = df.index[len(df.index)-1].to_pydatetime()
-            dtlast = last_tic  # ! .replace(tzinfo=None)
-            dfdiff = int((when - dtlast) / timedelta(minutes=1))
-            if dfdiff < remaining:
-                remaining = dfdiff
         while remaining > 0:
             fromdate = when - timedelta(minutes=remaining-1)
             since = int((fromdate - datetime(1970, 1, 1, tzinfo=pytz.utc)).total_seconds() * 1000)
@@ -632,16 +641,9 @@ class Xch():
         Xch.ohlcv[base] = df
         if len(df) < minutes:
             print(f"{base} len(df) {len(df)} < {minutes} minutes")
-
-        if Bk.book is not None:
-            isincheck = True in Bk.book.index.isin([base])
-            if isincheck:
-                Bk.book.loc[base, "updated"] = nowstr()
-            else:
-                print(f"unsupported base {base}")
         return df
 
-    def last_hour_performance(ohlcv_df):
+    def __last_hour_performance(ohlcv_df):
         cix = ohlcv_df.columns.get_loc("close")
         tix = len(ohlcv_df.index) - 1
         last_close = ohlcv_df.iat[tix, cix]
@@ -650,13 +652,13 @@ class Xch():
         perf = (last_close - hour_close)/hour_close
         return perf
 
-    def show_all_binance_commands():
+    def __show_all_binance_commands():
         binance_api = dir(ccxt.binance())
         for cmd in binance_api:
             print(cmd)
 
-    def show_binance_base_constraints(base):
-        dct = Xch.lxch.public_get_exchangeinfo()
+    def __show_binance_base_constraints(base):
+        dct = Xch.public_get_exchangeinfo()
         syms = dct["symbols"]
         for s in syms:
             if (s["baseAsset"] == base) and (s["quoteAsset"] == "USDT"):

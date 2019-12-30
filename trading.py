@@ -231,7 +231,7 @@ class Trading():
             trade_signal = None
         ttf.calc_features_and_targets(ohlcv_df)
         tfv = ttf.vec.iloc[[len(ttf.vec)-1]]
-        trade_signal = cpc.performance_with_features(tfv, buy_trshld, sell_trshld)
+        trade_signal = cpc.class_of_features(tfv, buy_trshld, sell_trshld, base)
         # trade_signal will be HOLD if insufficient data history is available
         last_close = ohlcv_df.loc[ohlcv_df.index[len(ohlcv_df.index)-1], "close"]
         return trade_signal, last_close
@@ -289,19 +289,7 @@ def trading_main():
     trading = Trading()
     load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
     save_classifier = None
-    if True:
-        cpc = ck.Cpc(load_classifier, save_classifier)
-        cpc.load()
-    else:  # repair pickle file
-        # from classify_keras import PerfMatrix, EvalPerf
-
-        print("trading pickle repair")
-        cpc = ck.Cpc(load_classifier, load_classifier)
-        cpc.load()
-        classifier = cpc.classifier
-        cpc.classifier = None  # don't save TF file again - it does not need repair
-        cpc.save()
-        cpc.classifier = classifier
+    cpc = ck.Cpc(load_classifier, save_classifier)
 
     start_time = timeit.default_timer()
     buy_trshld = 0.7

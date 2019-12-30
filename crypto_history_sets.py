@@ -41,12 +41,12 @@ class CryptoHistorySets:
 
         self.ctrl = dict()
         self.ctrl[TRAIN] = pd.DataFrame(columns=["sym", "timestamp", "target", "use",
-                                                 "buy_prob", "sell_prob", "hold_prob",
+                                                 "hold_prob", "buy_prob", "sell_prob",
                                                  "step", "tcount"])
         self.ctrl[VAL] = pd.DataFrame(columns=["sym", "timestamp", "target", "use",
-                                               "buy_prob", "sell_prob", "hold_prob"])
+                                               "hold_prob", "buy_prob", "sell_prob"])
         self.ctrl[TEST] = pd.DataFrame(columns=["sym", "timestamp", "target", "use",
-                                                "buy_prob", "sell_prob", "hold_prob"])
+                                                "hold_prob", "buy_prob", "sell_prob"])
         self.last_base = None
 
         # for base in self.bases:
@@ -128,16 +128,12 @@ class CryptoHistorySets:
             raise ValueError(f"features_from_targets: base(df)={df_base} != base={base}")
         tfv = self.get_targets_features_of_base(base)
         try:
-            subset_df = ctf.targets_to_features(tfv.vec, df)
+            subset_df = ctf.targets_to_features(tfv, df)
         except ctf.NoSubsetWarning as msg:
             print("features_from_targets  {} {} set step {}: {}".format(
                         base, set_type, step, msg))
             raise
-        descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
-                                                  step, ctf.str_setsize(subset_df))
-        # print(descr)
-        samples = ctf.to_scikitlearn(subset_df, np_data=None, descr=descr)
-        return samples
+        return subset_df
 
     def __samples_concat(self, target, to_be_added):
         if target.empty:
@@ -240,7 +236,8 @@ class CryptoHistorySets:
                     tf.calc_features_and_targets(None)
                 except env.MissingHistoryData as msg:
                     print(f"get_targets_features_of_base {base}: {msg}")
-        return tf
+            return tf.vec
+        return None
 
     def __release_features_of_base(self, base):
         """ setting the only refernce to the base data to None releases the data from RAM through garbage collection
@@ -257,12 +254,14 @@ class CryptoHistorySets:
         # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "hold_prob"] = pd.DataFrame(pred[:, TARGETS[HOLD]])
         # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "buy_prob"] = pd.DataFrame(pred[:, TARGETS[BUY]])
         # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "sell_prob"] = pd.DataFrame(pred[:, TARGETS[SELL]])
-        df.loc[df.index.isin(tdf.index) & (df.sym == sym), ["sell_prob", "buy_prob", "hold_prob"]] = \
-            pd.DataFrame(pred[:, [TARGETS[SELL], TARGETS[BUY], TARGETS[HOLD]]])
+        df.loc[df.index.isin(tdf.index) & (df.sym == sym), ["hold_prob", "buy_prob", "sell_prob"]] = \
+            pd.DataFrame(pred[:, [TARGETS[HOLD], TARGETS[BUY], TARGETS[SELL]]])
         if set_type == TRAIN:
             df.loc[tdf.index, "tcount"] = df.loc[tdf.index, "tcount"] + 1
 
     def __use_mistakes(self, set_type):
+        """ Sets the 'use' flag of all wrong classified samples to focus on mistakes.
+        """
         df = self.ctrl[set_type]
         df["use"] = False
         df.loc[(df.target == TARGETS[HOLD]) &

@@ -9,7 +9,7 @@ to classify crypto sell/buy actions.
 
 """
 import os
-# import pandas as pd
+import pandas as pd
 import numpy as np
 import timeit
 import itertools
@@ -315,6 +315,22 @@ class Cpc:
         self.hs = None  # only hs_name is saved not the whole hs object
         self.hs_name = None
         self.talos_iter = 0
+        if load_classifier is not None:
+            self.load()
+        self.__prep_classifier_log(load_classifier)
+
+    def __del__(self):
+        if (self.class_log is not None) and (self.class_log_fname is not None):
+            fname = f"{Env.model_path}{self.class_log_fname}.h5"
+            self.class_log.to_hdf(fname, self.class_log_fname, mode="w")
+
+    def __prep_classifier_log(self, classifier_name):
+        if classifier_name is None:
+            self.class_log = self.class_log_fname = None
+        else:
+            self.class_log = pd.DataFrame(
+                columns=["base", "timestamp", "target", "buy_prob", "sell_prob", "hold_prob"])
+            self.class_log_fname = f"{env.timestr()}_Results_{classifier_name}"
 
     def load(self):
         load_clname = self.load_classifier
@@ -387,31 +403,53 @@ class Cpc:
         self.hs = hs
         print(f"{env.timestr()} classifier saved in {fname}")
 
-    def performance_with_features(self, tfv, buy_trshld, sell_trshld):
-        """Ignores targets of tfv and just evaluates the tfv features in respect
-        to their close price performance.
+    def __log_predict_results(self, tfv, base, pred):
+        df = pd.DataFrame(
+            columns=["hold_prob", "buy_prob", "sell_prob"],
+            data=pred[:, [ctf.TARGETS[ctf.HOLD], ctf.TARGETS[ctf.BUY], ctf.TARGETS[ctf.SELL]]])
+        df["timestamp"] = tfv.index
+        df["target"] = tfv["target"]
+        df["base"] = base
+        self.class_log = pd.concat([self.class_log, df], ignore_index=True)
+
+    def class_predict_of_features(self, tfv, base):
+        """Classifies the tfv features.
+        'base' is a string that identifies the crypto used for logging purposes.
+
+        It returns an array of probabilities that can be indexed with ctf.TARGETS[x]
+        for each sample.
+        """
+        if tfv.empty:
+            print("class_probs_of_features: empty feature vector ==> 0 probs")
+            return None
+        sample = ctf.to_scikitlearn(tfv, np_data=None, descr=base)
+        if self.scaler is not None:
+            sample.data = self.scaler.transform(sample.data)
+        pred = self.classifier.predict_on_batch(sample.data)
+        self.__log_predict_results(tfv, base, pred)
+        return pred
+
+    def class_of_features(self, tfv, buy_trshld, sell_trshld, base):
+        """Ignores targets of tfv but classifies the tfv features.
+        'base' is a string that identifies the crypto used for logging purposes.
 
         It returns the classified targets_features.TARGETS[class]
         if a buy or sell signal meets or exceeds the given threshold otherwise
         targets_features.TARGETS[HOLD] is returned.
         """
         if tfv.empty:
-            print("performance_with_features: empty feature vector ==> HOLD signal")
+            print("class_of_features: empty feature vector ==> HOLD signal")
             return ctf.TARGETS[ctf.HOLD]
-        sample = ctf.to_scikitlearn(tfv, np_data=None, descr="?")
-        if self.scaler is not None:
-            sample.data = self.scaler.transform(sample.data)
-        pred = self.classifier.predict_on_batch(sample.data)
-
-        ls = len(pred) - 1
+        pred = self.class_probs_of_features(tfv, base)
+        probs = pred[len(pred) - 1]
         high_prob_cl = ctf.TARGETS[ctf.HOLD]
-        if pred[ls, ctf.TARGETS[ctf.BUY]] > pred[ls, ctf.TARGETS[ctf.SELL]]:
-            if pred[ls, ctf.TARGETS[ctf.BUY]] > pred[ls, ctf.TARGETS[ctf.HOLD]]:
-                if pred[ls, ctf.TARGETS[ctf.BUY]] >= buy_trshld:
+        if probs[ctf.TARGETS[ctf.BUY]] > probs[ctf.TARGETS[ctf.SELL]]:
+            if probs[ctf.TARGETS[ctf.BUY]] > probs[ctf.TARGETS[ctf.HOLD]]:
+                if probs[ctf.TARGETS[ctf.BUY]] >= buy_trshld:
                     high_prob_cl = ctf.TARGETS[ctf.BUY]
         else:
-            if pred[ls, ctf.TARGETS[ctf.SELL]] > pred[ls, ctf.TARGETS[ctf.HOLD]]:
-                if pred[ls, ctf.TARGETS[ctf.SELL]] >= sell_trshld:
+            if probs[ctf.TARGETS[ctf.SELL]] > probs[ctf.TARGETS[ctf.HOLD]]:
+                if probs[ctf.TARGETS[ctf.SELL]] >= sell_trshld:
                     high_prob_cl = ctf.TARGETS[ctf.SELL]
         return high_prob_cl
 
@@ -427,10 +465,15 @@ class Cpc:
             df = self.hs.set_of_type(base, set_type)
             if (df is None) or (len(df) == 0):
                 continue
-            samples = self.hs.features_from_targets(df, base, set_type, bix)
+            tfv = self.hs.features_from_targets(df, base, set_type, bix)
+            descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
+                                                      bix, ctf.str_setsize(tfv))
+            # print(descr)
+            samples = ctf.to_scikitlearn(tfv, np_data=None, descr=descr)
             if self.scaler is not None:
                 samples.data = self.scaler.transform(samples.data)
             pred = self.classifier.predict_on_batch(samples.data)
+            self.__log_predict_results(tfv, base, pred)
             pm.assess_prediction(pred, samples.close, samples.target, samples.tics, samples.descr)
             self.hs.register_probabilties(base, set_type, pred, df)
         self.pmlist.append(pm)
@@ -444,7 +487,12 @@ class Cpc:
                 bix = list(hs.bases.keys()).index(base)
                 for bstep in range(hs.max_steps[base]["max"]):
                     df = hs.trainset_step(base, bstep)
-                    samples = hs.features_from_targets(df, base, ctf.TRAIN, bix)
+                    tfv = hs.features_from_targets(df, base, ctf.TRAIN, bix)
+                    descr = "{} {} {} set step {}: {}".format(env.timestr(), base, ctf.TRAIN,
+                                                              bix, ctf.str_setsize(tfv))
+                    # print(descr)
+                    samples = ctf.to_scikitlearn(tfv, np_data=None, descr=descr)
+                    del tfv
                     # print(f">>> getitem: {samples.descr}", flush=True)
                     if samples is None:
                         return None, None
@@ -461,7 +509,12 @@ class Cpc:
             for base in hs.bases:
                 bix = list(hs.bases.keys()).index(base)
                 df = hs.set_of_type(base, set_type)
-                samples = hs.features_from_targets(df, base, set_type, bix)
+                tfv = hs.features_from_targets(df, base, set_type, bix)
+                descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
+                                                          bix, ctf.str_setsize(tfv))
+                # print(descr)
+                samples = ctf.to_scikitlearn(tfv, np_data=None, descr=descr)
+                del tfv
                 # print(f">>> getitem: {samples.descr}", flush=True)
                 if samples is None:
                     return None, None
@@ -483,27 +536,27 @@ class Cpc:
                                        input_dim=samples.shape[1],
                                        kernel_initializer=params["kernel_initializer"],
                                        activation=params["activation"]))
-            # model.add(krs.layers.Dropout(params["dropout"]))
+            model.add(krs.layers.Dropout(params["dropout"]))
             model.add(krs.layers.Dense(int(params["l1_neurons"]*params["h_neuron_var"]),
                                        kernel_initializer=params["kernel_initializer"],
                                        activation=params["activation"]))
             if params["use_l3"]:
-                # model.add(krs.layers.Dropout(params["dropout"]))
+                model.add(krs.layers.Dropout(params["dropout"]))
                 model.add(krs.layers.Dense(
                     int(params["l1_neurons"]*params["h_neuron_var"]*params["h_neuron_var"]),
                     kernel_initializer=params["kernel_initializer"],
                     activation=params["activation"]))
             model.add(krs.layers.Dense(3,
                                        activation=params["last_activation"]))
-            self.classifier = model
-            assert model is not None
 
-            self.classifier.compile(optimizer=params["optimizer"],
-                                    loss="categorical_crossentropy",
-                                    metrics=["accuracy", km.Precision()])
-            self.save_classifier = "MLP-ti{}-l1{}-h{}-l3{}-opt{}".format(
-                self.talos_iter, params["l1_neurons"], params["h_neuron_var"],
+            model.compile(optimizer=params["optimizer"],
+                          loss="categorical_crossentropy",
+                          metrics=["accuracy", km.Precision()])
+            self.classifier = model
+            self.save_classifier = "MLP_l1-{}_do-{}_h-{}_l3-{}_opt{}".format(
+                params["l1_neurons"], params["dropout"], params["h_neuron_var"],
                 params["use_l3"], params["optimizer"])
+            self.__prep_classifier_log(self.save_classifier)
 
             tensorboardpath = Env.tensorboardpath()
             tensorfile = "{}epoch{}.hdf5".format(tensorboardpath, "{epoch}")
@@ -556,11 +609,11 @@ class Cpc:
                   "epochs": [50],
                   "use_l3": [False],  # True
                   "kernel_initializer": ["he_uniform"],
+                  "dropout": [0.4],  # 0.6,
                   "optimizer": ["Adam"],
                   "losses": ["categorical_crossentropy"],
                   "activation": ["relu"],
                   "last_activation": ["softmax"]}
-        #   "dropout": [0.8],  # 0.6,
 
         ta.Scan(x=dummy_x,  # real data comes from generator
                 y=dummy_y,  # real data comes from generator
@@ -578,7 +631,7 @@ class Cpc:
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
 
-    def use_keras(self):
+    def classify_batch(self):
         start_time = timeit.default_timer()
         self.hs = chs.CryptoHistorySets(env.sets_config_fname())
         self.talos_iter = 0
@@ -593,12 +646,12 @@ class Cpc:
         for bix, base in enumerate(self.hs.bases):
             df = self.hs.set_of_type(base, ctf.VAL)
             tfv = self.hs.get_targets_features_of_base(base)
-            subset_df = ctf.targets_to_features(tfv.vec, df)
+            subset_df = ctf.targets_to_features(tfv, df)
             samples = ctf.to_scikitlearn(subset_df, np_data=None, descr=f"{base}")
             if (samples is None) or (samples.data is None) or (len(samples.data) == 0):
                 print(
-                    "skipping {} len(VAL): {} len(tfv): {} len(subset): {} len(samples)".format(
-                        base, len(df), len(tfv.vec), len(subset_df), (len(samples.data))))
+                    "skipping {} len(VAL): {} len(tfv): {} len(subset): {} len(samples)"
+                    .format(base, len(df), len(tfv), len(subset_df), (len(samples.data))))
                 continue
             if self.scaler is not None:
                 samples.data = self.scaler.transform(samples.data)
@@ -610,15 +663,16 @@ class Cpc:
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"{env.timestr()} MLP performance assessment bulk split time: {tdiff:.0f} min")
 
+    def classify_per_sample(self):
         start_time = timeit.default_timer()
-        pm = PerfMatrix(0, ctf.VAL)
+        # pm = PerfMatrix(0, ctf.VAL)
         perf = 0
         buy_cl = 0
         last_fvec = None
         for bix, base in enumerate(self.hs.bases):
             df = self.hs.set_of_type(base, ctf.VAL)
             tfv = self.hs.get_targets_features_of_base(base)
-            subset_df = ctf.targets_to_features(tfv.vec, df)
+            subset_df = ctf.targets_to_features(tfv, df)
             subset_len = len(subset_df.index)
             for ix in range(subset_len):
                 fvec = subset_df.iloc[[ix]]  # just row ix
@@ -641,7 +695,7 @@ class Cpc:
                         force_sell = True  # of fvec
 
                 close = fvec.at[fvec.index[0], "close"]
-                cl = self.performance_with_features(fvec, 0.7, 0.7)
+                cl = self.class_of_features(fvec, 0.7, 0.7, base)
                 if (cl != ctf.TARGETS[ctf.HOLD]) or force_sell:
                     if buy_cl > 0:
                         if (cl == ctf.TARGETS[ctf.SELL]) or force_sell:
@@ -655,21 +709,16 @@ class Cpc:
                 last_fvec = fvec
 
 
-#                assert np.array_equal(fvec.values, subset_df.iloc[[ix]].values)
-#                sample = ctf.to_scikitlearn(fvec, np_data=None, descr="single sample")
-#                if self.scaler is not None:
-#                    sample.data = self.scaler.transform(sample.data)
-#                assert np.array_equal(sample.data, samples.data[ix:ix+1])
-#                pred2 = self.classifier.predict_on_batch(sample.data)
-#                assert np.allclose(pred2, pred1[ix:ix+1])
-#                if (ix == 0) or (ix == subset_len-1):
-#                    print(f"ix {ix}, len(fvec)={len(fvec)}, len(pred2)={len(pred2)}", fvec)
 #                pm.assess_sample_prediction(pred2, sample.close, sample.target, sample.tics,
 #                                            sample.descr)
 #        pm.report_assessment()
         print(f"performance: {perf:6.0%}")
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"{env.timestr()} MLP performance assessment samplewise time: {tdiff:.0f} min")
+
+    def use_keras(self):
+        self.classify_batch()
+        self.classify_per_sample()
 
 
 def plot_confusion_matrix(cm, class_names):
@@ -727,7 +776,6 @@ if __name__ == "__main__":
     if False:
         cpc.adapt_keras()
     else:
-        cpc.load()
         # cpc.save()
         cpc.use_keras()
     tee.close()
