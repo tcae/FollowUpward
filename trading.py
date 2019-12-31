@@ -9,17 +9,16 @@ import timeit
 # import logging
 import time
 import env_config as env
-from env_config import Env
+# from env_config import Env
 import crypto_targets_features as ctf
 import classify_keras as ck
 from classify_keras import PerfMatrix, EvalPerf  # required for pickle  # noqa
-from local_xch import Xch, Bk
+from local_xch import Xch
+from bookkeeping import Bk
 
 MAX_MINBELOW = 5  # max minutes below buy price before emergency sell
 ORDER_TIMEOUT = 45  # in seconds
-TRADE_VOL_LIMIT_USDT = 100
-BLOCKED_ASSET_AMOUNT = {"BNB": 100, "USDT": 20000}  # amounts in base currency
-# BASES = ["USDT"]
+BLOCKED_SELL_ASSET_AMOUNT = {"BNB": 15}  # this amount won't be sold
 MPH = 60  # Minutes Per Hour
 ICEBERG_USDT_PART = 450
 MAX_USDT_ORDER = ICEBERG_USDT_PART * 10  # binanace limitP10 iceberg parts per order
@@ -52,7 +51,7 @@ class Trading():
     def __init__(self):
         # FIXME: store order with attributes in order pandas
         self.openorders = list()
-        Bk()
+        Bk(Xch())
 
     def check_order_progress(self):
         """Check fill status of open orders and adapt price if required.
@@ -87,7 +86,7 @@ class Trading():
         """
         for base in Bk.book.index:
             if Bk.book.loc[base, "used"] > 0:
-                oo = Xch.myfetch_open_orders(base, "check_order_progress")
+                oo = Bk.myfetch_open_orders(base, "check_order_progress")
                 if oo is not None:
                     for order in oo:
                         is_sell = (order["side"] == "sell")
@@ -99,18 +98,24 @@ class Trading():
                         # ! reconsider why several cancel orders commands for the same order
                         if tsdiff >= ORDER_TIMEOUT:
                             try:
-                                Xch.myfetch_cancel_orders(order["id"], base)
-                                Xch.myfetch_cancel_orders(order["id"], base)
+                                Bk.myfetch_cancel_orders(order["id"], base)
+                                Bk.myfetch_cancel_orders(order["id"], base)
                             except ccxt.NetworkError:
-                                Xch.myfetch_cancel_orders(order["id"], base)
+                                Bk.myfetch_cancel_orders(order["id"], base)
                             except ccxt.OrderNotFound:
                                 # that's what we are looking for
                                 pass
                         """
                         if tsdiff >= ORDER_TIMEOUT:
-                            Xch.myfetch_cancel_orders(order["id"], base)
+                            Bk.myfetch_cancel_orders(order["id"], base)
                             if is_sell:
                                 self.sell_order(base, ratio=1)
+
+    def __deduct_blocked_sell_amount(self, base, base_amount):
+        base = base.upper()
+        if base in BLOCKED_SELL_ASSET_AMOUNT:
+            base_amount -= BLOCKED_SELL_ASSET_AMOUNT[base]
+        return base_amount
 
     def sell_order(self, base, ratio=1):
         """ Sells the ratio of free base currency. Constraint: 0 <= ratio <= 1
@@ -118,14 +123,13 @@ class Trading():
         assert 0 <= ratio <= 1, f"not compliant to constraint: 0 <= ratio {ratio} <= 1"
         isincheck = True in Bk.book.index.isin([base])
         if isincheck:
-            sym = Xch.xhc_sym_of_base(base)
-            tickers = Xch.myfetch_tickers("sell_order")
+            sym = Bk.xhc_sym_of_base(base)
+            tickers = Bk.myfetch_tickers("sell_order")
             if tickers is None:
                 return
             Bk.update_balance(tickers)
             base_amount = Bk.book.loc[base, "free"]
-            if base in BLOCKED_ASSET_AMOUNT:
-                base_amount -= BLOCKED_ASSET_AMOUNT[base]
+            base_amount = self.__deduct_blocked_sell_amount(base, base_amount)
             base_amount *= ratio
             price = tickers[sym]["bid"]  # TODO order spread strategy
             print(f"{env.nowstr()} SELL {base_amount} {base} x {price} {sym}")
@@ -133,10 +137,10 @@ class Trading():
                 price = tickers[sym]["bid"]  # TODO order spread strategy
                 max_chunk = MAX_USDT_ORDER / price
                 ice_chunk = amount = min([base_amount, max_chunk])
-                (amount, price, ice_chunk) = Xch.check_limits(base, amount, price)
+                (amount, price, ice_chunk) = Bk.check_limits(base, amount, price)
                 if (amount == 0) or (price == 0):
                     return
-                myorder = Xch.create_limit_sell_order(
+                myorder = Bk.create_limit_sell_order(
                     sym, amount, price,
                     {"icebergQty": ice_chunk, "timeInForce": "GTC"})
                 if myorder is None:
@@ -148,42 +152,29 @@ class Trading():
         else:
             print(f"unsupported base {base}")
 
-    def trade_amount(self, base, ratio):
-        trade_vol = 0
-        for base in Bk.book.index:
-            if base not in Xch.black_bases:
-                trade_vol += (Bk.book.loc[base, "free"] + Bk.book.loc[base, "used"]) * \
-                             Bk.book.loc[base, "USDT"]
-        trade_vol = TRADE_VOL_LIMIT_USDT - trade_vol
-        trade_vol = min(trade_vol, Bk.book.loc[Env.quote, "free"])
-        if Env.quote in BLOCKED_ASSET_AMOUNT:
-            trade_vol -= BLOCKED_ASSET_AMOUNT[Env.quote]
-        usdt_amount = trade_vol * ratio
-        return usdt_amount
-
     def buy_order(self, base, ratio=1):
         """ Buys the ratio of free quote currency with base currency. Constraint: 0 <= ratio <= 1
         """
         assert 0 <= ratio <= 1, f"not compliant to constraint: 0 <= ratio {ratio} <= 1"
         isincheck = True in Bk.book.index.isin([base])
         if isincheck:
-            sym = Xch.xhc_sym_of_base(base)
-            tickers = Xch.myfetch_tickers("buy_order")
+            sym = Bk.xhc_sym_of_base(base)
+            tickers = Bk.myfetch_tickers("buy_order")
             if tickers is None:
                 return
 
             Bk.update_balance(tickers)
-            quote_amount = self.trade_amount(base, ratio)
+            quote_amount = Bk.trade_amount(base, ratio)
             price = tickers[sym]["ask"]  # TODO order spread strategy
-            print(f"{env.nowstr()} BUY {quote_amount} USDT / {price} {sym}")
+            print(f"{env.nowstr()} BUY {ratio} ratio = {quote_amount} USDT / {price} {sym}")
             while quote_amount > 0:
                 price = tickers[sym]["ask"]  # TODO order spread strategy
                 max_chunk = MAX_USDT_ORDER / price
                 ice_chunk = amount = min([quote_amount/price, max_chunk])
-                (amount, price, ice_chunk) = Xch.check_limits(base, amount, price)
+                (amount, price, ice_chunk) = Bk.check_limits(base, amount, price)
                 if (amount == 0) or (price == 0):
                     return
-                myorder = Xch.create_limit_buy_order(
+                myorder = Bk.create_limit_buy_order(
                     base, amount, price,
                     {"icebergQty": ice_chunk, "timeInForce": "GTC"})
                 if myorder is None:
@@ -208,7 +199,7 @@ class Trading():
                 else:
                     Bk.book.loc[base, "minbelow"] = 0  # reset minute counter
                 if Bk.book.loc[base, "minbelow"] > MAX_MINBELOW:  # minutes
-                    sym = Xch.xhc_sym_of_base(base)
+                    sym = Bk.xhc_sym_of_base(base)
                     print("{} !!! Forced selling {} due to {} minutes < buy price of {}".format(
                             env.nowstr(), sym,
                             Bk.book.loc[base, "minbelow"],
@@ -222,13 +213,13 @@ class Trading():
         """ Encapsulates all handling to get the trade signal of a base at a
             given python datetime
         """
-        if base in Xch.black_bases:  # USDT is in Bk.book
-            trade_signal = None
+        if base in Bk.black_bases:  # USDT is in Bk.book
+            return None, 0
         ttf = ctf.TargetsFeatures(base)
-        ohlcv_df = Xch.get_ohlcv(base, env.Env.minimum_minute_df_len, date_time)
+        ohlcv_df = Bk.get_ohlcv(base, env.Env.minimum_minute_df_len, date_time)
         if ohlcv_df is None:
-            print(f"{env.nowstr()} skipping {base} from book due to missing ohlcv")
-            trade_signal = None
+            print(f"{env.nowstr()} skipping {base} due to missing ohlcv")
+            return None, 0
         ttf.calc_features_and_targets(ohlcv_df)
         tfv = ttf.vec.iloc[[len(ttf.vec)-1]]
         trade_signal = cpc.class_of_features(tfv, buy_trshld, sell_trshld, base)
@@ -287,7 +278,7 @@ def trading_main():
     # env.set_environment(env.Usage.test, env.Calc.ubuntu)
     tee = env.Tee()
     trading = Trading()
-    load_classifier = "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
+    load_classifier = "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
     save_classifier = None
     cpc = ck.Cpc(load_classifier, save_classifier)
 

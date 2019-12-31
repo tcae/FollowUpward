@@ -1,4 +1,6 @@
 import pandas as pd
+import os
+import platform
 
 
 def df_drop():
@@ -17,3 +19,7 @@ def df_drop():
 
 print([[m+r for m in range(3)] for r in range(20)])
 df_drop()
+
+print(os.name)
+print(platform.system())
+print(platform.node())

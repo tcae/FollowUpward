@@ -22,7 +22,7 @@ def dfdescribe(desc, df):
     print(df.tail())
 
 
-def save_asset_dataframe(df, base):
+def save_asset_dataframe(df, base, path=Env.data_path):
     """ saves the base/quote data
     """
     print("{}: writing {} {} tics ({} - {})".format(
@@ -30,16 +30,16 @@ def save_asset_dataframe(df, base):
         len(df), df.index[0].strftime(Env.dt_format),
         df.index[len(df)-1].strftime(Env.dt_format)))
     sym = env.sym_of_base(base)
-    fname = Env.data_path + sym + "_DataFrame.h5"
+    fname = path + sym + "_DataFrame.h5"
     # df.to_msgpack(fname)
     df.to_hdf(fname, sym, mode="w")
 
 
-def load_asset_dataframe(base, limit=None):
+def load_asset_dataframe(base, path=Env.data_path, limit=None):
     """ loads the base/quote data
     """
     df = None
-    fname = Env.data_path + env.sym_of_base(base) + "_DataFrame.h5"
+    fname = path + env.sym_of_base(base) + "_DataFrame.h5"
     sym = env.sym_of_base(base)
     try:
         # df = pd.read_msgpack(fname)

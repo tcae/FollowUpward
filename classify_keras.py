@@ -319,18 +319,29 @@ class Cpc:
             self.load()
         self.__prep_classifier_log(load_classifier)
 
-    def __del__(self):
-        if (self.class_log is not None) and (self.class_log_fname is not None):
-            fname = f"{Env.model_path}{self.class_log_fname}.h5"
-            self.class_log.to_hdf(fname, self.class_log_fname, mode="w")
+    # def __del__(self):
+    #     if (self.class_log is not None) and (self.class_log_fname is not None):
+    #         fname = f"{Env.model_path}{self.class_log_fname}.h5"
+    #         self.class_log.to_hdf(fname, self.class_log_fname, mode="w")
 
     def __prep_classifier_log(self, classifier_name):
+        return
         if classifier_name is None:
             self.class_log = self.class_log_fname = None
         else:
             self.class_log = pd.DataFrame(
                 columns=["base", "timestamp", "target", "buy_prob", "sell_prob", "hold_prob"])
             self.class_log_fname = f"{env.timestr()}_Results_{classifier_name}"
+
+    def __log_predict_results(self, tfv, base, pred):
+        return
+        df = pd.DataFrame(
+            columns=["hold_prob", "buy_prob", "sell_prob"],
+            data=pred[:, [ctf.TARGETS[ctf.HOLD], ctf.TARGETS[ctf.BUY], ctf.TARGETS[ctf.SELL]]])
+        df["timestamp"] = tfv.index
+        df["target"] = tfv["target"]
+        df["base"] = base
+        self.class_log = pd.concat([self.class_log, df], ignore_index=True)
 
     def load(self):
         load_clname = self.load_classifier
@@ -403,15 +414,6 @@ class Cpc:
         self.hs = hs
         print(f"{env.timestr()} classifier saved in {fname}")
 
-    def __log_predict_results(self, tfv, base, pred):
-        df = pd.DataFrame(
-            columns=["hold_prob", "buy_prob", "sell_prob"],
-            data=pred[:, [ctf.TARGETS[ctf.HOLD], ctf.TARGETS[ctf.BUY], ctf.TARGETS[ctf.SELL]]])
-        df["timestamp"] = tfv.index
-        df["target"] = tfv["target"]
-        df["base"] = base
-        self.class_log = pd.concat([self.class_log, df], ignore_index=True)
-
     def class_predict_of_features(self, tfv, base):
         """Classifies the tfv features.
         'base' is a string that identifies the crypto used for logging purposes.
@@ -420,7 +422,7 @@ class Cpc:
         for each sample.
         """
         if tfv.empty:
-            print("class_probs_of_features: empty feature vector ==> 0 probs")
+            print("class_predict_of_features: empty feature vector ==> 0 probs")
             return None
         sample = ctf.to_scikitlearn(tfv, np_data=None, descr=base)
         if self.scaler is not None:
@@ -440,7 +442,7 @@ class Cpc:
         if tfv.empty:
             print("class_of_features: empty feature vector ==> HOLD signal")
             return ctf.TARGETS[ctf.HOLD]
-        pred = self.class_probs_of_features(tfv, base)
+        pred = self.class_predict_of_features(tfv, base)
         probs = pred[len(pred) - 1]
         high_prob_cl = ctf.TARGETS[ctf.HOLD]
         if probs[ctf.TARGETS[ctf.BUY]] > probs[ctf.TARGETS[ctf.SELL]]:

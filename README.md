@@ -41,6 +41,9 @@ Stock trading is a possible future step but cryoto trading offers more opportuni
 ## trading
 
 `trading.py` is the central class for crypto trading via `ccxt`. It contains and manges a state machine and uses the trained neural net to classify the trading signal based on the stream of incoming market data.
+`trading` implements the trading strategy and abstracts from handling details. It uses `Bk` for bookkeeping (trade book, order book, mirror of assets, logging of actions).
+`Bk` uses in turn `Xch` that encapsulates the handling details with `ccxt` such as timeout handling, exception handling, limit checking, converting symbols to lowercase
+while trading only uses base in lowercase and always trades aganist a single `Env.quote`.
 
 ### configurations
 

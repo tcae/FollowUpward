@@ -1,5 +1,6 @@
 # from enum import Enum
 import sys
+import platform
 from datetime import datetime  # , timedelta
 import pandas as pd
 
@@ -25,12 +26,13 @@ class Env():
         print(f"{type(calc)}/{type(usage)}")
         Env.data_path = calc.data_path_prefix + usage.data_path_suffix
         Env.conf_fname = usage.conf_fname
+        Env.test_mode = usage.test_mode
         Env.cache_path = f"{calc.data_path_prefix}cache/"
         Env.bases = usage.bases
         Env.time_aggs = usage.time_aggs
         Env.model_path = f"{calc.other_path_prefix}classifier/"
         Env.tfblog_path = f"{calc.other_path_prefix}tensorflowlog/"
-        Env.auth_file = calc.auth_path_prefix + "auth.json"
+        Env.auth_file = calc.auth_path_prefix + "auth_Tst1.json"
         Env.minimum_minute_df_len = 0
         Env.calc = calc
         Env.usage = usage
@@ -87,6 +89,7 @@ class Usage():
     bases = []
     time_aggs = {}
     conf_fname = "conf fname not initialized"
+    test_mode = False
 
 
 class Production(Usage):
@@ -94,6 +97,7 @@ class Production(Usage):
     bases = ["btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
     time_aggs = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
     conf_fname = "target_5_sets_split.config"
+    test_mode = False
 
 
 class Test(Usage):
@@ -102,6 +106,7 @@ class Test(Usage):
     time_aggs = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
     # conf_fname = "target_5_sets_split_unit-test.config"
     conf_fname = "target_5_sets_split.config"
+    test_mode = True
 
 
 def config_ok():
@@ -183,7 +188,14 @@ class Tee(object):
         self.close()
 
 
-# Env(Ubuntu(), Production())
-Env(Osx(), Production())
-# Env(Ubuntu(), Test())
-# Env(Osx(), Test())
+def test_mode():
+    if platform.node() == "iMac.local":
+        Env(Osx(), Test())
+    elif platform.node() == "tor-XPS-13-9380":
+        Env(Ubuntu(), Test())
+
+
+if platform.node() == "iMac.local":
+    Env(Osx(), Production())
+elif platform.node() == "tor-XPS-13-9380":
+    Env(Ubuntu(), Production())
