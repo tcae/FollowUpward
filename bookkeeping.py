@@ -237,7 +237,7 @@ class Bk():
     def myfetch_tickers(caller):
         return Bk.exch.myfetch_tickers(caller)
 
-    def __ice_chunk(base, price, amount, mincost):
+    def __calc_ice_chunk(base, price, amount, mincost):
         sym = base + "/" + Xch.quote
         # ice_chunk = ICEBERG_USDT_PART / price # about the chunk quantity we want
         ice_chunk = Bk.book.loc[base, "dayUSDT"] / (24 * 60 * 4)  # 1/4 of average minute volume
@@ -260,7 +260,7 @@ class Bk():
 
     def check_limits(base, amount, price):
         MINCOST = 10  # 10 USD as mincost
-        ice_chunk = Xch.__calc_ice_chunk(base, price, amount, MINCOST)
+        ice_chunk = Bk.__calc_ice_chunk(base, price, amount, MINCOST)
         (amount, price, ice_chunk) = Bk.exch.check_limits(base, amount, price, ice_chunk)
         return (amount, price, ice_chunk)
 

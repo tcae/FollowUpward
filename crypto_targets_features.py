@@ -269,8 +269,78 @@ class TargetsFeatures:
             raise env.MissingHistoryData("empty dataframe from expand_target_feature_vectors")
         return df
 
+    class TargetEvaluation:
+
+        def __init__(self, minute_df, start_ix, target_col_ix, close_col_ix):
+            self.df = minute_df
+            self.lix = target_col_ix  # label ix
+            self.cix = close_col_ix  # close ix
+            self.unresolved_delta = dict()  # key = tix, value = close
+            self.last_close = self.df.iat[0, self.cix]
+
+        def next_sample(self, tix):
+            this_close = self.df.iat[tix, self.cix]
+            delta = (this_close - self.last_close) / self.last_close
+            self.unresolved_delta[tix] = delta
+            for uix in self.unresolved_delta:
+                if uix == tix:
+                    continue
+                last_close = self.df.iat[uix, self.cix]
+                delta = (this_close - last_close) / last_close
+                if delta < SELL_THRESHOLD:
+                    if self.unresolved_delta[uix] < 0:
+                        self.df.iat[uix, self.lix] = TARGETS[SELL]
+                    # else stay with df.iat[uix, lix] = TARGETS[HOLD]
+                    del self.unresolved_delta[uix]
+                if delta > BUY_THRESHOLD:
+                    if self.unresolved_delta[uix] > 0:
+                        self.df.iat[uix, self.lix] = TARGETS[BUY]
+                    # else stay with df.iat[uix, lix] = TARGETS[HOLD]
+                    del self.unresolved_delta[uix]
+            self.last_close = this_close
+
+    def __add_targets2(self, time_agg, df):
+        df['target2'] = TARGETS[HOLD]
+        lix = df.columns.get_loc('target2')
+        cix = df.columns.get_loc('close')
+        te = {slot: TargetsFeatures.TargetEvaluation(df, slot, lix, cix) for slot in range(0, time_agg)}
+        closeatsell = closeatbuy = 0
+        for tix in range(time_agg, len(df), 1):  # tix = time index
+            slot = (tix % time_agg)
+            te[slot].next_sample(tix)
+
+        # now correct peaks due to time_agg approach
+        closeatsell = dict()
+        closeatbuy = dict()
+        for tix in range(time_agg, len(df), 1):  # tix = time index
+            this_close = df.iat[tix, cix]
+            if df.iat[tix, lix] == TARGETS[BUY]:
+                # smooth sell peaks if beneficial
+                closeatbuy[tix] = this_close
+                for uix in closeatsell:
+                    sell_buy = -2 * (FEE + TRADE_SLIP)
+                    holdgain = this_close - closeatsell[uix]
+                    if sell_buy < holdgain:
+                        # if fee loss more than dip loss/gain then smoothing
+                        df.iat[uix, lix] = TARGETS[HOLD]
+                    del closeatsell[uix]
+            if df.iat[tix, lix] == TARGETS[SELL]:
+                # smooth buy peaks if beneficial
+                closeatsell[tix] = this_close
+                for uix in closeatbuy:
+                    buy_sell = -2 * (FEE + TRADE_SLIP) + this_close - closeatbuy[uix]
+                    if buy_sell < 0:
+                        # if fee loss more than dip loss/gain then smoothing
+                        df.iat[uix, lix] = TARGETS[HOLD]
+                    del closeatbuy[uix]
+
     def __add_targets(self, time_agg, df):
-        "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
+        """ target = achieved if improvement > 1% without intermediate loss of more than 0.2%
+
+            `time_agg` in minutes is used to ignore losses within these time ranges looking forward.
+            To achieve that `time_agg` parallel monitoring paths are evaluated that look forward
+            in `time_agg` minutes jumps to evaluate gains/losses.
+        """
         # print(f"{datetime.now()}: self.add_targets {time_agg}")
         df['target'] = TARGETS[HOLD]
         lix = df.columns.get_loc('target')
@@ -350,68 +420,6 @@ class TargetsFeatures:
                     ixfifo.put(tix)  # prep after execution due to queue reuse
         # report_setsize("complete set", df)
 
-    def __add_targets_stripped(self, time_agg, df):
-        "target = achieved if improvement > 1% without intermediate loss of more than 0.2%"
-
-        def close_delta_ratio(tix1, tix2, cix):
-            assert tix1 <= tix2
-            last_close = df.iat[tix1, cix]
-            this_close = df.iat[tix2, cix]
-            delta = (this_close - last_close) / last_close
-            return delta
-
-        # print(f"{datetime.now()}: self.add_targets {time_agg}")
-        df["target"] = TARGETS[HOLD]
-        lix = df.columns.get_loc("target")
-        cix = df.columns.get_loc("close")
-        win = dict()
-        loss = dict()
-        lossix = dict()
-        winix = dict()
-        for slot in range(0, time_agg):
-            win[slot] = loss[slot] = 0.
-            winix[slot] = lossix[slot] = slot
-        for tix in range(time_agg, len(df), 1):  # tix = time index
-            slot = (tix % time_agg)
-            delta = close_delta_ratio(tix - time_agg, tix, cix)
-            if delta < 0:
-                if loss[slot] < 0:  # loss monitoring is running
-                    loss[slot] = close_delta_ratio(lossix[slot], tix, cix)
-                else:  # first time bar of decrease period
-                    lossix[slot] = tix
-                    loss[slot] = delta
-                if win[slot] > 0:  # win monitoring is running
-                    win[slot] = close_delta_ratio(winix[slot], tix, cix)
-                    if win[slot] < 0:  # reset win monitor because it is below start price
-                        win[slot] = 0.
-                while loss[slot] < SELL_THRESHOLD:
-                    # while loop for multiple small decreases and then a big decrease step
-                    # -> multiple SELL signals required
-                    win[slot] = 0.  # reset win monitor -> dip exceeded threshold
-                    df.iat[lossix[slot], lix] = TARGETS[SELL]
-                    if (lossix[slot] + time_agg) > tix:
-                        break
-                    lossix[slot] += time_agg
-                    loss[slot] = close_delta_ratio(lossix[slot], tix, cix)
-            elif delta > 0:
-                if win[slot] > 0:  # win monitoring is running
-                    win[slot] = close_delta_ratio(winix[slot], tix, cix)
-                else:  # first time bar of increase period
-                    winix[slot] = tix
-                    win[slot] = delta
-                if loss[slot] < 0:  # loss monitoring is running
-                    loss[slot] = close_delta_ratio(lossix[slot], tix, cix)
-                    if loss[slot] > 0:
-                        loss[slot] = 0.  # reset loss monitor -> recovered before sell threshold
-                while win[slot] > BUY_THRESHOLD:
-                    loss[slot] = 0.  # reset win monitor -> dip exceeded threshold
-                    df.iat[winix[slot], lix] = TARGETS[BUY]
-                    if (winix[slot] + time_agg) > tix:
-                        break
-                    winix[slot] += time_agg
-                    win[slot] = close_delta_ratio(winix[slot], tix, cix)
-        # report_setsize("complete set", df)
-
     def calc_features_and_targets(self, minute_dataframe):
         """Assigns minute_dataframe to attribute *minute_data*.
         Calculates features and assigns them to attribute *vec*.
@@ -440,6 +448,7 @@ class TargetsFeatures:
         tf_aggs = self.__calc_aggregation(self.minute_data, Env.time_aggs)
         if "target" not in self.minute_data:
             self.__add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
+            self.__add_targets2(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
             self.minute_data["target"] = tf_aggs[self.target_key]["target"]
             # print("calculating targets")
         else:

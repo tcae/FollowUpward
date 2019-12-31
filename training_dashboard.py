@@ -110,7 +110,7 @@ app.layout = html.Div([
             labelStyle={'display': 'inline-block'}
         ),
         dcc.Graph(id='zoom-in-graph'),
-        dcc.Graph(id='y-time-series'),
+        dcc.Graph(id='volume-signals-graph'),
     ], style={'display': 'inline-block', 'float': 'right', 'width': '49%'}),
 
 ])
@@ -536,6 +536,60 @@ def update_detail_graph_by_click(click_data, base, indicators):
             y=Y_pred,
             mode='lines',  # 'lines+markers'
             name=legendname))
+
+    return {
+        'data': graph_bases,
+        'layout': {
+            'height': 450,
+            'margin': {'l': 20, 'b': 30, 'r': 10, 't': 10},
+            'annotations': [{
+                'x': 0, 'y': 0.85, 'xanchor': 'left', 'yanchor': 'bottom',
+                'xref': 'paper', 'yref': 'paper', 'showarrow': False,
+                'align': 'left', 'bgcolor': 'rgba(255, 255, 255, 0.5)',
+                'text': "normalized crypto prices"
+            }],
+            'yaxis': {'type': 'linear'},
+            'xaxis': {'showgrid': False, 'title': timeinfo}
+        }
+    }
+
+
+@app.callback(
+    dash.dependencies.Output('volume-signals-graph', 'figure'),
+    [dash.dependencies.Input('full-day-time-graph', 'clickData'),
+     dash.dependencies.Input('crossfilter-crypto-radio', 'value'),
+     dash.dependencies.Input('crossfilter-indicator-select', 'value')])
+def update_volume_signals__graph_by_click(click_data, base, indicators):
+    """ Displays volume and trade signals of the selected time and 4h back
+        together with selected indicators
+    """
+    graph_bases = []
+    dcdf = cdf[base]
+
+    end = pd.Timestamp.now(tz='UTC')
+    if base is not None:
+        # print(base)
+        if click_data is None:
+            end = cdf[base].index[len(cdf[base])-1]
+        else:
+            end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
+    start = end - pd.Timedelta(4*60, "m")
+    aggregation = "T"
+    timeinfo = aggregation + ": " + start.strftime(Env.dt_format) + " - " + end.strftime(Env.dt_format)
+    dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
+    if (dcdf is not None) and (len(dcdf) > 0):
+        normfactor = dcdf.iloc[0].open
+        dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
+    # dcdf = dcdf.resample(aggregation).agg({"open": "first", "close": "last", "high": "max",
+    #                                        "low": "min", })  # "volume": "sum"
+    # print("zoom-in", bases, indicators, start, end)
+    graph_bases.append(
+        go.Candlestick(x=dcdf.index,
+                       open=dcdf.open,
+                       high=dcdf.high,
+                       low=dcdf.low,
+                       close=dcdf.close))
+
 
     return {
         'data': graph_bases,
