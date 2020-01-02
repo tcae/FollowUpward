@@ -249,7 +249,7 @@ class Trading():
                 ts1 = pd.Timestamp.utcnow()
                 for base in Bk.book.index:
                     trade_signal, last_close = self.__get_signal(
-                        cpc, buy_trshld, sell_trshld, base, ts1.to_pydatetime())
+                        cpc, buy_trshld, sell_trshld, base, ts1)
                     if trade_signal is None:
                         continue
 
@@ -263,7 +263,7 @@ class Trading():
 
                 self.__distribute_buy_amount(buylist)
                 ts2 = pd.Timestamp.utcnow()
-                tsdiff = 59 - int((ts2 - ts1) / timedelta(seconds=1))  # 1 seconds order progress
+                tsdiff = 59 - int((ts2 - ts1) / pd.Timedelta(1, unit='S'))  # 1 seconds order progress
                 if tsdiff > 1:
                     time.sleep(tsdiff)
                 self.check_order_progress()

@@ -499,3 +499,90 @@ class TargetsFeatures:
                 perf -= FEE
                 ta_holding = False
         return perf
+
+
+class TargetsFeatures2(TargetsFeatures):
+    """ Alternative feature set. Approach: less features and closer to intuitive performance correlation
+        (what would I look at?).
+
+        - regression line percentage increase per hour calculated on last 10d basis
+        - regression line percentage increase per hour calculated on last 12h basis
+        - regression line percentage increase per hour calculated on last 4h basis
+        - regression line percentage increase per hour calculated on last 0.5h basis
+        - regression line percentage increase per hour calculated on last 5min basis for last 2x5min periods
+        - percentage of last 5min mean volume compared to last 1h mean 5min volume
+        - not directly used: SDU = absolute standard deviation of price points above regression line
+        - SDU - (current price - regression price) (== up potential) for 12h, 4h, 0.5h, 5min regression
+        - not directly used: SDD = absolute standard deviation of price points below regression line
+        - SDD + (current price - regression price) (== down potential) for 12h, 4h, 0.5h, 5min regression
+    """
+
+    def __init__(self, base):
+        """Receives the key attributes for feature generation
+
+        aggregations:
+            dict with required time aggregation keys and associated number
+            of periods that shall be compiled in a corresponding feature vector
+        target_key:
+            has to be a key of aggregations. Targets are only calculated for that target_key
+
+
+        """
+        assert(env.config_ok())
+        self.base = base
+        self.quote = Env.quote
+        self.minute_data = None
+        self.vec = None
+        self.target_key = TARGET_KEY
+
+    def calc_features_and_targets(self, minute_dataframe):
+        """Assigns minute_dataframe to attribute *minute_data*.
+        Calculates features and assigns them to attribute *vec*.
+        If minute_dataframe is None
+        then an earlier assigned *minute_data* is used the recalculate features.
+        If *minute_data* has no 'target' column then targets are calculated and added to
+        *minute_data*.
+
+        Releasing feature data by assigning *vec* None and recalculating those later is a valid
+        use case to free up memory temporary.
+
+        minute_dataframe shall have
+        the columns: open, high, low, close, volume and timestamps as index
+        """
+
+        if minute_dataframe is None:
+            if self.minute_data is None:
+                raise env.MissingHistoryData("{}–{} target {}min without minute data ({})".format(
+                                         self.base, self.quote, self.target_key, self.vec))
+        else:
+            self.minute_data = minute_dataframe
+        if self.minute_data.empty is None:
+            self.minute_data = None
+            raise env.MissingHistoryData("{}–{} target {}min with empty minute data".format(
+                                     self.base, self.quote, self.target_key))
+        # to be modified: tf_aggs = self.__calc_aggregation(self.minute_data, Env.time_aggs)
+        if "target" not in self.minute_data:
+            super().__add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
+            super().__add_targets2(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
+            self.minute_data["target"] = tf_aggs[self.target_key]["target"]
+            # print("calculating targets")
+        else:
+            # print("reusing targets")
+            pass
+        # to be modified: self.vec = self.__expand_target_feature_vectors(tf_aggs, self.target_key)
+        if "target" not in self.vec:
+            self.vec["target"] = self.minute_data["target"]
+
+        # print(f"{len(self.vec)} feature vectors of {len(self.vec.iloc[0])-2} features")
+
+    def load_classifier_features(self):
+        """ Loads the historic data temporarily, calculates the features and targets
+            and releases the original data afterwards
+        """
+        try:
+            df = ccd.load_asset_dataframe(self.base)
+        except env.MissingHistoryData:
+            raise
+        else:
+            self.calc_features_and_targets(df)
+            report_setsize(self.base, self.vec)

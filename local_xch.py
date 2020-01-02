@@ -5,7 +5,7 @@ import numpy as np
 import ccxt
 import json
 import pytz  # 3rd party: $ pip install pytz
-from datetime import datetime, timedelta  # , timezone
+from datetime import datetime
 from env_config import nowstr
 from env_config import Env
 import env_config as env
@@ -90,14 +90,16 @@ class Xch():
     def public_get_exchangeinfo():
         return Xch.lxch.public_get_exchangeinfo()
 
-    def __fetch_ohlcv(sym, timeframe, since, limit):  # noqa C901
-        # return Xch.lxch.fetch_ohlcv(sym, timeframe, since=since, limit=limit)
+    def __fetch_ohlcv(sym, since, minutes):  # noqa C901
+        # return Xch.lxch.fetch_ohlcv(sym, timeframe, since=since, limit=minutes)
+        since = int((since.to_pydatetime() - datetime(1970, 1, 1, tzinfo=pytz.utc)).total_seconds() * 1000)
         ohlcvs = None
         sym = sym.upper()
+        assert minutes > 0
 
         for i in range(RETRIES):
             try:
-                ohlcvs = Xch.lxch.fetch_ohlcv(sym, "1m", since=since, limit=limit)
+                ohlcvs = Xch.lxch.fetch_ohlcv(sym, "1m", since=since, limit=minutes)
                 # only 1000 entries are returned by one fetch
             except ccxt.RequestTimeout as err:
                 print(f"{nowstr()} fetch_ohlcv failed {i}x due to a RequestTimeout error:",
@@ -152,7 +154,10 @@ class Xch():
                       str(err))
                 break
             else:
-                break
+                if len(ohlcvs) == 0:
+                    continue
+                else:
+                    break
         return ohlcvs
 
     def fetch_open_orders(sym):
@@ -342,94 +347,107 @@ class Xch():
         return (amount, price, ice_chunk)
 
     def __get_ohlcv_cache(base, when, minutes):
-        start = when - timedelta(minutes=minutes-1)
+        start = when - pd.Timedelta(minutes, unit='T')
         df = None
         if base in Xch.ohlcv:
             df = Xch.ohlcv[base]
-            df = df[Xch.data_keys]
             df = df.drop([df.index[len(df.index)-1]])  # because the last candle is incomplete
         remaining = minutes
         if df is None:
             # df = pd.DataFrame(index=pd.DatetimeIndex(freq="T", start=start, end=when, tz="UTC"),
-            df = pd.DataFrame(index=pd.DatetimeIndex(pd.date_range(freq="T", start=start, end=when, tz="UTC")),
+            df = pd.DataFrame(index=pd.DatetimeIndex(pd.date_range(freq="T", start=start, periods=0, tz="UTC")),
                               dtype=np.float64, columns=Xch.data_keys)
             assert df is not None, "failed to create ohlcv df for {}-{} = {} minutes".format(
                 start.strftime(Env.dt_format), when.strftime(Env.dt_format), minutes)
         else:
-            last_tic = df.index[len(df.index)-1].to_pydatetime()
+            last_tic = df.index[len(df.index)-1]
             dtlast = last_tic  # ! .replace(tzinfo=None)
-            dfdiff = int((when - dtlast) / timedelta(minutes=1))
+            dfdiff = int((when - dtlast) / pd.Timedelta(minutes-1, unit='T'))
             if dfdiff < remaining:
                 remaining = dfdiff
         return df, remaining
 
-    def get_ohlcv(base, minutes, when):
-        """Returns the last 'minutes' OHLCV values of pair before 'when'.
+    def __ohlcvs2df_fill_gaps(ohlcvs, df, fromdate, base):
+        prev_tic = fromdate - pd.Timedelta(1, unit='T')
+        count = 0
+        last_tic = None
+        for ohlcv in ohlcvs:
+            tic = pd.Timestamp(datetime.utcfromtimestamp(ohlcv[0]/1000), tz='UTC')
+            if int((tic - prev_tic)/pd.Timedelta(1, unit='T')) > 1:
+                print(f"ohlcv time gap for {base} between {prev_tic} and {tic}")
+                if prev_tic < fromdate:  # repair first tics
+                    # ! TODO comparison shall check whether df[prev_tic] is present
+                    print(f"no repair of missing history data for {base} before first record")
+                    return None
+                else:
+                    prev_tic += pd.Timedelta(1, unit='T')
+                    while (prev_tic < tic):  # fills time gaps with lastrecord before gap
+                        df.loc[prev_tic] = df.loc[last_tic]
+                        count += 1
+                        prev_tic += pd.Timedelta(1, unit='T')
+            last_tic = tic
+            df.loc[last_tic] = ohlcv[1:6]
+            count += 1
+            prev_tic += pd.Timedelta(1, unit='T')
+        return count
+
+    def __check_df_result(df, minutes):
+        last_tic = df.index[len(df)-1]
+        last_tic = df.index[0]
+        for ix in range(len(df)):
+            tic = df.index[ix]
+            if (ix > 0) and (60 != int(pd.Timedelta((tic - last_tic), unit='T').seconds)):
+                diff = int(pd.Timedelta((tic - last_tic), unit='T'))
+                print(f"ix: {ix} tic: {tic} - last_tic: {last_tic} != {diff} minute")
+            if df.loc[tic].isna().any():
+                print(f"detetced Nan at ix {ix}: {df[tic]}")
+            last_tic = tic
+        # print("consistency check done")
+
+    def get_ohlcv(base, minutes, last_minute):
+        """Returns the last 'minutes' OHLCV values of pair before 'last_minute'.
 
         Is also used to calculate the average minute volume over the last hour
         that is used in buy orders to determine the max buy volume.
 
         Exceptions:
             1) gaps in tics (e.g. maintenance) ==> will be filled with last values before the gap,
-            2) when before df cache coverage (e.g. simulation) ==> # TODO
+            2) last_minute before df cache coverage (e.g. simulation) ==> # TODO
         """
-        when = pd.Timestamp(when).replace(second=0, microsecond=0, nanosecond=0)  # ! , tzinfo=None)
-        when = when.to_pydatetime()
-        when = when.replace(tzinfo=pytz.utc)
-        minutes += 1
-        df, remaining = Xch.__get_ohlcv_cache(base, when, minutes)
+        # print(f"last_minute: {last_minute}  minutes{minutes}")
+        last_minute = pd.Timestamp(last_minute).replace(second=0, microsecond=0, nanosecond=0)
+        last_minute += pd.Timedelta(1, unit='T')  # one minute later to include the `last_minute`
+        minutes += 1  # `minutes` is extended by one to replace the last old and incomplete sample
+
+        df, remaining = Xch.__get_ohlcv_cache(base, last_minute, minutes)
+        # print(df.tail(5))
         sym = Xch.xhc_sym_of_base(base)
-        count = 0
         while remaining > 0:
-            fromdate = when - timedelta(minutes=remaining-1)
-            since = int((fromdate - datetime(1970, 1, 1, tzinfo=pytz.utc)).total_seconds() * 1000)
+            fromdate = last_minute - pd.Timedelta(remaining, unit='T')
             # print(f"{nowstr()} {base} fromdate {env.timestr(fromdate)} minutes {remaining}")
-            ohlcvs = Xch.__fetch_ohlcv(sym, "1m", since=since, limit=remaining)
+            ohlcvs = Xch.__fetch_ohlcv(sym, since=fromdate, minutes=remaining)
             # only 1000 entries are returned by one fetch
             if ohlcvs is None:
                 print(
                     "{} get_ohlcv ERROR: {} None result when requesting {} minutes from: {}".format(
                         nowstr(), sym, remaining, fromdate.strftime(Env.dt_format)))
                 return None
-            if len(ohlcvs) == 0:
+
+            if len(ohlcvs) > 0:
+                remaining -= Xch.__ohlcvs2df_fill_gaps(ohlcvs, df, fromdate, base)
+                # print(df.head(3))
+                # print(df.tail(3))
+                # print(f"{base} len(df): {len(df)} , minutes: {minutes} minutes, remaining: {remaining} minutes ")
+            else:
                 print(
-                    "{} get_ohlcv ERROR: {} empty when requesting {} minutes from: {}".format(
-                        nowstr(), sym, remaining, fromdate.strftime(Env.dt_format)))
-                return None
-            prev_tic = fromdate - timedelta(minutes=1)
-            itic = None
-            lastohlcv = None
-            for ohlcv in ohlcvs:
-                tic = pd.to_datetime(datetime.utcfromtimestamp(ohlcv[0]/1000))
-                tic = tic.replace(tzinfo=pytz.utc)
-                if int((tic - prev_tic)/timedelta(minutes=1)) > 1:
-                    print(f"ohlcv time gap for {base} between {prev_tic} and {tic}")
-                    if prev_tic < fromdate:  # repair first tics
-                        print(f"no repair of missing history data for {base}")
-                        return None
-                        prev_tic += timedelta(minutes=1)
-                        iptic = itic = pd.Timestamp(prev_tic).tz_convert(tz="UTC")
-                        df.loc[iptic] = [ohlcv[1], ohlcv[2], ohlcv[3], ohlcv[4], ohlcv[5]]
-                        df.loc[iptic, "volume"] = 0  # indicate gap fillers with volume == 0
-                        remaining -= 1
-                    prev_tic += timedelta(minutes=1)
-                    while (prev_tic < tic):
-                        iptic = pd.Timestamp(prev_tic).tz_convert(tz="UTC")
-                        df.loc[iptic] = df.loc[itic]
-                        remaining -= 1
-                        prev_tic += timedelta(minutes=1)
-                itic = pd.Timestamp(tic).tz_convert("UTC")
-                df.loc[itic] = [ohlcv[1], ohlcv[2], ohlcv[3], ohlcv[4], ohlcv[5]]
-                remaining -= 1
-                prev_tic += timedelta(minutes=1)
-                count += 1
-                if lastohlcv == ohlcv:
-                    print(f"no progress count: {count}  ohlv: {ohlcv}  lastohlcv: {lastohlcv}")
-                lastohlcv = ohlcv
+                    "{} get_ohlcv ERROR: {} empty when requesting {} minutes from: {} - last df tic {}".format(
+                        nowstr(), sym, remaining, fromdate.strftime(Env.dt_format), df.index[len(df)-1]))
+                break
 
         Xch.ohlcv[base] = df
         if len(df) < minutes:
             print(f"{base} len(df) {len(df)} < {minutes} minutes")
+        Xch.__check_df_result(df, minutes)
         return df
 
     def __last_hour_performance(ohlcv_df):
@@ -496,16 +514,19 @@ def OBSOLETE_merge_asset_dataframe(path, base):
 
 
 def check_df(df):
-    diff = pd.Timedelta(value=1, unit="m")
+    # print(df.head())
+    diff = pd.Timedelta(value=1, unit="T")
     last = this = df.index[0]
     ok = True
+    ix = 0
     for tix in df.index:
         if this != tix:
-            print(f"last: {last} tix: {tix} this: {this}")
+            print(f"ix: {ix} last: {last} tix: {tix} this: {this}")
             ok = False
             this = tix
         last = tix
         this += diff
+        ix += 1
     return ok
 
 
@@ -529,22 +550,24 @@ def load_asset(base):
         print(f"supplementing {base}")
         hdf = ccd.load_asset_dataframe(base)
 
-        last = (hdf.index[len(hdf)-1]).to_pydatetime()
-        last = last.replace(tzinfo=None)
-        now = datetime.utcnow()
-        diffmin = int((now - last)/timedelta(minutes=1))
+        last = (hdf.index[len(hdf)-1])
+        # last = last.replace(tzinfo=None)
+        now = pd.Timestamp.utcnow()
+        diffmin = int((now - last)/pd.Timedelta(1, unit='T'))
         ohlcv_df = Xch.get_ohlcv(base, diffmin, now)
         if ohlcv_df is None:
             print("skipping {}".format(base))
             continue
         tix = hdf.index[len(hdf)-1]
-        while tix == ohlcv_df.index[0]:
-            ohlcv_df = ohlcv_df.drop([tix])
+        if tix == ohlcv_df.index[0]:
+            hdf = hdf.drop([tix])  # the last saved sample is incomple and needs to be updated
+            # print("updated last sample of saved cache")
         hdf = pd.concat([hdf, ohlcv_df], sort=False)
         ok2save = check_df(hdf)
-        print(f"merged df checked: {ok2save}")
         if ok2save:
             ccd.save_asset_dataframe(hdf, base)
+        else:
+            print(f"merged df checked: {ok2save} - dataframe not saved")
 
 
 if __name__ == "__main__":
