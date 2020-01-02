@@ -481,7 +481,7 @@ def OBSOLETE_merge_asset_dataframe(path, base):
     """
     # "loads the object via msgpack"
     fname = path + "btc_usdt" + "_DataFrame.msg"
-    btcusdt = ccd.load_asset_dataframe("btc")
+    btcusdt = ccd.load_asset_dataframe("btc", path=Env.cache_path)
     if base != "btc":
         fname = path + base + "_btc" + "_DataFrame.msg"
         basebtc = ccd.load_asset_dataframefile(fname)
@@ -548,7 +548,7 @@ def load_asset(base):
     print(Env.usage.bases)  # Env.usage.bases)
     for base in Env.usage.bases:
         print(f"supplementing {base}")
-        hdf = ccd.load_asset_dataframe(base)
+        hdf = ccd.load_asset_dataframe(base, path=Env.cache_path)
 
         last = (hdf.index[len(hdf)-1])
         # last = last.replace(tzinfo=None)

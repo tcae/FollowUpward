@@ -31,8 +31,8 @@ NA = "not assigned"
 TRAIN = "training"
 VAL = "validation"
 TEST = "test"
-TARGETS = {HOLD: 0, BUY: 1, SELL: 2}  # dict with int encoding of target labels
-TARGET_NAMES = {0: HOLD, 1: BUY, 2: SELL}  # dict with int encoding of targets
+TARGETS = {BUY: 0, HOLD: 1, SELL: 2}  # dict with int encoding of target labels
+TARGET_NAMES = {1: HOLD, 0: BUY, 2: SELL}  # dict with int encoding of targets
 TARGET_KEY = 5
 LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
 MANDATORY_STEPS = 2  # number of steps for the smallest class (in general BUY)
@@ -170,7 +170,7 @@ class TargetsFeatures:
             and releases the original data afterwards
         """
         try:
-            df = ccd.load_asset_dataframe(self.base)
+            df = ccd.load_asset_dataframe(self.base, path=Env.cache_path)
         except env.MissingHistoryData:
             raise
         else:
@@ -279,37 +279,46 @@ class TargetsFeatures:
             self.last_close = self.df.iat[0, self.cix]
 
         def next_sample(self, tix):
+            """ TARGET label logic:
+                - SELL when price reaches in later steps SELL_THRESHOLD before BUY_THRESHOLD
+                  AND it is currently decreasing
+                - BUY when price reaches in later steps BUY_THRESHOLD before SELL_THRESHOLD
+                  AND it is currently increasing
+                - HOLD when price reaches in later steps SELL_THRESHOLD before BUY_THRESHOLD
+                  BUT it is currently increasing
+                - HOLD when price reaches in later steps BUY_THRESHOLD before SELL_THRESHOLD
+                  BUT it is currently decreasing
+                - HOLD when price is currently increasing but in later steps price falls below current price
+                - HOLD when price is currently decreasing but in later steps price gains above current price
+            """
+            urs = dict()
             this_close = self.df.iat[tix, self.cix]
             delta = (this_close - self.last_close) / self.last_close
-            self.unresolved_delta[tix] = delta
+            urs[tix] = delta
             for uix in self.unresolved_delta:
-                if uix == tix:
-                    continue
                 last_close = self.df.iat[uix, self.cix]
                 delta = (this_close - last_close) / last_close
                 if delta < SELL_THRESHOLD:
-                    if self.unresolved_delta[uix] < 0:
+                    if self.unresolved_delta[uix] < 0.:  # price decreases
                         self.df.iat[uix, self.lix] = TARGETS[SELL]
                     # else stay with df.iat[uix, lix] = TARGETS[HOLD]
-                    del self.unresolved_delta[uix]
-                if delta > BUY_THRESHOLD:
-                    if self.unresolved_delta[uix] > 0:
+                elif delta > BUY_THRESHOLD:
+                    if self.unresolved_delta[uix] > 0.:  # price increases
                         self.df.iat[uix, self.lix] = TARGETS[BUY]
                     # else stay with df.iat[uix, lix] = TARGETS[HOLD]
-                    del self.unresolved_delta[uix]
+                elif (delta > 0) and (self.unresolved_delta[uix] < 0.):
+                    pass
+                    # stay with df.iat[uix, lix] = TARGETS[HOLD]
+                elif (delta < 0) and (self.unresolved_delta[uix] > 0.):
+                    pass
+                    # stay with df.iat[uix, lix] = TARGETS[HOLD]
+                else:
+                    # keep monitoring
+                    urs[uix] = self.unresolved_delta[uix]
             self.last_close = this_close
+            self.unresolved_delta = urs
 
-    def __add_targets2(self, time_agg, df):
-        df['target2'] = TARGETS[HOLD]
-        lix = df.columns.get_loc('target2')
-        cix = df.columns.get_loc('close')
-        te = {slot: TargetsFeatures.TargetEvaluation(df, slot, lix, cix) for slot in range(0, time_agg)}
-        closeatsell = closeatbuy = 0
-        for tix in range(time_agg, len(df), 1):  # tix = time index
-            slot = (tix % time_agg)
-            te[slot].next_sample(tix)
-
-        # now correct peaks due to time_agg approach
+    def __signal_spike_cleanup(self, time_agg, df, lix, cix):
         closeatsell = dict()
         closeatbuy = dict()
         for tix in range(time_agg, len(df), 1):  # tix = time index
@@ -323,7 +332,7 @@ class TargetsFeatures:
                     if sell_buy < holdgain:
                         # if fee loss more than dip loss/gain then smoothing
                         df.iat[uix, lix] = TARGETS[HOLD]
-                    del closeatsell[uix]
+                closeatsell = dict()
             if df.iat[tix, lix] == TARGETS[SELL]:
                 # smooth buy peaks if beneficial
                 closeatsell[tix] = this_close
@@ -332,7 +341,42 @@ class TargetsFeatures:
                     if buy_sell < 0:
                         # if fee loss more than dip loss/gain then smoothing
                         df.iat[uix, lix] = TARGETS[HOLD]
-                    del closeatbuy[uix]
+                closeatbuy = dict()
+
+    def __add_targets2(self, time_agg, df):
+        """ Target label logic see TargetEvaluation.next_sample().
+            Afterwards clean up of trade signal spikes that don't pay off.
+            Finally close HOLD gaps between consequitive sell or buy signals
+            with the corresponding signal to have more training samples for
+            these classes.
+        """
+        df['target2'] = TARGETS[HOLD]
+        lix = df.columns.get_loc("target2")
+        cix = df.columns.get_loc("close")
+        te = {slot: TargetsFeatures.TargetEvaluation(df, slot, lix, cix) for slot in range(0, time_agg)}
+        for tix in range(time_agg, len(df), 1):  # tix = time index
+            slot = (tix % time_agg)
+            te[slot].next_sample(tix)
+        self.__signal_spike_cleanup(time_agg, df, lix, cix)
+
+        # now close gaps between consequitive sell or buy signals
+        last_signal = TARGETS[HOLD]
+        last_ix = 0
+        for tix in range(len(df)):  # tix = time index
+            this_signal = df.iat[tix, lix]
+            if last_signal == TARGETS[HOLD]:
+                if this_signal != TARGETS[HOLD]:
+                    last_signal = this_signal
+                    last_ix = tix
+            else:  # last_signal != TARGETS[HOLD]:
+                if this_signal == TARGETS[HOLD]:
+                    continue
+                elif this_signal == last_signal:  # fill gap
+                    df.iloc[last_ix:tix, lix] = this_signal
+                # opposite signals => no gap to fill or
+                # equal trade signals and gap just filled
+                last_ix = tix
+                last_signal = this_signal
 
     def __add_targets(self, time_agg, df):
         """ target = achieved if improvement > 1% without intermediate loss of more than 0.2%
@@ -449,7 +493,10 @@ class TargetsFeatures:
         if "target" not in self.minute_data:
             self.__add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
             self.__add_targets2(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
+            self.__add_targets2(1, tf_aggs[1])  # add aggregation targets
             self.minute_data["target"] = tf_aggs[self.target_key]["target"]
+            self.minute_data["target2"] = tf_aggs[self.target_key]["target2"]
+            self.minute_data["target3"] = tf_aggs[1]["target2"]
             # print("calculating targets")
         else:
             # print("reusing targets")
@@ -560,7 +607,7 @@ class TargetsFeatures2(TargetsFeatures):
             self.minute_data = None
             raise env.MissingHistoryData("{}–{} target {}min with empty minute data".format(
                                      self.base, self.quote, self.target_key))
-        # to be modified: tf_aggs = self.__calc_aggregation(self.minute_data, Env.time_aggs)
+        tf_aggs = super().__calc_aggregation(self.minute_data, Env.time_aggs)
         if "target" not in self.minute_data:
             super().__add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
             super().__add_targets2(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
@@ -580,9 +627,27 @@ class TargetsFeatures2(TargetsFeatures):
             and releases the original data afterwards
         """
         try:
-            df = ccd.load_asset_dataframe(self.base)
+            df = ccd.load_asset_dataframe(self.base, path=Env.cache_path)
         except env.MissingHistoryData:
             raise
         else:
             self.calc_features_and_targets(df)
             report_setsize(self.base, self.vec)
+
+
+def target_labels(target_id):
+    return TARGET_NAMES[target_id]
+
+
+if __name__ == "__main__":
+    env.test_mode()
+    base = "xrp"
+    df = ccd.load_asset_dataframe(base, Env.data_path)
+    df = df.loc[(df.index >= pd.Timestamp("2019-01-01 15:59:00+00:00")) &
+                (df.index <= pd.Timestamp("2019-01-31 15:58:00+00:00"))]
+    tf = TargetsFeatures(base)
+    tf.calc_features_and_targets(df)
+    tf.minute_data["label"] = tf.minute_data["target"].apply(lambda x: TARGET_NAMES[x])
+    tf.minute_data["label2"] = tf.minute_data["target2"].apply(lambda x: TARGET_NAMES[x])
+    print(tf.minute_data.head(2))
+    print(tf.minute_data.tail(2))

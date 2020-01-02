@@ -35,7 +35,7 @@ def save_asset_dataframe(df, base, path=Env.data_path):
     df.to_hdf(fname, sym, mode="w")
 
 
-def load_asset_dataframe(base, path=Env.data_path, limit=None):
+def load_asset_dataframe(base, path="missing path", limit=None):
     """ loads the base/quote data
     """
     df = None

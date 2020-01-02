@@ -350,16 +350,16 @@ def update_detail_graph(base, indicators, start, end):
     dcdf = cdf[base]
     dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
     dcdf = dcdf.resample(aggregation).agg({"open": "first", "close": "last", "high": "max",
-                                            "low": "min", })  # "volume": "sum"
+                                           "low": "min", })  # "volume": "sum"
     if (dcdf is not None) and (len(dcdf) > 0):
         normfactor = dcdf.iloc[0].open
         dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
     graph_bases.append(
         go.Candlestick(x=dcdf.index,
-                        open=dcdf.open,
-                        high=dcdf.high,
-                        low=dcdf.low,
-                        close=dcdf.close))
+                       open=dcdf.open,
+                       high=dcdf.high,
+                       low=dcdf.low,
+                       close=dcdf.close))
     return {
         'data': graph_bases,
         'layout': {
@@ -388,5 +388,5 @@ def load_crypto_data():
 
 if __name__ == '__main__':
     # load_crypto_data()
-    cdf = {base: ccd.load_asset_dataframe(base) for base in Env.usage.bases}
+    cdf = {base: ccd.load_asset_dataframe(base, path=Env.cache_path) for base in Env.usage.bases}
     app.run_server(debug=True)

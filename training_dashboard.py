@@ -10,7 +10,8 @@ from dash.dependencies import Input, Output
 import pandas as pd
 import numpy as np
 from env_config import Env
-# import env_config as env
+import env_config as env
+import crypto_targets_features as ctf
 import cached_crypto_data as ccd
 import indicators as ind
 
@@ -116,6 +117,15 @@ app.layout = html.Div([
 ])
 
 
+def df_check(df, timerange):
+    if timerange is None:
+        print(f"timerange: {timerange}")
+    else:
+        print(f"timerange: all")
+    print(df.head(1))
+    print(df.tail(1))
+
+
 @app.callback(
     dash.dependencies.Output('full-time-graph', 'figure'),
     [dash.dependencies.Input('crossfilter-crypto-select', 'value')])
@@ -123,6 +133,7 @@ def update_graph(bases):
     graph_bases = []
     if bases is not None:
         for base in bases:
+            # df_check(cdf[base], None)
             dcdf = cdf[base].resample("D").agg({"open": "first"})
             # dcdf = cdf[base].resample("D").agg({"open": "first", "close": "last", "high": "max",
             #                                     "low": "min", "volume": "sum"})
@@ -204,148 +215,57 @@ def display_relayout_data(relayoutData):
     return json.dumps(relayoutData, indent=2)
 
 
-@app.callback(
-    dash.dependencies.Output('halfyear-graph', 'figure'),
-    [dash.dependencies.Input('full-time-graph', 'clickData'),
-     dash.dependencies.Input('crossfilter-crypto-select', 'value'),
-     dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
-def update_halfyear_by_click(click_data, bases, regression_base):
-    """ Displays candlestick charts of the selected time and max time aggs back
-        and a one dimensional data regression df with the same Datetimeindex as the input df.
-    """
-    graph_bases = []
-    aggregation = "H"
-    end = pd.Timestamp.now(tz='UTC')
-    if bases is not None and len(bases) > 0:
-        if click_data is None:
-            end = cdf[bases[0]].index[len(cdf[bases[0]])-1]
-        else:
-            end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
-    start = end - pd.Timedelta(365/2, "D")  # one year
-
-    aggmin = (end-start)/pd.Timedelta(60, "m")  # aggregate hourly
-    if regression_base is not None:
-        dcdf = cdf[regression_base]
-        dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
+def normalize_open(dcdf, start, end, aggregation):
+    dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
+    if aggregation != "T":
         dcdf = dcdf.resample(aggregation).agg({"open": "first"})
-        if (dcdf is not None) and (len(dcdf) > 0):
-            normfactor = dcdf.iloc[0].open
-            dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
-        delta, Y_pred = time_linear_regression(dcdf["open"])
-        legendname = "{:4.0f} h = delta/h: {:4.3f}".format(aggmin, delta)
-        graph_bases.append(
-            dict(
-                x=dcdf.index,
-                y=Y_pred,
-                mode='lines',  # 'lines+markers'
-                name=legendname))
-
-    if bases is None:
-        bases = []
-
-    timeinfo = aggregation + ": " + start.strftime(Env.dt_format) + " - " + end.strftime(Env.dt_format)
-    for base in bases:
-        # dcdf = cdf[base].resample(aggregation).agg({"open": "first"})
-        dcdf = cdf[base]
-        dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
-        dcdf = dcdf.resample(aggregation).agg({"open": "first"})
-        if (dcdf is not None) and (len(dcdf) > 0):
-            normfactor = dcdf.iloc[0].open
-            dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
-        graph_bases.append(dict(
-            x=dcdf.index,
-            y=dcdf["open"],
-            mode='lines',  # 'lines+markers'
-            name=base
-        ))
-    return {
-        'data': graph_bases,
-        'layout': {
-            'height': 450,
-            'margin': {'l': 20, 'b': 30, 'r': 10, 't': 10},
-            'annotations': [{
-                'x': 0, 'y': 0.85, 'xanchor': 'left', 'yanchor': 'bottom',
-                'xref': 'paper', 'yref': 'paper', 'showarrow': False,
-                'align': 'left', 'bgcolor': 'rgba(255, 255, 255, 0.5)',
-                'text': "normalized crypto prices"
-            }],
-            'yaxis': {'type': 'linear'},
-            'xaxis': {'showgrid': False, 'title': timeinfo}
-        }
-    }
+    if (dcdf is not None) and (len(dcdf) > 0):
+        normfactor = dcdf.iloc[0].open
+        dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
+    return dcdf
 
 
-@app.callback(
-    dash.dependencies.Output('ten-day-time-graph', 'figure'),
-    [dash.dependencies.Input('halfyear-graph', 'clickData'),
-     dash.dependencies.Input('crossfilter-crypto-select', 'value'),
-     dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
-def update_ten_day_by_click(click_data, bases, regression_base):
-    """ Displays candlestick charts of the selected time and max time aggs back
-        and a one dimensional data regression df with the same Datetimeindex as the input df.
-    """
-    graph_bases = []
-    aggregation = "5T"
-    end = pd.Timestamp.now(tz='UTC')
-    if bases is not None and len(bases) > 0:
-        if click_data is None:
-            end = cdf[bases[0]].index[len(cdf[bases[0]])-1]
+def normalize_ohlc(dcdf, start, end, aggregation):
+    dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
+    if aggregation != "T":
+        dcdf = dcdf.resample(aggregation).agg({"open": "first", "close": "last", "high": "max",
+                                               "low": "min"})  # "volume": "sum"
+    if (dcdf is not None) and (len(dcdf) > 0):
+        normfactor = dcdf.iloc[0].open
+        dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
+    return dcdf
+
+
+def regression_graph(start, end, dcdf, aggregation):
+    reduced_dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
+    delta, Y_pred = time_linear_regression(reduced_dcdf["open"])
+    aggmin = (end - start) / pd.Timedelta(1, aggregation)
+    legendname = "{:4.0f} {} = delta/h: {:4.3f}".format(aggmin, aggregation, delta)
+    return dict(x=reduced_dcdf.index, y=Y_pred, mode='lines', name=legendname, yaxis='y')  # 'lines+markers'
+
+
+def normalized_regression_graph(start, end, dcdf, aggregation):
+    reduced_dcdf = normalize_open(dcdf, start, end, aggregation)
+    delta, Y_pred = time_linear_regression(reduced_dcdf["open"])
+    aggmin = (end - start) / pd.Timedelta(1, aggregation)
+    legendname = "{:4.0f} {} = delta/h: {:4.3f}".format(aggmin, aggregation, delta)
+    return dict(x=reduced_dcdf.index, y=Y_pred, mode='lines', name=legendname, yaxis='y')  # 'lines+markers'
+
+
+def volume_graph(start, end, dcdf):
+    dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
+    INCREASING_COLOR = '#17BECF'
+    DECREASING_COLOR = '#7F7F7F'
+    colors = []
+    for i in range(len(dcdf.close)):
+        if i != 0:
+            if dcdf.close[i] > dcdf.close[i-1]:
+                colors.append(INCREASING_COLOR)
+            else:
+                colors.append(DECREASING_COLOR)
         else:
-            end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
-    start = end - pd.Timedelta(Env.minimum_minute_df_len, "m")
-
-    aggmin = (end-start)/pd.Timedelta(1, "m")
-    if regression_base is not None:
-        dcdf = cdf[regression_base]
-        dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
-        dcdf = dcdf.resample(aggregation).agg({"open": "first", "close": "last", "high": "max",
-                                               "low": "min", })  # "volume": "sum"
-        if (dcdf is not None) and (len(dcdf) > 0):
-            normfactor = dcdf.iloc[0].open
-            dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
-        delta, Y_pred = time_linear_regression(dcdf["open"])
-        legendname = "{:4.0f} min = delta/h: {:4.3f}".format(aggmin, delta)
-        graph_bases.append(
-            dict(
-                x=dcdf.index,
-                y=Y_pred,
-                mode='lines',  # 'lines+markers'
-                name=legendname))
-
-    if bases is None:
-        bases = []
-
-    timeinfo = aggregation + ": " + start.strftime(Env.dt_format) + " - " + end.strftime(Env.dt_format)
-    for base in bases:
-        # dcdf = cdf[base].resample(aggregation).agg({"open": "first"})
-        dcdf = cdf[base]
-        dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
-        dcdf = dcdf.resample(aggregation).agg({"open": "first", "close": "last", "high": "max",
-                                               "low": "min", })  # "volume": "sum"
-        if (dcdf is not None) and (len(dcdf) > 0):
-            normfactor = dcdf.iloc[0].open
-            dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
-        graph_bases.append(dict(
-            x=dcdf.index,
-            y=dcdf["open"],
-            mode='lines',  # 'lines+markers'
-            name=base
-        ))
-    return {
-        'data': graph_bases,
-        'layout': {
-            'height': 450,
-            'margin': {'l': 20, 'b': 30, 'r': 10, 't': 10},
-            'annotations': [{
-                'x': 0, 'y': 0.85, 'xanchor': 'left', 'yanchor': 'bottom',
-                'xref': 'paper', 'yref': 'paper', 'showarrow': False,
-                'align': 'left', 'bgcolor': 'rgba(255, 255, 255, 0.5)',
-                'text': "normalized crypto prices"
-            }],
-            'yaxis': {'type': 'linear'},
-            'xaxis': {'showgrid': False, 'title': timeinfo}
-        }
-    }
+            colors.append(DECREASING_COLOR)
+    return dict(x=dcdf.index, y=dcdf.volume, marker=dict(color=colors), type='bar', yaxis='y2', name='Volume')
 
 
 def time_linear_regression(df):
@@ -369,62 +289,30 @@ def time_linear_regression(df):
     return (delta, df.Y_regression)
 
 
-@app.callback(
-    dash.dependencies.Output('full-day-time-graph', 'figure'),
-    [dash.dependencies.Input('ten-day-time-graph', 'clickData'),
-     dash.dependencies.Input('crossfilter-crypto-select', 'value'),
-     dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
-def update_full_day_by_click(click_data, bases, regression_base):
-    """ Displays candlestick charts of the selected time and max time aggs back
-        together with the 10 day regression line from the radioi selected base
+def open_timeline_graph(timerange, aggregation, click_data, bases, regression_base):
+    """ Displays a line chart of open prices
+        and a one dimensional data regression df with the same Datetimeindex as the input df.
     """
     graph_bases = []
-    aggregation = "T"
     end = pd.Timestamp.now(tz='UTC')
     if bases is not None and len(bases) > 0:
         if click_data is None:
             end = cdf[bases[0]].index[len(cdf[bases[0]])-1]
         else:
             end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
-    start = end - pd.Timedelta(24*60, "m")
+    start = end - timerange
 
-    aggmin = (end-start)/pd.Timedelta(1, "m")
     if regression_base is not None:
-        dcdf = cdf[regression_base]
-        dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
-        dcdf = dcdf.resample(aggregation).agg({"open": "first", "close": "last", "high": "max",
-                                               "low": "min", })  # "volume": "sum"
-        if (dcdf is not None) and (len(dcdf) > 0):
-            normfactor = dcdf.iloc[0].open
-            dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
-        delta, Y_pred = time_linear_regression(dcdf["open"])
-        legendname = "{:4.0f} min = delta/h: {:4.3f}".format(aggmin, delta)
-        graph_bases.append(
-            dict(
-                x=dcdf.index,
-                y=Y_pred,
-                mode='lines',  # 'lines+markers'
-                name=legendname))
+        graph_bases.append(normalized_regression_graph(start, end, cdf[regression_base], aggregation))
 
     if bases is None:
         bases = []
+    for base in bases:
+        # df_check(cdf[base], timerange)
+        dcdf = normalize_open(cdf[base], start, end, aggregation)
+        graph_bases.append(dict(x=dcdf.index, y=dcdf["open"],  mode='lines', name=base))
 
     timeinfo = aggregation + ": " + start.strftime(Env.dt_format) + " - " + end.strftime(Env.dt_format)
-    for base in bases:
-        dcdf = cdf[base]
-        dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
-        dcdf = dcdf.resample(aggregation).agg({"open": "first", "close": "last", "high": "max",
-                                               "low": "min", })  # "volume": "sum"
-        if (dcdf is not None) and (len(dcdf) > 0):
-            normfactor = dcdf.iloc[0].open
-            dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
-        graph_bases.append(dict(
-            x=dcdf.index,
-            y=dcdf["open"],
-            mode='lines',  # 'lines+markers'
-            name=base
-        ))
-
     return {
         'data': graph_bases,
         'layout': {
@@ -442,39 +330,82 @@ def update_full_day_by_click(click_data, bases, regression_base):
     }
 
 
-def normalize_data(dcdf, start, end, aggregation="T"):
+@app.callback(
+    dash.dependencies.Output('halfyear-graph', 'figure'),
+    [dash.dependencies.Input('full-time-graph', 'clickData'),
+     dash.dependencies.Input('crossfilter-crypto-select', 'value'),
+     dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
+def update_halfyear_by_click(click_data, bases, regression_base):
+    aggregation = "H"
+    timerange = pd.Timedelta(365/2, "D")
+    return open_timeline_graph(timerange, aggregation, click_data, bases, regression_base)
+
+
+@app.callback(
+    dash.dependencies.Output('ten-day-time-graph', 'figure'),
+    [dash.dependencies.Input('halfyear-graph', 'clickData'),
+     dash.dependencies.Input('crossfilter-crypto-select', 'value'),
+     dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
+def update_ten_day_by_click(click_data, bases, regression_base):
+    aggregation = "T"
+    timerange = pd.Timedelta(Env.minimum_minute_df_len, "T")
+    return open_timeline_graph(timerange, aggregation, click_data, bases, regression_base)
+
+
+@app.callback(
+    dash.dependencies.Output('full-day-time-graph', 'figure'),
+    [dash.dependencies.Input('ten-day-time-graph', 'clickData'),
+     dash.dependencies.Input('crossfilter-crypto-select', 'value'),
+     dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
+def update_full_day_by_click(click_data, bases, regression_base):
+    aggregation = "T"
+    timerange = pd.Timedelta(24*60, "T")
+    return open_timeline_graph(timerange, aggregation, click_data, bases, regression_base)
+
+
+def target_list(base, start, end, dcdf):
+    # labels1 = [i for i in range(241)]
+    # print(len(labels1), labels1)
+    # return labels1, None
+    target_dict = dict()
+    fstart = start - pd.Timedelta(Env.minimum_minute_df_len, "m")
+    fdf = dcdf.loc[(dcdf.index >= fstart) & (dcdf.index <= end)]
+    tf = ctf.TargetsFeatures(base)
+    tf.calc_features_and_targets(fdf)
+    dcdf = tf.minute_data.loc[(tf.minute_data.index >= start) & (tf.minute_data.index <= end)]
+    targets = [t for t in dcdf["target"]]
+    labels = [ctf.TARGET_NAMES[t] for t in targets]
+    target_dict["target1"] = {"targets": targets, "labels": labels}
+    targets = [t for t in dcdf["target2"]]
+    labels = [ctf.TARGET_NAMES[t] for t in targets]
+    target_dict["target2"] = {"targets": targets, "labels": labels}
+    targets = [t for t in dcdf["target3"]]
+    labels = [ctf.TARGET_NAMES[t] for t in targets]
+    target_dict["target3"] = {"targets": targets, "labels": labels}
+    # labels2 = [ctf.TARGET_NAMES[t] for t in dcdf["target2"]]
+    # print(len(labels1), labels1, len(targets1), targets1)
+    # print(len(labels2), labels2)
+    return target_dict
+
+
+def target_heatmap(base, start, end, dcdf, target_dict):
+    # dcdf neds to be expanded to get more history for feature calculation
     dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
-    if aggregation != "T":
-        dcdf = dcdf.resample(aggregation).agg({"open": "first", "close": "last", "high": "max",
-                                               "low": "min", })  # "volume": "sum"
-    if (dcdf is not None) and (len(dcdf) > 0):
-        normfactor = dcdf.iloc[0].open
-        dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
-    return dcdf
-
-
-def regression_graph(start, end, dcdf):
-    reduced_dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
-    delta, Y_pred = time_linear_regression(reduced_dcdf["open"])
-    aggmin = (end - start) / pd.Timedelta(1, "m")
-    legendname = "{:4.0f} min = delta/h: {:4.3f}".format(aggmin, delta)
-    return dict(x=reduced_dcdf.index, y=Y_pred, mode='lines', name=legendname, yaxis='y')  # 'lines+markers'
-
-
-def volume_graph(start, end, dcdf):
-    dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
-    INCREASING_COLOR = '#17BECF'
-    DECREASING_COLOR = '#7F7F7F'
-    colors = []
-    for i in range(len(dcdf.close)):
-        if i != 0:
-            if dcdf.close[i] > dcdf.close[i-1]:
-                colors.append(INCREASING_COLOR)
-            else:
-                colors.append(DECREASING_COLOR)
-        else:
-            colors.append(DECREASING_COLOR)
-    return dict(x=dcdf.index, y=dcdf.volume, marker=dict(color=colors), type='bar', yaxis='y2', name='Volume' )
+    # df_check(dcdf, pd.Timedelta(end-start, "m"))
+    return go.Heatmap(
+        x=dcdf.index, y=[i+1 for i in range(len(target_dict))],
+        z=[target_dict[t]["targets"] for t in target_dict], zmin=0, zmax=2,
+        yaxis='y3', name='labels',
+        text=[target_dict[t]["labels"] for t in target_dict],
+        colorscale='RdYlGn',
+        reversescale=True,
+        hoverinfo="x+y+z+text+name",
+        showscale=False,
+        # autocolorscale=False,
+        # colorscale=[[ctf.TARGETS[ctf.HOLD]/2, "rgb(255, 234, 0)"],
+        #             [ctf.TARGETS[ctf.SELL]/2, "rgb(255, 0, 0)"],
+        #             [ctf.TARGETS[ctf.BUY]/2, "rgb(116, 196, 118)"]],
+        colorbar=dict(tick0=0, dtick=1))
 
 
 @app.callback(
@@ -488,6 +419,7 @@ def update_detail_graph_by_click(click_data, base, indicators):
     """
     graph_bases = []
     dcdf = cdf[base]
+    zoom_in_time = 4*60
 
     aggregation = "T"
     end = pd.Timestamp.now(tz='UTC')
@@ -496,26 +428,32 @@ def update_detail_graph_by_click(click_data, base, indicators):
             end = cdf[base].index[len(cdf[base])-1]
         else:
             end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
-    start = end - pd.Timedelta(4*60, "m")
-    ndcdf = normalize_data(dcdf, start, end, aggregation)
+    start = end - pd.Timedelta(zoom_in_time, "m")
+    target_dict = target_list(base, start, end, dcdf)
+
+    ndcdf = normalize_ohlc(dcdf, start, end, aggregation)
+    # print(f"update_detail_graph_by_click: len(ndcdf): {len(ndcdf)}, len(labels): {len(labels1)}")
     graph_bases.append(
         go.Candlestick(x=ndcdf.index, open=ndcdf.open, high=ndcdf.high, low=ndcdf.low,
-                       close=ndcdf.close, yaxis='y'))
+                       close=ndcdf.close, yaxis='y',
+                       hoverinfo="x+y+z+text+name", text=target_dict["target1"]["labels"]))
     graph_bases.append(volume_graph(start, end, dcdf))
 
     if indicators is None:
         indicators = []
 
-    graph_bases.append(regression_graph(start, end, ndcdf))
-    graph_bases.append(regression_graph(end - pd.Timedelta(5, "m"), end, ndcdf))
-    graph_bases.append(regression_graph(end - pd.Timedelta(11, "m"), end - pd.Timedelta(6, "m"), ndcdf))
-    graph_bases.append(regression_graph(end - pd.Timedelta(30, "m"), end, ndcdf))
+    graph_bases.append(regression_graph(start, end, ndcdf, aggregation))
+    graph_bases.append(regression_graph(end - pd.Timedelta(5, "m"), end, ndcdf, aggregation))
+    graph_bases.append(regression_graph(end - pd.Timedelta(11, "m"), end - pd.Timedelta(6, "m"), ndcdf, aggregation))
+    graph_bases.append(regression_graph(end - pd.Timedelta(30, "m"), end, ndcdf, aggregation))
+
+    graph_bases.append(target_heatmap(base, start, end, ndcdf, target_dict))
 
     timeinfo = aggregation + ": " + start.strftime(Env.dt_format) + " - " + end.strftime(Env.dt_format)
     return {
         'data': graph_bases,
         'layout': {
-            'height': 650,
+            'height': 900,
             'margin': {'l': 20, 'b': 30, 'r': 10, 't': 10},
             'annotations': [{
                 'x': 0, 'y': 0.85, 'xanchor': 'left', 'yanchor': 'bottom',
@@ -523,83 +461,12 @@ def update_detail_graph_by_click(click_data, base, indicators):
                 'align': 'left', 'bgcolor': 'rgba(255, 255, 255, 0.5)',
                 'text': "normalized crypto prices"
             }],
-            'yaxis': {'type': 'linear', "domain": [0.2, 0.8]},
-            'yaxis2': {"domain": [0., 0.2], "showticklabels": False},
-            'xaxis': {'showgrid': False, 'title': timeinfo}
+            'yaxis2': {"domain": [0., 0.2]},
+            'yaxis3': {"domain": [0.2, 0.24], "showticklabels": False},
+            'yaxis': {'type': 'linear', "domain": [0.3, 1]},
+            'xaxis': {'showgrid': False, 'title': timeinfo, "rangeslider": {"visible": False}}
         }
     }
-
-
-# @app.callback(
-#     dash.dependencies.Output('volume-signals-graph', 'figure'),
-#     [dash.dependencies.Input('full-day-time-graph', 'clickData'),
-#      dash.dependencies.Input('crossfilter-crypto-radio', 'value'),
-#      dash.dependencies.Input('crossfilter-indicator-select', 'value')])
-# def update_volume_signals__graph_by_click(click_data, base, indicators):
-#     """ Displays volume and trade signals of the selected time and 4h back
-#         together with selected indicators
-#     """
-#     graph_bases = []
-#     dcdf = cdf[base]
-#     INCREASING_COLOR = '#17BECF'
-#     DECREASING_COLOR = '#7F7F7F'
-#     colors = []
-
-#     for i in range(len(dcdf.close)):
-#         if i != 0:
-#             if dcdf.close[i] > dcdf.close[i-1]:
-#                 colors.append(INCREASING_COLOR)
-#             else:
-#                 colors.append(DECREASING_COLOR)
-#         else:
-#             colors.append(DECREASING_COLOR)
-
-#     end = pd.Timestamp.now(tz='UTC')
-#     if base is not None:
-#         # print(base)
-#         if click_data is None:
-#             end = cdf[base].index[len(cdf[base])-1]
-#         else:
-#             end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
-#     start = end - pd.Timedelta(4*60, "m")
-#     aggregation = "T"
-#     timeinfo = aggregation + ": " + start.strftime(Env.dt_format) + " - " + end.strftime(Env.dt_format)
-#     dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
-#     if (dcdf is not None) and (len(dcdf) > 0):
-#         normfactor = dcdf.iloc[0].open
-#         dcdf = dcdf.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
-#     # dcdf = dcdf.resample(aggregation).agg({"open": "first", "close": "last", "high": "max",
-#     #                                        "low": "min", })  # "volume": "sum"
-#     # print("zoom-in", bases, indicators, start, end)
-#     go.Candlestick(x=dcdf.index, open=dcdf.open, high=dcdf.high, low=dcdf.low, close=dcdf.close)
-
-#     # dcc.Graph(
-#     #         id='example-graph',
-#     #         figure={
-#     #             'data': [
-#     #                 {'x': [1, 2, 3], 'y': [4, 1, 2], 'type': 'bar', 'name': 'SF'},
-#     #                 {'x': [1, 2, 3], 'y': [2, 4, 5], 'type': 'bar', 'name': u'Montréal'},
-#     #             ],
-#     #             'layout': {
-#     #                 'title': 'Dash Data Visualization'
-#     #             }
-#     #         }
-#     #     )
-#     return {
-#         'data': graph_bases,
-#         'layout': {
-#             'height': 450,
-#             'margin': {'l': 20, 'b': 30, 'r': 10, 't': 10},
-#             'annotations': [{
-#                 'x': 0, 'y': 0.85, 'xanchor': 'left', 'yanchor': 'bottom',
-#                 'xref': 'paper', 'yref': 'paper', 'showarrow': False,
-#                 'align': 'left', 'bgcolor': 'rgba(255, 255, 255, 0.5)',
-#                 'text': "normalized crypto prices"
-#             }],
-#             'yaxis': {'type': 'linear'},
-#             'xaxis': {'showgrid': False, 'title': timeinfo}
-#         }
-#     }
 
 
 def load_crypto_data():
@@ -613,5 +480,6 @@ def load_crypto_data():
 
 if __name__ == '__main__':
     # load_crypto_data()
-    cdf = {base: ccd.load_asset_dataframe(base) for base in Env.usage.bases}
+    env.test_mode()
+    cdf = {base: ccd.load_asset_dataframe(base, path=Env.data_path) for base in Env.usage.bases}
     app.run_server(debug=True)
