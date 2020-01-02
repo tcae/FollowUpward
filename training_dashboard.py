@@ -515,7 +515,7 @@ def update_detail_graph_by_click(click_data, base, indicators):
     return {
         'data': graph_bases,
         'layout': {
-            'height': 450,
+            'height': 650,
             'margin': {'l': 20, 'b': 30, 'r': 10, 't': 10},
             'annotations': [{
                 'x': 0, 'y': 0.85, 'xanchor': 'left', 'yanchor': 'bottom',
@@ -523,9 +523,8 @@ def update_detail_graph_by_click(click_data, base, indicators):
                 'align': 'left', 'bgcolor': 'rgba(255, 255, 255, 0.5)',
                 'text': "normalized crypto prices"
             }],
-            'yaxis': {'type': 'linear'},
-            # 'yaxis': {'type': 'linear', "domain": [0.2, 0.8]},
-            # 'yaxis2': {"domain": [0., 0.2], "showticklabels": False},
+            'yaxis': {'type': 'linear', "domain": [0.2, 0.8]},
+            'yaxis2': {"domain": [0., 0.2], "showticklabels": False},
             'xaxis': {'showgrid': False, 'title': timeinfo}
         }
     }
