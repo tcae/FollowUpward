@@ -16,11 +16,11 @@ def time_linear_regression(df):
     linear_regressor = LinearRegression()  # create object for the class
     linear_regressor.fit(X, Y)  # perform linear regression
     Y_pred = linear_regressor.predict(X)[:, 0]  # make predictions
-    df = df.to_frame()
-    df = df.assign(Y_regression=Y_pred)
-    df["delta"] = (df.Y_regression - df.Y_regression.shift(1))
+    # df = df.to_frame()
+    # df = df.assign(Y_regression=Y_pred)
+    # df["delta"] = (df.Y_regression - df.Y_regression.shift(1))
     # print("df.Y_reg", df.head(5))
     delta = Y_pred[1]-Y_pred[0]
-    timediff_factor = pd.Timedelta(60, unit="m") / (df.index[1]-df.index[0])
+    timediff_factor = float(pd.Timedelta(60, unit="m") / pd.Timedelta(df.index[1]-df.index[0]))
     delta = delta * timediff_factor
-    return (delta, df.Y_regression)
+    return (delta, Y_pred)

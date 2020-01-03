@@ -107,16 +107,16 @@ class TargetsFeatures:
         self.__base = base
         self.__quote = Env.quote
         assert (minute_dataframe is not None) or (path is not None)
-        if minute_dataframe is not None:
-            self.crypto_targets(minute_dataframe)
+        self.minute_data = minute_dataframe  # is DataFrame with ohlvc and target columns
+        if self.minute_data is not None:
+            self.crypto_targets()
         elif path is not None:
             try:
-                minute_dataframe = ccd.load_asset_dataframe(self.__base, path=path)
+                self.minute_data = ccd.load_asset_dataframe(self.__base, path=path)
             except env.MissingHistoryData:
                 raise
             else:
-                self.crypto_targets(minute_dataframe)
-        self.minute_data = minute_dataframe  # is DataFrame with ohlvc and target columns
+                self.crypto_targets()
         report_setsize(self.__base, minute_dataframe)
         self.vec = None  # is a  DataFrame with features columns and 'target', 'close' columns
 
