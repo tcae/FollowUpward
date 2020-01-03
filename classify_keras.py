@@ -666,62 +666,61 @@ class Cpc:
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"{env.timestr()} MLP performance assessment bulk split time: {tdiff:.0f} min")
 
-    def classify_per_sample(self):
-        start_time = timeit.default_timer()
-        # pm = PerfMatrix(0, chs.VAL)
-        perf = 0
-        buy_cl = 0
-        last_fvec = None
-        for bix, base in enumerate(self.hs.bases):
-            df = self.hs.set_of_type(base, chs.VAL)
-            tfv = self.hs.get_targets_features_of_base(base)
-            subset_df = cf.targets_to_features(tfv, df)
-            subset_len = len(subset_df.index)
-            for ix in range(subset_len):
-                fvec = subset_df.iloc[[ix]]  # just row ix
-                force_sell = False
-                if (ix > 0) and (buy_cl > 0):
-                    ts1 = last_fvec.index[0].to_pydatetime()
-                    ts2 = fvec.index[0].to_pydatetime()
-                    if (ts2 - ts1) != np.timedelta64(1, "m"):
-                        if buy_cl > 0:  # forced sell of last_vec but fvec may already be a buy
-                            close = last_fvec.at[last_fvec.index[0], "close"]
-                            perf += (close * (1 - ct.FEE) - buy_cl) / buy_cl
-                            buy_cl = 0
-                            print(f"forced step sell {base} on {fvec.index[0]} at {close}")
-                        print("force_sell: diff({} - {}) {} min > 1 min".format(
-                                ts2.strftime(Env.dt_format),
-                                ts1.strftime(Env.dt_format),
-                                (ts2 - ts1)))
-                    if ix == (subset_len - 1):
-                        print(f"force_sell: due to end of {base} samples")
-                        force_sell = True  # of fvec
+    # def classify_per_sample(self):
+    #     start_time = timeit.default_timer()
+    #     # pm = PerfMatrix(0, chs.VAL)
+    #     perf = 0
+    #     buy_cl = 0
+    #     last_fvec = None
+    #     for bix, base in enumerate(self.hs.bases):
+    #         df = self.hs.set_of_type(base, chs.VAL)
+    #         tfv = self.hs.get_targets_features_of_base(base)
+    #         subset_df = cf.targets_to_features(tfv, df)
+    #         subset_len = len(subset_df.index)
+    #         for ix in range(subset_len):
+    #             fvec = subset_df.iloc[[ix]]  # just row ix
+    #             force_sell = False
+    #             if (ix > 0) and (buy_cl > 0):
+    #                 ts1 = last_fvec.index[0].to_pydatetime()
+    #                 ts2 = fvec.index[0].to_pydatetime()
+    #                 if (ts2 - ts1) != np.timedelta64(1, "m"):
+    #                     if buy_cl > 0:  # forced sell of last_vec but fvec may already be a buy
+    #                         close = last_fvec.at[last_fvec.index[0], "close"]
+    #                         perf += (close * (1 - ct.FEE) - buy_cl) / buy_cl
+    #                         buy_cl = 0
+    #                         print(f"forced step sell {base} on {fvec.index[0]} at {close}")
+    #                     print("force_sell: diff({} - {}) {} min > 1 min".format(
+    #                             ts2.strftime(Env.dt_format),
+    #                             ts1.strftime(Env.dt_format),
+    #                             (ts2 - ts1)))
+    #                 if ix == (subset_len - 1):
+    #                     print(f"force_sell: due to end of {base} samples")
+    #                     force_sell = True  # of fvec
 
-                close = fvec.at[fvec.index[0], "close"]
-                cl = self.class_of_features(fvec, 0.7, 0.7, base)
-                if (cl != ct.TARGETS[ct.HOLD]) or force_sell:
-                    if buy_cl > 0:
-                        if (cl == ct.TARGETS[ct.SELL]) or force_sell:
-                            perf += (close * (1 - ct.FEE) - buy_cl) / buy_cl
-                            buy_cl = 0
-                            print(f"step sell {base} on {fvec.index[0]} at {close}")
-                    else:
-                        if cl == ct.TARGETS[ct.BUY]:
-                            buy_cl = close * (1 + ct.FEE)
-                            print(f"step buy {base} on {fvec.index[0]} at {close}")
-                last_fvec = fvec
-
+    #             close = fvec.at[fvec.index[0], "close"]
+    #             cl = self.class_of_features(fvec, 0.7, 0.7, base)
+    #             if (cl != ct.TARGETS[ct.HOLD]) or force_sell:
+    #                 if buy_cl > 0:
+    #                     if (cl == ct.TARGETS[ct.SELL]) or force_sell:
+    #                         perf += (close * (1 - ct.FEE) - buy_cl) / buy_cl
+    #                         buy_cl = 0
+    #                         print(f"step sell {base} on {fvec.index[0]} at {close}")
+    #                 else:
+    #                     if cl == ct.TARGETS[ct.BUY]:
+    #                         buy_cl = close * (1 + ct.FEE)
+    #                         print(f"step buy {base} on {fvec.index[0]} at {close}")
+    #             last_fvec = fvec
 
 #                pm.assess_sample_prediction(pred2, sample.close, sample.target, sample.tics,
 #                                            sample.descr)
 #        pm.report_assessment()
-        print(f"performance: {perf:6.0%}")
-        tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"{env.timestr()} MLP performance assessment samplewise time: {tdiff:.0f} min")
+        # print(f"performance: {perf:6.0%}")
+        # tdiff = (timeit.default_timer() - start_time) / 60
+        # print(f"{env.timestr()} MLP performance assessment samplewise time: {tdiff:.0f} min")
 
     def use_keras(self):
         self.classify_batch()
-        self.classify_per_sample()
+        # self.classify_per_sample()
 
 
 def plot_confusion_matrix(cm, class_names):

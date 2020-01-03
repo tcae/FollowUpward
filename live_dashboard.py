@@ -388,5 +388,5 @@ def load_crypto_data():
 
 if __name__ == '__main__':
     # load_crypto_data()
-    cdf = {base: ccd.load_asset_dataframe(base, path=Env.cache_path) for base in Env.usage.bases}
+    cdf = {base: ccd.load_asset_dataframe(base, path=Env.data_path) for base in Env.usage.bases}
     app.run_server(debug=True)

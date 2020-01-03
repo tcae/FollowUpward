@@ -382,13 +382,13 @@ def target_list(base, start, end, dcdf):
     tf.calc_features_and_targets(fdf)
     dcdf = tf.minute_data.loc[(tf.minute_data.index >= start) & (tf.minute_data.index <= end)]
 
-    targets = [t for t in dcdf["target_thresholds"]]
-    labels = [ct.TARGET_NAMES[t] for t in targets]
-    target_dict["target_thresholds"] = {"targets": targets, "labels": labels}
+    # targets = [t for t in dcdf["target_thresholds"]]
+    # labels = [ct.TARGET_NAMES[t] for t in targets]
+    # target_dict["target_thresholds"] = {"targets": targets, "labels": labels}
 
-    targets = [t for t in dcdf["target_spike_cleanup"]]
-    labels = [ct.TARGET_NAMES[t] for t in targets]
-    target_dict["target_spike_cleanup"] = {"targets": targets, "labels": labels}
+    # targets = [t for t in dcdf["target_spike_cleanup"]]
+    # labels = [ct.TARGET_NAMES[t] for t in targets]
+    # target_dict["target_spike_cleanup"] = {"targets": targets, "labels": labels}
 
     targets = [t for t in dcdf["target"]]
     labels = [ct.TARGET_NAMES[t] for t in targets]

@@ -481,7 +481,7 @@ def OBSOLETE_merge_asset_dataframe(path, base):
     """
     # "loads the object via msgpack"
     fname = path + "btc_usdt" + "_DataFrame.msg"
-    btcusdt = ccd.load_asset_dataframe("btc", path=Env.cache_path)
+    btcusdt = ccd.load_asset_dataframe("btc", path=Env.data_path)
     if base != "btc":
         fname = path + base + "_btc" + "_DataFrame.msg"
         basebtc = ccd.load_asset_dataframefile(fname)
@@ -508,7 +508,7 @@ def OBSOLETE_merge_asset_dataframe(path, base):
         basemerged = btcusdt
     ccd.dfdescribe(f"{base}-merged", basemerged)
 
-    ccd.save_asset_dataframe(basemerged, Env.data_path, base + "usdt")
+    ccd.save_asset_dataframe(basemerged, base, Env.data_path)
 
     return basemerged
 
@@ -548,10 +548,11 @@ def load_asset(base):
     print(Env.usage.bases)  # Env.usage.bases)
     for base in Env.usage.bases:
         print(f"supplementing {base}")
-        hdf = ccd.load_asset_dataframe(base, path=Env.cache_path)
+        hdf = ccd.load_asset_dataframe(base, path=Env.data_path)
+        # hdf.index.tz_localize(tz='UTC')
 
         last = (hdf.index[len(hdf)-1])
-        # last = last.replace(tzinfo=None)
+        # last = (hdf.index[len(hdf)-1]).tz_localize(tz='UTC')
         now = pd.Timestamp.utcnow()
         diffmin = int((now - last)/pd.Timedelta(1, unit='T'))
         ohlcv_df = Xch.get_ohlcv(base, diffmin, now)
@@ -565,7 +566,7 @@ def load_asset(base):
         hdf = pd.concat([hdf, ohlcv_df], sort=False)
         ok2save = check_df(hdf)
         if ok2save:
-            ccd.save_asset_dataframe(hdf, base)
+            ccd.save_asset_dataframe(hdf, base, path=Env.data_path)
         else:
             print(f"merged df checked: {ok2save} - dataframe not saved")
 

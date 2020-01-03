@@ -4,7 +4,7 @@ FEE = 1/1000  # in per mille, transaction fee is 0.1%
 TRADE_SLIP = 0  # 1/1000  # in per mille, 0.1% trade slip
 BUY_THRESHOLD = 10/1000  # in per mille
 SELL_THRESHOLD = -5/1000  # in per mille
-HOLD = "-"
+HOLD = "hold"
 BUY = "buy"
 SELL = "sell"
 TARGETS = {BUY: 0, HOLD: 1, SELL: 2}  # dict with int encoding of target labels
@@ -126,8 +126,40 @@ def crypto_trade_targets(df):
     lix = df.columns.get_loc("target")
     cix = df.columns.get_loc("close")
     __trade_signals_thresholds(df, lix, cix)
-    df["target_thresholds"] = df["target"]
+    # df["target_thresholds"] = df["target"]
     __signal_spike_cleanup(df, lix, cix)
-    df["target_spike_cleanup"] = df["target"]
+    # df["target_spike_cleanup"] = df["target"]
     __close_hold_gaps_of_consequtive_equal_signals(df, lix)
     return df
+
+
+def trade_target_performance(target_df):
+    """ Calculates the performance of 'target' trade signals.
+
+        'target_df' shall be a pandas DataFrame with at least
+        the columns 'close' and 'target'.
+    """
+    # print(f"{datetime.now()}: calculate target_performance")
+    perf = 0.
+    ta_holding = False
+    lix = target_df.columns.get_loc("target")  # lix == label index
+    assert lix > 0, f"cannot find column {lix}"
+    cix = target_df.columns.get_loc("close")  # cix == close index
+    assert cix > 0, f"cannot find column {cix}"
+
+    assert target_df.index.is_unique, "unexpected not unique index"
+    last = target_df.iat[0, cix]
+    for tix in range(len(target_df)):  # tix = time index
+        this = target_df.iat[tix, cix]
+        tix_perf = ((this - last) / last)
+        last = this
+        signal = target_df.iat[tix, lix]
+        if ta_holding:
+            perf += tix_perf
+        if (signal == TARGETS[BUY]) and (not ta_holding):
+            perf -= FEE  # assuming that the buy will take place in the coming minute
+            ta_holding = True
+        if (signal == TARGETS[SELL]) and ta_holding:
+            perf -= FEE  # assuming that the sell will take place in the coming minute
+            ta_holding = False
+    return perf

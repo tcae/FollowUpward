@@ -155,7 +155,7 @@ class TargetsFeatures:
             and releases the original data afterwards
         """
         try:
-            df = ccd.load_asset_dataframe(self.base, path=Env.cache_path)
+            df = ccd.load_asset_dataframe(self.base, path=Env.data_path)
         except env.MissingHistoryData:
             raise
         else:
@@ -303,35 +303,6 @@ class TargetsFeatures:
         else:
             self.minute_data = pd.concat([self.minute_data, minute_df], sort=False)
 
-    def __target_performance(self):
-        """ calculates the time aggregation specific performance of target_key
-            unused?
-        """
-        # print(f"{datetime.now()}: calculate target_performance")
-        target_df = self.minute_data
-        perf = 0.
-        ta_holding = False
-        col_ix = target_df.columns.get_loc("target")
-        assert col_ix > 0, f"did not find column {col_ix} of {self.target_key}"
-        close_ix = target_df.columns.get_loc("close")
-
-        assert target_df.index.is_unique, "unexpected not unique index"
-        last = target_df.iat[0, close_ix]
-        for tix in range(len(target_df)):  # tix = time index
-            this = target_df.iat[tix, close_ix]
-            tix_perf = ((this - last) / last)  # no longer in per mille * 1000)
-            last = this
-            signal = target_df.iat[tix, col_ix]
-            if ta_holding:
-                perf += tix_perf
-            if (signal == ct.TARGETS[ct.BUY]) and (not ta_holding):
-                perf -= ct.FEE
-                ta_holding = True
-            if (signal == ct.TARGETS[ct.SELL]) and ta_holding:
-                perf -= ct.FEE
-                ta_holding = False
-        return perf
-
 
 class TargetsFeatures2(TargetsFeatures):
     """ Alternative feature set. Approach: less features and closer to intuitive performance correlation
@@ -366,7 +337,6 @@ class TargetsFeatures2(TargetsFeatures):
         self.minute_data = None
         self.vec = None
         self.target_key = TARGET_KEY
-
 
 
 def target_labels(target_id):
