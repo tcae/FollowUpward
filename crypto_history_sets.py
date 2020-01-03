@@ -10,7 +10,7 @@ from env_config import Env
 import crypto_targets as ct
 import crypto_features as cf
 
-MANDATORY_STEPS = 2
+MANDATORY_STEPS = 2  # number of steps for the smallest class (in general BUY)
 NA = "not assigned"
 TRAIN = "training"
 VAL = "validation"
@@ -126,19 +126,17 @@ class CryptoHistorySets:
         # self.analysis.to_csv(config_fname, sep="\t", index=False)
         self.__prepare_training()
 
-    def features_from_targets(self, df, base, set_type, step):
+    def features_from_targets(self, df):
         if df.empty:
-            raise cf.NoSubsetWarning("empty {} subset for {}".format(set_type, base))
+            raise cf.NoSubsetWarning("empty subset")
         sym = df.at[df.index[0], "sym"]
         df_base = env.base_of_sym(sym)
-        if base != df_base:
-            raise ValueError(f"features_from_targets: base(df)={df_base} != base={base}")
-        tfv = self.get_targets_features_of_base(base)
+        tfv = self.get_targets_features_of_base(df_base)
         try:
             subset_df = cf.targets_to_features(tfv, df)
         except cf.NoSubsetWarning as msg:
-            print("features_from_targets  {} {} set step {}: {}".format(
-                        base, set_type, step, msg))
+            print("features_from_targets {}: {}".format(
+                        df_base, msg))
             raise
         return subset_df
 
@@ -175,6 +173,9 @@ class CryptoHistorySets:
         return target
 
     def __extract_set_type_targets(self, base, tf, set_type):
+        """ Extracts the time ranges of set_type and the corresponding target and cose data from ohlcv data.
+            Initializes an internal DataFrame with that data.
+        """
         sym = env.sym_of_base(base)
         try:
             # print(f"extracting {set_type} for {sym}")
@@ -201,7 +202,8 @@ class CryptoHistorySets:
                 extract = df
             else:
                 extract = self.__samples_concat(extract, df)
-        return extract
+        df = df[df.index.isin(tf.vec.index)]
+        self.ctrl[set_type] = self.__samples_concat(self.ctrl[set_type], df)
 
     def __prepare_training(self):
         """Prepares training, validation and test sets with targets and admin info
@@ -213,38 +215,24 @@ class CryptoHistorySets:
         """
 
         for base in self.bases:
-            tf = cf.TargetsFeatures(base)
-            try:
-                tf.load_classifier_features()
-            except env.MissingHistoryData:
-                continue
+            tf = cf.TargetsFeatures(base, path=Env.data_path)
             self.bases[base] = tf
-            tfv = tf.vec
-            tdf = self.__extract_set_type_targets(base, tf, TRAIN)
-            tdf = tdf[tdf.index.isin(tfv.index)]
-            self.ctrl[TRAIN] = self.__samples_concat(self.ctrl[TRAIN], tdf)
-            vdf = self.__extract_set_type_targets(base, tf, VAL)
-            vdf = vdf[vdf.index.isin(tfv.index)]
-            self.ctrl[VAL] = self.__samples_concat(self.ctrl[VAL], vdf)
-            tstdf = self.__extract_set_type_targets(base, tf, TEST)
-            tstdf = tstdf[tstdf.index.isin(tfv.index)]
-            self.ctrl[TEST] = self.__samples_concat(self.ctrl[TEST], tstdf)
+            self.__extract_set_type_targets(base, tf, TRAIN)
+            self.__extract_set_type_targets(base, tf, VAL)
+            self.__extract_set_type_targets(base, tf, TEST)
 
     def get_targets_features_of_base(self, base):
         if base not in self.bases:
             raise KeyError()
         tf = self.bases[base]
         if tf is None:
-            tf = cf.TargetsFeatures(base)
-            tf.load_classifier_features()
-        if tf is not None:
-            if tf.vec is None:
-                try:
-                    tf.calc_features_and_targets(None)
-                except env.MissingHistoryData as msg:
-                    print(f"get_targets_features_of_base {base}: {msg}")
-            return tf.vec
-        return None
+            tf = cf.TargetsFeatures(base, path=Env.data_path)
+        if tf.vec is None:
+            try:
+                tf.calc_features_and_targets()
+            except env.MissingHistoryData as msg:
+                print(f"get_targets_features_of_base {base}: {msg}")
+        return tf.vec
 
     def __release_features_of_base(self, base):
         """ setting the only refernce to the base data to None releases the data from RAM through garbage collection
@@ -252,9 +240,13 @@ class CryptoHistorySets:
         if base in self.bases:
             tf = self.bases[base]
             if tf is not None:
+                del tf.vec
                 tf.vec = None
 
     def register_probabilties(self, base, set_type, pred, target_df):
+        """ Used by performance evaluation to register prediction probabilities.
+            Those registered probabilities are evaluated by 'use_mistakes'.
+        """
         df = self.ctrl[set_type]
         tdf = target_df
         sym = env.sym_of_base(base)
@@ -266,8 +258,10 @@ class CryptoHistorySets:
         if set_type == TRAIN:
             df.loc[tdf.index, "tcount"] = df.loc[tdf.index, "tcount"] + 1
 
-    def __use_mistakes(self, set_type):
-        """ Sets the 'use' flag of all wrong classified samples to focus on mistakes.
+    def use_mistakes(self, set_type):
+        """ Currently unused but if used then by classify_keras!
+
+            Sets the 'use' flag of all wrong classified samples to focus on mistakes.
         """
         df = self.ctrl[set_type]
         df["use"] = False
@@ -279,38 +273,10 @@ class CryptoHistorySets:
                ((df.buy_prob >= df.sell_prob) | (df.hold_prob >= df.sell_prob)), "use"] = True
         return len(df[df.use.__eq__(True)])
 
-    def __base_label_check(self, base):
-        print("{} maxsteps of buy:{} sell:{} hold:{} max:{}".format(
-                base, self.max_steps[base][ct.BUY], self.max_steps[base][ct.SELL],
-                self.max_steps[base][ct.HOLD], self.max_steps[base]["max"]))
-        holds = sells = buys = totals = 0
-        for step in range(self.max_steps[base]["max"]):
-            df = self.trainset_step(base, step)
-            hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
-            sc = len(df[df.target == ct.TARGETS[ct.SELL]])
-            bc = len(df[df.target == ct.TARGETS[ct.BUY]])
-            tc = hc + sc + bc
-            print(f"buy {bc} sell {sc} hold {hc} total {tc} on label_check {step}")
-            if step < self.max_steps[base]["max"]:
-                holds += hc
-                sells += sc
-                buys += bc
-                totals += tc
-        df = self.set_of_type(base, TRAIN)
-        hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
-        sc = len(df[df.target == ct.TARGETS[ct.SELL]])
-        bc = len(df[df.target == ct.TARGETS[ct.BUY]])
-        nc = len(df)
-        tc = hc + sc + bc
-        print(f"label check set: buy {bc} sell {sc} hold {hc} total {tc} whole set{nc}")
-
-    def __label_check(self):
-        print("label_check ==> maxsteps total:{}".format(self.max_steps["total"]))
-        for base in self.bases:
-            self.__base_label_check(base)
-
     def label_steps(self):  # public
-        """Each sample is assigned to a step. The smallest class has
+        """Each sample is assigned to a step. Consecutive samples are assigned to different steps.
+
+        The smallest class has
         MANDATORY_STEPS, i.e. each sample is labeled
         with a step between 0 and MANDATORY_STEPS - 1.
         The larger classes have more step labels according to
@@ -365,8 +331,41 @@ class CryptoHistorySets:
             self.max_steps["total"] += self.max_steps[base]["max"]
         return self.max_steps["total"]
 
+    def __label_check(self):
+        """ Currently unused !
+
+            Consistency check logging
+        """
+        print("label_check ==> maxsteps total:{}".format(self.max_steps["total"]))
+        for base in self.bases:
+            print("{} maxsteps of buy:{} sell:{} hold:{} max:{}".format(
+                    base, self.max_steps[base][ct.BUY], self.max_steps[base][ct.SELL],
+                    self.max_steps[base][ct.HOLD], self.max_steps[base]["max"]))
+            holds = sells = buys = totals = 0
+            for step in range(self.max_steps[base]["max"]):
+                df = self.trainset_step(base, step)
+                hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
+                sc = len(df[df.target == ct.TARGETS[ct.SELL]])
+                bc = len(df[df.target == ct.TARGETS[ct.BUY]])
+                tc = hc + sc + bc
+                print(f"buy {bc} sell {sc} hold {hc} total {tc} on label_check {step}")
+                if step < self.max_steps[base]["max"]:
+                    holds += hc
+                    sells += sc
+                    buys += bc
+                    totals += tc
+            df = self.set_of_type(base, TRAIN)
+            hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
+            sc = len(df[df.target == ct.TARGETS[ct.SELL]])
+            bc = len(df[df.target == ct.TARGETS[ct.BUY]])
+            nc = len(df)
+            tc = hc + sc + bc
+            print(f"label check set: buy {bc} sell {sc} hold {hc} total {tc} whole set{nc}")
+
     def __analyze_bases(self):
-        """Analyses the baselist and creates a config file of sets split into equal timeblock
+        """ Currently unused !
+
+            Analyses the baselist and creates a config file of sets split into equal timeblock
         length. Additionally an artificial "total" set is created with the sum of all bases for
         each timeblock.
         """
@@ -411,8 +410,7 @@ class CryptoHistorySets:
         blocks = set()
         for base in self.bases:
             sym = base + "_usdt"
-            tf = cf.TargetsFeatures(base)
-            tf.load_classifier_features()
+            tf = cf.TargetsFeatures(base, path=Env.data_path)
             (wsts, wets) = first_week_ts(tf)
             while wets is not None:
                 blocks.add(wets)

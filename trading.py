@@ -216,12 +216,12 @@ class Trading():
         """
         if base in Bk.black_bases:  # USDT is in Bk.book
             return None, 0
-        ttf = cf.TargetsFeatures(base)
         ohlcv_df = Bk.get_ohlcv(base, env.Env.minimum_minute_df_len, date_time)
         if ohlcv_df is None:
             print(f"{env.nowstr()} skipping {base} due to missing ohlcv")
             return None, 0
-        ttf.calc_features_and_targets(ohlcv_df)
+        ttf = cf.TargetsFeatures(base, minute_dataframe=ohlcv_df)
+        ttf.calc_features_and_targets()
         tfv = ttf.vec.iloc[[len(ttf.vec)-1]]
         trade_signal = cpc.class_of_features(tfv, buy_trshld, sell_trshld, base)
         # trade_signal will be HOLD if insufficient data history is available

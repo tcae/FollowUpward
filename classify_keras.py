@@ -468,7 +468,7 @@ class Cpc:
             df = self.hs.set_of_type(base, set_type)
             if (df is None) or (len(df) == 0):
                 continue
-            tfv = self.hs.features_from_targets(df, base, set_type, bix)
+            tfv = self.hs.features_from_targets(df)
             descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
                                                       bix, cf.str_setsize(tfv))
             # print(descr)
@@ -490,7 +490,7 @@ class Cpc:
                 bix = list(hs.bases.keys()).index(base)
                 for bstep in range(hs.max_steps[base]["max"]):
                     df = hs.trainset_step(base, bstep)
-                    tfv = hs.features_from_targets(df, base, chs.TRAIN, bix)
+                    tfv = hs.features_from_targets(df)
                     descr = "{} {} {} set step {}: {}".format(env.timestr(), base, chs.TRAIN,
                                                               bix, cf.str_setsize(tfv))
                     # print(descr)
@@ -512,7 +512,7 @@ class Cpc:
             for base in hs.bases:
                 bix = list(hs.bases.keys()).index(base)
                 df = hs.set_of_type(base, set_type)
-                tfv = hs.features_from_targets(df, base, set_type, bix)
+                tfv = hs.features_from_targets(df)
                 descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
                                                           bix, cf.str_setsize(tfv))
                 # print(descr)
