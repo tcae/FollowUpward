@@ -385,19 +385,20 @@ class Xch():
                         df.loc[prev_tic] = df.loc[last_tic]
                         count += 1
                         prev_tic += pd.Timedelta(1, unit='T')
+                    prev_tic -= pd.Timedelta(1, unit='T')  # correct last increment
             last_tic = tic
             df.loc[last_tic] = ohlcv[1:6]
             count += 1
             prev_tic += pd.Timedelta(1, unit='T')
         return count
 
-    def __check_df_result(df, minutes):
+    def check_df_result(df):
         last_tic = df.index[len(df)-1]
         last_tic = df.index[0]
         for ix in range(len(df)):
             tic = df.index[ix]
-            if (ix > 0) and (60 != int(pd.Timedelta((tic - last_tic), unit='T').seconds)):
-                diff = int(pd.Timedelta((tic - last_tic), unit='T'))
+            diff = int(pd.Timedelta((tic - last_tic), unit='T').seconds) / 60
+            if (ix > 0) and (diff != 1):
                 print(f"ix: {ix} tic: {tic} - last_tic: {last_tic} != {diff} minute")
             if df.loc[tic].isna().any():
                 print(f"detetced Nan at ix {ix}: {df[tic]}")
@@ -447,7 +448,7 @@ class Xch():
         Xch.ohlcv[base] = df
         if len(df) < minutes:
             print(f"{base} len(df) {len(df)} < {minutes} minutes")
-        Xch.__check_df_result(df, minutes)
+        Xch.check_df_result(df)
         return df
 
     def __last_hour_performance(ohlcv_df):
@@ -530,23 +531,12 @@ def check_df(df):
     return ok
 
 
-def load_asset(base):
+def load_asset(bases):
     """ Loads the cached history data as well as live data from the xch
     """
 
-    # now = datetime.utcnow()
-    # diffmin = 2000
-    # ohlcv_df = Xch.get_ohlcv(base, diffmin, now)
-    # ccd.dfdescribe(f"ohlcv_df({diffmin})", ohlcv_df)
-    # print(f"loaded asset df checked: {check_df(ohlcv_df)}")
-
-    # ohlcv_df = ohlcv_df.drop([ohlcv_df.index[diffmin-2]])
-    # ccd.dfdescribe(f"ohlcv_df({diffmin-1})", ohlcv_df)
-    # print(f"dropped asset df checked: {check_df(ohlcv_df)}")
-    # return
-
-    print(Env.usage.bases)  # Env.usage.bases)
-    for base in Env.usage.bases:
+    print(bases)  # Env.usage.bases)
+    for base in bases:
         print(f"supplementing {base}")
         hdf = ccd.load_asset_dataframe(base, path=Env.data_path)
         # hdf.index.tz_localize(tz='UTC')
@@ -572,4 +562,5 @@ def load_asset(base):
 
 
 if __name__ == "__main__":
-    load_asset("xrp")
+    # env.test_mode()
+    load_asset(Env.usage.bases)
