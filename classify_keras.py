@@ -34,7 +34,8 @@ import matplotlib.pyplot as plt
 
 import env_config as env
 from env_config import Env
-import crypto_targets_features as ctf
+import crypto_targets as ct
+import crypto_features as cf
 import crypto_history_sets as chs
 
 print(f"Tensorflow version: {tf.version.VERSION}")
@@ -56,20 +57,20 @@ class EvalPerf:
         self.performance = 0
 
     def add_trade_signal(self, prob, close_price, signal):
-        if signal == ctf.TARGETS[ctf.BUY]:
+        if signal == ct.TARGETS[ct.BUY]:
             if not self.open_transaction:
                 if prob >= self.bpt:
                     self.open_transaction = True
-                    self.open_buy = close_price * (1 + ctf.FEE)
+                    self.open_buy = close_price * (1 + ct.FEE)
                     self.highest = close_price
-        elif signal == ctf.TARGETS[ctf.SELL]:
+        elif signal == ct.TARGETS[ct.SELL]:
             if self.open_transaction:
                 if prob >= self.spt:
                     self.open_transaction = False
-                    gain = (close_price * (1 - ctf.FEE) - self.open_buy) / self.open_buy
+                    gain = (close_price * (1 - ct.FEE) - self.open_buy) / self.open_buy
                     self.performance += gain
                     self.transactions += 1
-        elif signal == ctf.TARGETS[ctf.HOLD]:
+        elif signal == ct.TARGETS[ct.HOLD]:
             pass
 
     def __str__(self):
@@ -89,7 +90,7 @@ class PerfMatrix:
             for sp in self.p_range:
                 self.perf[bp - self.p_range[0], sp - self.p_range[0]] = \
                     EvalPerf(float((bp)/10), float((sp)/10))
-        self.confusion = np.zeros((len(ctf.TARGETS), len(ctf.TARGETS)), dtype=int)
+        self.confusion = np.zeros((len(ct.TARGETS), len(ct.TARGETS)), dtype=int)
         self.epoch = epoch
         self.set_type = set_type
         self.start_ts = timeit.default_timer()
@@ -152,11 +153,11 @@ class PerfMatrix:
     def add_signal(self, prob, close_price, signal, target):
         assert (prob >= 0) and (prob <= 1), \
                 print(f"PerfMatrix add_signal: unexpected probability {prob}")
-        if signal in ctf.TARGETS.values():
+        if signal in ct.TARGETS.values():
             for bp in self.p_range:
                 for sp in self.p_range:
                     self.pix(bp, sp).add_trade_signal(prob, close_price, signal)
-            if target not in ctf.TARGETS.values():
+            if target not in ct.TARGETS.values():
                 print(f"PerfMatrix add_signal: unexpected target result {target}")
                 return
             self.confusion[signal, target] += 1
@@ -191,11 +192,11 @@ class PerfMatrix:
         # begin = env.timestr(skl_tics[0])
         for sample in range(pred_cnt):
             if (sample + 1) >= pred_cnt:
-                self.add_signal(1, skl_close[sample], ctf.TARGETS[ctf.SELL], ctf.TARGETS[ctf.SELL])
+                self.add_signal(1, skl_close[sample], ct.TARGETS[ct.SELL], ct.TARGETS[ct.SELL])
                 # end = env.timestr(skl_tics[sample])
                 # print("assessment between {} and {}".format(begin, end))
             elif (skl_tics[sample+1] - skl_tics[sample]) > np.timedelta64(1, "m"):
-                self.add_signal(1, skl_close[sample], ctf.TARGETS[ctf.SELL], ctf.TARGETS[ctf.SELL])
+                self.add_signal(1, skl_close[sample], ct.TARGETS[ct.SELL], ct.TARGETS[ct.SELL])
                 # end = env.timestr(skl_tics[sample])
                 # print("assessment between {} and {}".format(begin, end))
                 # begin = env.timestr(skl_tics[sample+1])
@@ -213,9 +214,9 @@ class PerfMatrix:
         elem = self.confusion[estimate_class, target_class]
         targets = 0
         estimates = 0
-        for i in ctf.TARGETS:
-            targets += self.confusion[estimate_class, ctf.TARGETS[i]]
-            estimates += self.confusion[ctf.TARGETS[i], target_class]
+        for i in ct.TARGETS:
+            targets += self.confusion[estimate_class, ct.TARGETS[i]]
+            estimates += self.confusion[ct.TARGETS[i], target_class]
         return (elem, elem/estimates, elem/targets)
 
     def report_assessment(self):
@@ -228,22 +229,22 @@ class PerfMatrix:
 
         print(self)
         print("target:    {: >7}/est%/tgt% {: >7}/est%/tgt% {: >7}/est%/tgt%".format(
-                ctf.HOLD, ctf.BUY, ctf.SELL))
+                ct.HOLD, ct.BUY, ct.SELL))
         print("est. {: >4}: {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%}".format(
-              ctf.HOLD,
-              *self.conf(ctf.TARGETS[ctf.HOLD], ctf.TARGETS[ctf.HOLD]),
-              *self.conf(ctf.TARGETS[ctf.HOLD], ctf.TARGETS[ctf.BUY]),
-              *self.conf(ctf.TARGETS[ctf.HOLD], ctf.TARGETS[ctf.SELL])))
+              ct.HOLD,
+              *self.conf(ct.TARGETS[ct.HOLD], ct.TARGETS[ct.HOLD]),
+              *self.conf(ct.TARGETS[ct.HOLD], ct.TARGETS[ct.BUY]),
+              *self.conf(ct.TARGETS[ct.HOLD], ct.TARGETS[ct.SELL])))
         print("est. {: >4}: {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%}".format(
-              ctf.BUY,
-              *self.conf(ctf.TARGETS[ctf.BUY], ctf.TARGETS[ctf.HOLD]),
-              *self.conf(ctf.TARGETS[ctf.BUY], ctf.TARGETS[ctf.BUY]),
-              *self.conf(ctf.TARGETS[ctf.BUY], ctf.TARGETS[ctf.SELL])))
+              ct.BUY,
+              *self.conf(ct.TARGETS[ct.BUY], ct.TARGETS[ct.HOLD]),
+              *self.conf(ct.TARGETS[ct.BUY], ct.TARGETS[ct.BUY]),
+              *self.conf(ct.TARGETS[ct.BUY], ct.TARGETS[ct.SELL])))
         print("est. {: >4}: {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%}".format(
-              ctf.SELL,
-              *self.conf(ctf.TARGETS[ctf.SELL], ctf.TARGETS[ctf.HOLD]),
-              *self.conf(ctf.TARGETS[ctf.SELL], ctf.TARGETS[ctf.BUY]),
-              *self.conf(ctf.TARGETS[ctf.SELL], ctf.TARGETS[ctf.SELL])))
+              ct.SELL,
+              *self.conf(ct.TARGETS[ct.SELL], ct.TARGETS[ct.HOLD]),
+              *self.conf(ct.TARGETS[ct.SELL], ct.TARGETS[ct.BUY]),
+              *self.conf(ct.TARGETS[ct.SELL], ct.TARGETS[ct.SELL])))
 
         # self.print_result_distribution()
         print("performance matrix: estimated probability/number of buy+sell trades")
@@ -274,8 +275,8 @@ class EpochPerformance(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         print("{} epoch end ==> talos iteration: {} epoch: {} classifier config: {}".format(
                 env.timestr(), self.cpc.talos_iter, epoch, self.cpc.save_classifier))
-        (best, bpt, spt, transactions) = self.cpc.performance_assessment(ctf.TRAIN, epoch)
-        (best, bpt, spt, transactions) = self.cpc.performance_assessment(ctf.VAL, epoch)
+        (best, bpt, spt, transactions) = self.cpc.performance_assessment(chs.TRAIN, epoch)
+        (best, bpt, spt, transactions) = self.cpc.performance_assessment(chs.VAL, epoch)
         if best > self.best_perf:
             self.best_perf = best
             self.missing_improvements = 0
@@ -283,7 +284,7 @@ class EpochPerformance(tf.keras.callbacks.Callback):
         else:
             self.missing_improvements += 1
 #        if self.missing_improvements >= self.patience_mistake_focus:
-#            self.cpc.hs.use_mistakes(ctf.TRAIN)
+#            self.cpc.hs.use_mistakes(chs.TRAIN)
 #            print("Using training mistakes")
         if self.missing_improvements >= self.patience_stop:
             self.cpc.classifier.stop_training = True
@@ -291,7 +292,7 @@ class EpochPerformance(tf.keras.callbacks.Callback):
                   self.missing_improvements))
         print(f"on_epoch_end logs:{logs}")
 #        test_loss, test_acc = self.cpc.classifier.evaluate_generator(
-#            base_generator(self.cpc, self.cpc.hs, ctf.VAL, 2),
+#            base_generator(self.cpc, self.cpc.hs, chs.VAL, 2),
 #            steps=len(self.cpc.hs.bases),
 #            max_queue_size=10,
 #            workers=1,
@@ -337,7 +338,7 @@ class Cpc:
         return
         df = pd.DataFrame(
             columns=["hold_prob", "buy_prob", "sell_prob"],
-            data=pred[:, [ctf.TARGETS[ctf.HOLD], ctf.TARGETS[ctf.BUY], ctf.TARGETS[ctf.SELL]]])
+            data=pred[:, [ct.TARGETS[ct.HOLD], ct.TARGETS[ct.BUY], ct.TARGETS[ct.SELL]]])
         df["timestamp"] = tfv.index
         df["target"] = tfv["target"]
         df["base"] = base
@@ -350,7 +351,7 @@ class Cpc:
         step = self.step
         epoch = self.epoch
         talos_iter = self.talos_iter
-        fname = str("{}{}{}".format(self.model_path, self.load_classifier, ctf.PICKLE_EXT))
+        fname = str("{}{}{}".format(self.model_path, self.load_classifier, cf.PICKLE_EXT))
         try:
             with open(fname, "rb") as df_f:
                 tmp_dict = pickle.load(df_f)  # requires import * to resolve Cpc attribute
@@ -405,7 +406,7 @@ class Cpc:
             # , save_format="tf", signatures=None)
 
         fname = str("{}{}_{}{}".format(self.model_path, self.save_classifier,
-                    self.epoch, ctf.PICKLE_EXT))
+                    self.epoch, cf.PICKLE_EXT))
         df_f = open(fname, "wb")
         pickle.dump(self.__dict__, df_f, pickle.HIGHEST_PROTOCOL)
         df_f.close()
@@ -418,13 +419,13 @@ class Cpc:
         """Classifies the tfv features.
         'base' is a string that identifies the crypto used for logging purposes.
 
-        It returns an array of probabilities that can be indexed with ctf.TARGETS[x]
+        It returns an array of probabilities that can be indexed with ct.TARGETS[x]
         for each sample.
         """
         if tfv.empty:
             print("class_predict_of_features: empty feature vector ==> 0 probs")
             return None
-        sample = ctf.to_scikitlearn(tfv, np_data=None, descr=base)
+        sample = cf.to_scikitlearn(tfv, np_data=None, descr=base)
         if self.scaler is not None:
             sample.data = self.scaler.transform(sample.data)
         pred = self.classifier.predict_on_batch(sample.data)
@@ -441,18 +442,18 @@ class Cpc:
         """
         if tfv.empty:
             print("class_of_features: empty feature vector ==> HOLD signal")
-            return ctf.TARGETS[ctf.HOLD]
+            return ct.TARGETS[ct.HOLD]
         pred = self.class_predict_of_features(tfv, base)
         probs = pred[len(pred) - 1]
-        high_prob_cl = ctf.TARGETS[ctf.HOLD]
-        if probs[ctf.TARGETS[ctf.BUY]] > probs[ctf.TARGETS[ctf.SELL]]:
-            if probs[ctf.TARGETS[ctf.BUY]] > probs[ctf.TARGETS[ctf.HOLD]]:
-                if probs[ctf.TARGETS[ctf.BUY]] >= buy_trshld:
-                    high_prob_cl = ctf.TARGETS[ctf.BUY]
+        high_prob_cl = ct.TARGETS[ct.HOLD]
+        if probs[ct.TARGETS[ct.BUY]] > probs[ct.TARGETS[ct.SELL]]:
+            if probs[ct.TARGETS[ct.BUY]] > probs[ct.TARGETS[ct.HOLD]]:
+                if probs[ct.TARGETS[ct.BUY]] >= buy_trshld:
+                    high_prob_cl = ct.TARGETS[ct.BUY]
         else:
-            if probs[ctf.TARGETS[ctf.SELL]] > probs[ctf.TARGETS[ctf.HOLD]]:
-                if probs[ctf.TARGETS[ctf.SELL]] >= sell_trshld:
-                    high_prob_cl = ctf.TARGETS[ctf.SELL]
+            if probs[ct.TARGETS[ct.SELL]] > probs[ct.TARGETS[ct.HOLD]]:
+                if probs[ct.TARGETS[ct.SELL]] >= sell_trshld:
+                    high_prob_cl = ct.TARGETS[ct.SELL]
         return high_prob_cl
 
     def performance_assessment(self, set_type, epoch):
@@ -469,9 +470,9 @@ class Cpc:
                 continue
             tfv = self.hs.features_from_targets(df, base, set_type, bix)
             descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
-                                                      bix, ctf.str_setsize(tfv))
+                                                      bix, cf.str_setsize(tfv))
             # print(descr)
-            samples = ctf.to_scikitlearn(tfv, np_data=None, descr=descr)
+            samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
             if self.scaler is not None:
                 samples.data = self.scaler.transform(samples.data)
             pred = self.classifier.predict_on_batch(samples.data)
@@ -489,11 +490,11 @@ class Cpc:
                 bix = list(hs.bases.keys()).index(base)
                 for bstep in range(hs.max_steps[base]["max"]):
                     df = hs.trainset_step(base, bstep)
-                    tfv = hs.features_from_targets(df, base, ctf.TRAIN, bix)
-                    descr = "{} {} {} set step {}: {}".format(env.timestr(), base, ctf.TRAIN,
-                                                              bix, ctf.str_setsize(tfv))
+                    tfv = hs.features_from_targets(df, base, chs.TRAIN, bix)
+                    descr = "{} {} {} set step {}: {}".format(env.timestr(), base, chs.TRAIN,
+                                                              bix, cf.str_setsize(tfv))
                     # print(descr)
-                    samples = ctf.to_scikitlearn(tfv, np_data=None, descr=descr)
+                    samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
                     del tfv
                     # print(f">>> getitem: {samples.descr}", flush=True)
                     if samples is None:
@@ -502,7 +503,7 @@ class Cpc:
                         samples.data = self.scaler.transform(samples.data)
                     # print(f"iteration_gen {base}({bix}) {bstep}(of {hs.max_steps[base]["max"]})")
                     targets = tf.keras.utils.to_categorical(samples.target,
-                                                            num_classes=len(ctf.TARGETS))
+                                                            num_classes=len(ct.TARGETS))
                     yield samples.data, targets
 
     def base_generator(self, hs, set_type, epochs):
@@ -513,9 +514,9 @@ class Cpc:
                 df = hs.set_of_type(base, set_type)
                 tfv = hs.features_from_targets(df, base, set_type, bix)
                 descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
-                                                          bix, ctf.str_setsize(tfv))
+                                                          bix, cf.str_setsize(tfv))
                 # print(descr)
-                samples = ctf.to_scikitlearn(tfv, np_data=None, descr=descr)
+                samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
                 del tfv
                 # print(f">>> getitem: {samples.descr}", flush=True)
                 if samples is None:
@@ -524,7 +525,7 @@ class Cpc:
                     samples.data = self.scaler.transform(samples.data)
                 # print(f"base_gen {base}({bix}) {set_type}")
                 targets = tf.keras.utils.to_categorical(samples.target,
-                                                        num_classes=len(ctf.TARGETS))
+                                                        num_classes=len(ct.TARGETS))
                 yield samples.data, targets
 
     def adapt_keras(self):
@@ -580,7 +581,7 @@ class Cpc:
                     epochs=epochs,
                     callbacks=callbacks,
                     verbose=2,
-                    validation_data=self.base_generator(self.hs, ctf.VAL, gen_epochs),
+                    validation_data=self.base_generator(self.hs, chs.VAL, gen_epochs),
                     validation_steps=len(self.hs.bases),
                     class_weight=None,
                     max_queue_size=10,
@@ -597,7 +598,7 @@ class Cpc:
         self.talos_iter = 0
 
         scaler = preprocessing.StandardScaler(copy=False)
-        for (samples, targets) in self.base_generator(self.hs, ctf.TRAIN, 1):
+        for (samples, targets) in self.base_generator(self.hs, chs.TRAIN, 1):
             # print("scaler fit")
             scaler.partial_fit(samples)
         self.scaler = scaler
@@ -638,18 +639,18 @@ class Cpc:
         self.hs = chs.CryptoHistorySets(env.sets_config_fname())
         self.talos_iter = 0
 
-        self.performance_assessment(ctf.VAL, 0)
+        self.performance_assessment(chs.VAL, 0)
 
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"{env.timestr()} MLP performance assessment bulk time: {tdiff:.0f} min")
 
         start_time = timeit.default_timer()
-        pm = PerfMatrix(0, ctf.VAL)
+        pm = PerfMatrix(0, chs.VAL)
         for bix, base in enumerate(self.hs.bases):
-            df = self.hs.set_of_type(base, ctf.VAL)
+            df = self.hs.set_of_type(base, chs.VAL)
             tfv = self.hs.get_targets_features_of_base(base)
-            subset_df = ctf.targets_to_features(tfv, df)
-            samples = ctf.to_scikitlearn(subset_df, np_data=None, descr=f"{base}")
+            subset_df = cf.targets_to_features(tfv, df)
+            samples = cf.to_scikitlearn(subset_df, np_data=None, descr=f"{base}")
             if (samples is None) or (samples.data is None) or (len(samples.data) == 0):
                 print(
                     "skipping {} len(VAL): {} len(tfv): {} len(subset): {} len(samples)"
@@ -667,14 +668,14 @@ class Cpc:
 
     def classify_per_sample(self):
         start_time = timeit.default_timer()
-        # pm = PerfMatrix(0, ctf.VAL)
+        # pm = PerfMatrix(0, chs.VAL)
         perf = 0
         buy_cl = 0
         last_fvec = None
         for bix, base in enumerate(self.hs.bases):
-            df = self.hs.set_of_type(base, ctf.VAL)
+            df = self.hs.set_of_type(base, chs.VAL)
             tfv = self.hs.get_targets_features_of_base(base)
-            subset_df = ctf.targets_to_features(tfv, df)
+            subset_df = cf.targets_to_features(tfv, df)
             subset_len = len(subset_df.index)
             for ix in range(subset_len):
                 fvec = subset_df.iloc[[ix]]  # just row ix
@@ -685,7 +686,7 @@ class Cpc:
                     if (ts2 - ts1) != np.timedelta64(1, "m"):
                         if buy_cl > 0:  # forced sell of last_vec but fvec may already be a buy
                             close = last_fvec.at[last_fvec.index[0], "close"]
-                            perf += (close * (1 - ctf.FEE) - buy_cl) / buy_cl
+                            perf += (close * (1 - ct.FEE) - buy_cl) / buy_cl
                             buy_cl = 0
                             print(f"forced step sell {base} on {fvec.index[0]} at {close}")
                         print("force_sell: diff({} - {}) {} min > 1 min".format(
@@ -698,15 +699,15 @@ class Cpc:
 
                 close = fvec.at[fvec.index[0], "close"]
                 cl = self.class_of_features(fvec, 0.7, 0.7, base)
-                if (cl != ctf.TARGETS[ctf.HOLD]) or force_sell:
+                if (cl != ct.TARGETS[ct.HOLD]) or force_sell:
                     if buy_cl > 0:
-                        if (cl == ctf.TARGETS[ctf.SELL]) or force_sell:
-                            perf += (close * (1 - ctf.FEE) - buy_cl) / buy_cl
+                        if (cl == ct.TARGETS[ct.SELL]) or force_sell:
+                            perf += (close * (1 - ct.FEE) - buy_cl) / buy_cl
                             buy_cl = 0
                             print(f"step sell {base} on {fvec.index[0]} at {close}")
                     else:
-                        if cl == ctf.TARGETS[ctf.BUY]:
-                            buy_cl = close * (1 + ctf.FEE)
+                        if cl == ct.TARGETS[ct.BUY]:
+                            buy_cl = close * (1 + ct.FEE)
                             print(f"step buy {base} on {fvec.index[0]} at {close}")
                 last_fvec = fvec
 

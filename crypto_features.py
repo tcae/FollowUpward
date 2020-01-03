@@ -7,11 +7,11 @@ Created on Mon Jan  7 21:43:26 2019
 """
 # import numpy as np
 import pandas as pd
-from queue import Queue
 from sklearn.utils import Bunch
 import numpy as np
 import env_config as env
 from env_config import Env
+import crypto_targets as ct
 import cached_crypto_data as ccd
 
 
@@ -19,23 +19,8 @@ PICKLE_EXT = ".pydata"  # pickle file extension
 JSON_EXT = ".json"  # msgpack file extension
 MSG_EXT = ".msg"  # msgpack file extension
 
-FEE = 1/1000  # in per mille, transaction fee is 0.1%
-TRADE_SLIP = 0  # 1/1000  # in per mille, 0.1% trade slip
-BUY_THRESHOLD = 10/1000  # in per mille
-SELL_THRESHOLD = -5/1000  # in per mille
 VOL_BASE_PERIOD = "1D"
-HOLD = "-"
-BUY = "buy"
-SELL = "sell"
-NA = "not assigned"
-TRAIN = "training"
-VAL = "validation"
-TEST = "test"
-TARGETS = {BUY: 0, HOLD: 1, SELL: 2}  # dict with int encoding of target labels
-TARGET_NAMES = {1: HOLD, 0: BUY, 2: SELL}  # dict with int encoding of targets
 TARGET_KEY = 5
-LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
-MANDATORY_STEPS = 2  # number of steps for the smallest class (in general BUY)
 
 
 class NoSubsetWarning(Exception):
@@ -59,17 +44,17 @@ def targets_to_features(tfv_ta_df, target_df):
 
 
 def report_setsize(setname, df):
-    hc = len(df[df.target == TARGETS[HOLD]])
-    sc = len(df[df.target == TARGETS[SELL]])
-    bc = len(df[df.target == TARGETS[BUY]])
+    hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
+    sc = len(df[df.target == ct.TARGETS[ct.SELL]])
+    bc = len(df[df.target == ct.TARGETS[ct.BUY]])
     tc = hc + sc + bc
     print(f"buy {bc} sell {sc} hold {hc} total {tc} on {setname}")
 
 
 def str_setsize(df):
-    hc = len(df[df.target == TARGETS[HOLD]])
-    sc = len(df[df.target == TARGETS[SELL]])
-    bc = len(df[df.target == TARGETS[BUY]])
+    hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
+    sc = len(df[df.target == ct.TARGETS[ct.SELL]])
+    bc = len(df[df.target == ct.TARGETS[ct.BUY]])
     tc = hc + sc + bc
     return f"buy {bc} sell {sc} hold {hc} total {tc}"
 
@@ -102,7 +87,7 @@ def to_scikitlearn(df, np_data=None, descr=None):
     close = df["close"].values  # compatible with pandas 0.19.2
     tics = df.index.values  # compatible with pandas 0.19.2
     feature_names = np.array(fn_list)
-    target_names = np.array(TARGETS.keys())
+    target_names = np.array(ct.TARGETS.keys())
     if descr is None:
         descr = "missing description"
 
@@ -269,201 +254,6 @@ class TargetsFeatures:
             raise env.MissingHistoryData("empty dataframe from expand_target_feature_vectors")
         return df
 
-    class TargetEvaluation:
-
-        def __init__(self, minute_df, start_ix, target_col_ix, close_col_ix):
-            self.df = minute_df
-            self.lix = target_col_ix  # label ix
-            self.cix = close_col_ix  # close ix
-            self.unresolved_delta = dict()  # key = tix, value = close
-            self.last_close = self.df.iat[0, self.cix]
-
-        def next_sample(self, tix):
-            """ TARGET label logic:
-                - SELL when price reaches in later steps SELL_THRESHOLD before BUY_THRESHOLD
-                  AND it is currently decreasing
-                - BUY when price reaches in later steps BUY_THRESHOLD before SELL_THRESHOLD
-                  AND it is currently increasing
-                - HOLD when price reaches in later steps SELL_THRESHOLD before BUY_THRESHOLD
-                  BUT it is currently increasing
-                - HOLD when price reaches in later steps BUY_THRESHOLD before SELL_THRESHOLD
-                  BUT it is currently decreasing
-                - HOLD when price is currently increasing but in later steps price falls below current price
-                - HOLD when price is currently decreasing but in later steps price gains above current price
-            """
-            urs = dict()
-            this_close = self.df.iat[tix, self.cix]
-            delta = (this_close - self.last_close) / self.last_close
-            urs[tix] = delta
-            for uix in self.unresolved_delta:
-                last_close = self.df.iat[uix, self.cix]
-                delta = (this_close - last_close) / last_close
-                if delta < SELL_THRESHOLD:
-                    if self.unresolved_delta[uix] < 0.:  # price decreases
-                        self.df.iat[uix, self.lix] = TARGETS[SELL]
-                    # else stay with df.iat[uix, lix] = TARGETS[HOLD]
-                elif delta > BUY_THRESHOLD:
-                    if self.unresolved_delta[uix] > 0.:  # price increases
-                        self.df.iat[uix, self.lix] = TARGETS[BUY]
-                    # else stay with df.iat[uix, lix] = TARGETS[HOLD]
-                elif (delta > 0) and (self.unresolved_delta[uix] < 0.):
-                    pass
-                    # stay with df.iat[uix, lix] = TARGETS[HOLD]
-                elif (delta < 0) and (self.unresolved_delta[uix] > 0.):
-                    pass
-                    # stay with df.iat[uix, lix] = TARGETS[HOLD]
-                else:
-                    # keep monitoring
-                    urs[uix] = self.unresolved_delta[uix]
-            self.last_close = this_close
-            self.unresolved_delta = urs
-
-    def __signal_spike_cleanup(self, time_agg, df, lix, cix):
-        closeatsell = dict()
-        closeatbuy = dict()
-        for tix in range(time_agg, len(df), 1):  # tix = time index
-            this_close = df.iat[tix, cix]
-            if df.iat[tix, lix] == TARGETS[BUY]:
-                # smooth sell peaks if beneficial
-                closeatbuy[tix] = this_close
-                for uix in closeatsell:
-                    sell_buy = -2 * (FEE + TRADE_SLIP)
-                    holdgain = this_close - closeatsell[uix]
-                    if sell_buy < holdgain:
-                        # if fee loss more than dip loss/gain then smoothing
-                        df.iat[uix, lix] = TARGETS[HOLD]
-                closeatsell = dict()
-            if df.iat[tix, lix] == TARGETS[SELL]:
-                # smooth buy peaks if beneficial
-                closeatsell[tix] = this_close
-                for uix in closeatbuy:
-                    buy_sell = -2 * (FEE + TRADE_SLIP) + this_close - closeatbuy[uix]
-                    if buy_sell < 0:
-                        # if fee loss more than dip loss/gain then smoothing
-                        df.iat[uix, lix] = TARGETS[HOLD]
-                closeatbuy = dict()
-
-    def __add_targets2(self, time_agg, df):
-        """ Target label logic see TargetEvaluation.next_sample().
-            Afterwards clean up of trade signal spikes that don't pay off.
-            Finally close HOLD gaps between consequitive sell or buy signals
-            with the corresponding signal to have more training samples for
-            these classes.
-        """
-        df['target2'] = TARGETS[HOLD]
-        lix = df.columns.get_loc("target2")
-        cix = df.columns.get_loc("close")
-        te = {slot: TargetsFeatures.TargetEvaluation(df, slot, lix, cix) for slot in range(0, time_agg)}
-        for tix in range(time_agg, len(df), 1):  # tix = time index
-            slot = (tix % time_agg)
-            te[slot].next_sample(tix)
-        self.__signal_spike_cleanup(time_agg, df, lix, cix)
-
-        # now close gaps between consequitive sell or buy signals
-        last_signal = TARGETS[HOLD]
-        last_ix = 0
-        for tix in range(len(df)):  # tix = time index
-            this_signal = df.iat[tix, lix]
-            if last_signal == TARGETS[HOLD]:
-                if this_signal != TARGETS[HOLD]:
-                    last_signal = this_signal
-                    last_ix = tix
-            else:  # last_signal != TARGETS[HOLD]:
-                if this_signal == TARGETS[HOLD]:
-                    continue
-                elif this_signal == last_signal:  # fill gap
-                    df.iloc[last_ix:tix, lix] = this_signal
-                # opposite signals => no gap to fill or
-                # equal trade signals and gap just filled
-                last_ix = tix
-                last_signal = this_signal
-
-    def __add_targets(self, time_agg, df):
-        """ target = achieved if improvement > 1% without intermediate loss of more than 0.2%
-
-            `time_agg` in minutes is used to ignore losses within these time ranges looking forward.
-            To achieve that `time_agg` parallel monitoring paths are evaluated that look forward
-            in `time_agg` minutes jumps to evaluate gains/losses.
-        """
-        # print(f"{datetime.now()}: self.add_targets {time_agg}")
-        df['target'] = TARGETS[HOLD]
-        lix = df.columns.get_loc('target')
-        cix = df.columns.get_loc('close')
-        win = dict()
-        loss = dict()
-        lossix = dict()
-        winix = dict()
-        ixfifo = Queue()  # will hold all sell ix to smooth out if dip sell does no tpay off
-        closeatsell = closeatbuy = 0
-        lasttarget = dict()
-        for slot in range(0, time_agg):
-            win[slot] = loss[slot] = 0.
-            winix[slot] = lossix[slot] = slot
-            lasttarget[slot] = TARGETS[HOLD]
-        for tix in range(time_agg, len(df), 1):  # tix = time index
-            slot = (tix % time_agg)
-            last_close = df.iat[tix - time_agg, cix]
-            this_close = df.iat[tix, cix]
-            delta = (this_close - last_close) / last_close  # * 1000 no longer in per mille
-            if delta < 0:
-                if loss[slot] < 0:  # loss monitoring is running
-                    loss[slot] += delta
-                else:  # first time bar of decrease period
-                    lossix[slot] = tix
-                    loss[slot] = delta
-                if win[slot] > 0:  # win monitoring is running
-                    win[slot] += delta
-                    if win[slot] < 0:  # reset win monitor because it is below start price
-                        win[slot] = 0.
-                if loss[slot] < SELL_THRESHOLD:  # reset win monitor -> dip exceeded threshold
-                    win[slot] = 0.
-                    df.iat[lossix[slot], lix] = lasttarget[slot] = TARGETS[SELL]
-                    lossix[slot] += 1  # allow multiple signals if conditions hold => FIX this changes slot!
-                    # FIX loss[slot] is not corrected with the index change
-                    #  here comes the smooth execution for BUY peaks:
-                    if closeatbuy > 0:  # smoothing is active
-                        buy_sell = -2 * (FEE + TRADE_SLIP) + this_close - closeatbuy
-                        while not ixfifo.empty():
-                            smooth_ix = ixfifo.get()
-                            if buy_sell < 0:
-                                # if fee loss more than dip loss/gain then smoothing
-                                df.iat[smooth_ix, lix] = TARGETS[HOLD]
-                        closeatbuy = 0
-                    #  here comes the smooth preparation for SELL dips:
-                    if closeatsell == 0:
-                        closeatsell = this_close
-                    ixfifo.put(tix)  # prep after execution due to queue reuse
-            elif delta > 0:
-                if win[slot] > 0:  # win monitoring is running
-                    win[slot] += delta
-                else:  # first time bar of increase period
-                    winix[slot] = tix
-                    win[slot] = delta
-                if loss[slot] < 0:  # loss monitoring is running
-                    loss[slot] += delta
-                    if loss[slot] > 0:
-                        loss[slot] = 0.  # reset loss monitor -> recovered before sell threshold
-                if win[slot] > BUY_THRESHOLD:  # reset win monitor -> dip exceeded threshold
-                    loss[slot] = 0.
-                    df.iat[winix[slot], lix] = lasttarget[slot] = TARGETS[BUY]
-                    winix[slot] += 1  # allow multiple signals if conditions hold => FIX this changes slot!
-                    # FIX win[slot] is not corrected with the index change
-                    #  here comes the smooth execution for SELL dips:
-                    if closeatsell > 0:  # smoothing is active
-                        sell_buy = -2 * (FEE + TRADE_SLIP)
-                        holdgain = this_close - closeatsell
-                        while not ixfifo.empty():
-                            smooth_ix = ixfifo.get()
-                            if sell_buy < holdgain:
-                                # if fee loss more than dip loss/gain then smoothing
-                                df.iat[smooth_ix, lix] = TARGETS[HOLD]
-                        closeatsell = 0
-                    #  here comes the smooth preparation for BUY peaks:
-                    if closeatbuy == 0:
-                        closeatbuy = this_close
-                    ixfifo.put(tix)  # prep after execution due to queue reuse
-        # report_setsize("complete set", df)
-
     def calc_features_and_targets(self, minute_dataframe):
         """Assigns minute_dataframe to attribute *minute_data*.
         Calculates features and assigns them to attribute *vec*.
@@ -491,12 +281,7 @@ class TargetsFeatures:
                                      self.base, self.quote, self.target_key))
         tf_aggs = self.__calc_aggregation(self.minute_data, Env.time_aggs)
         if "target" not in self.minute_data:
-            self.__add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
-            self.__add_targets2(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
-            self.__add_targets2(1, tf_aggs[1])  # add aggregation targets
-            self.minute_data["target"] = tf_aggs[self.target_key]["target"]
-            self.minute_data["target2"] = tf_aggs[self.target_key]["target2"]
-            self.minute_data["target3"] = tf_aggs[1]["target2"]
+            ct.crypto_trade_targets(self.minute_data)  # add aggregation targets
             # print("calculating targets")
         else:
             # print("reusing targets")
@@ -539,11 +324,11 @@ class TargetsFeatures:
             signal = target_df.iat[tix, col_ix]
             if ta_holding:
                 perf += tix_perf
-            if (signal == TARGETS[BUY]) and (not ta_holding):
-                perf -= FEE
+            if (signal == ct.TARGETS[ct.BUY]) and (not ta_holding):
+                perf -= ct.FEE
                 ta_holding = True
-            if (signal == TARGETS[SELL]) and ta_holding:
-                perf -= FEE
+            if (signal == ct.TARGETS[ct.SELL]) and ta_holding:
+                perf -= ct.FEE
                 ta_holding = False
         return perf
 
@@ -582,61 +367,10 @@ class TargetsFeatures2(TargetsFeatures):
         self.vec = None
         self.target_key = TARGET_KEY
 
-    def calc_features_and_targets(self, minute_dataframe):
-        """Assigns minute_dataframe to attribute *minute_data*.
-        Calculates features and assigns them to attribute *vec*.
-        If minute_dataframe is None
-        then an earlier assigned *minute_data* is used the recalculate features.
-        If *minute_data* has no 'target' column then targets are calculated and added to
-        *minute_data*.
-
-        Releasing feature data by assigning *vec* None and recalculating those later is a valid
-        use case to free up memory temporary.
-
-        minute_dataframe shall have
-        the columns: open, high, low, close, volume and timestamps as index
-        """
-
-        if minute_dataframe is None:
-            if self.minute_data is None:
-                raise env.MissingHistoryData("{}–{} target {}min without minute data ({})".format(
-                                         self.base, self.quote, self.target_key, self.vec))
-        else:
-            self.minute_data = minute_dataframe
-        if self.minute_data.empty is None:
-            self.minute_data = None
-            raise env.MissingHistoryData("{}–{} target {}min with empty minute data".format(
-                                     self.base, self.quote, self.target_key))
-        tf_aggs = super().__calc_aggregation(self.minute_data, Env.time_aggs)
-        if "target" not in self.minute_data:
-            super().__add_targets(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
-            super().__add_targets2(self.target_key, tf_aggs[self.target_key])  # add aggregation targets
-            self.minute_data["target"] = tf_aggs[self.target_key]["target"]
-            # print("calculating targets")
-        else:
-            # print("reusing targets")
-            pass
-        # to be modified: self.vec = self.__expand_target_feature_vectors(tf_aggs, self.target_key)
-        if "target" not in self.vec:
-            self.vec["target"] = self.minute_data["target"]
-
-        # print(f"{len(self.vec)} feature vectors of {len(self.vec.iloc[0])-2} features")
-
-    def load_classifier_features(self):
-        """ Loads the historic data temporarily, calculates the features and targets
-            and releases the original data afterwards
-        """
-        try:
-            df = ccd.load_asset_dataframe(self.base, path=Env.cache_path)
-        except env.MissingHistoryData:
-            raise
-        else:
-            self.calc_features_and_targets(df)
-            report_setsize(self.base, self.vec)
 
 
 def target_labels(target_id):
-    return TARGET_NAMES[target_id]
+    return ct.TARGET_NAMES[target_id]
 
 
 if __name__ == "__main__":
@@ -647,7 +381,7 @@ if __name__ == "__main__":
                 (df.index <= pd.Timestamp("2019-01-31 15:58:00+00:00"))]
     tf = TargetsFeatures(base)
     tf.calc_features_and_targets(df)
-    tf.minute_data["label"] = tf.minute_data["target"].apply(lambda x: TARGET_NAMES[x])
-    tf.minute_data["label2"] = tf.minute_data["target2"].apply(lambda x: TARGET_NAMES[x])
+    tf.minute_data["label"] = tf.minute_data["target"].apply(lambda x: ct.TARGET_NAMES[x])
+    tf.minute_data["label2"] = tf.minute_data["target2"].apply(lambda x: ct.TARGET_NAMES[x])
     print(tf.minute_data.head(2))
     print(tf.minute_data.tail(2))

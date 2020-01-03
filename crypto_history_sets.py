@@ -7,8 +7,15 @@ import math
 import env_config as env
 from env_config import Env
 # import cached_crypto_data as ccd
-import crypto_targets_features as ctf
-from crypto_targets_features import HOLD, BUY, SELL, NA, TRAIN, VAL, TEST, TARGETS, MANDATORY_STEPS
+import crypto_targets as ct
+import crypto_features as cf
+
+MANDATORY_STEPS = 2
+NA = "not assigned"
+TRAIN = "training"
+VAL = "validation"
+TEST = "test"
+LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
 
 
 class CryptoHistorySets:
@@ -32,7 +39,7 @@ class CryptoHistorySets:
         self.bases = dict.fromkeys(Env.bases, None)  # all bases of history data available
         self.max_steps = dict.fromkeys(Env.bases)
         for base in self.max_steps:
-            self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0, "max": 0}  # transaction count
+            self.max_steps[base] = {ct.HOLD: 0, ct.BUY: 0, ct.SELL: 0, "max": 0}  # transaction count
         self.max_steps["total"] = 0
         self.timeblock = 4*7*24*60  # time window in minutes that is analyzed equally for all bases
         self.fixtic = None  # tic as fixpoint for timeblock
@@ -53,9 +60,9 @@ class CryptoHistorySets:
         #     merge_asset_dataframe(DATA_PATH, base)
         self.__load_sets_config(sets_config_fname)
         assert not self.analysis.empty, f"{env.timestr()}: missing sets config"
-        ctf.report_setsize(TRAIN, self.ctrl[TRAIN])
-        ctf.report_setsize(VAL, self.ctrl[VAL])
-        ctf.report_setsize(TEST, self.ctrl[TEST])
+        cf.report_setsize(TRAIN, self.ctrl[TRAIN])
+        cf.report_setsize(VAL, self.ctrl[VAL])
+        cf.report_setsize(TEST, self.ctrl[TEST])
         # self.analyze_bases()
 
     def set_of_type(self, base, set_type):
@@ -81,15 +88,15 @@ class CryptoHistorySets:
         if Env.smaller_16gb_ram and (self.last_base != base):
             self.__release_features_of_base(self.last_base)
         try:
-            hold_step = step % self.max_steps[base][HOLD]
-            buy_step = step % self.max_steps[base][BUY]
-            sell_step = step % self.max_steps[base][SELL]
+            hold_step = step % self.max_steps[base][ct.HOLD]
+            buy_step = step % self.max_steps[base][ct.BUY]
+            sell_step = step % self.max_steps[base][ct.SELL]
             base_df = self.ctrl[TRAIN].loc[(self.ctrl[TRAIN].sym == sym) &
-                                           (((self.ctrl[TRAIN].target == TARGETS[HOLD]) &
+                                           (((self.ctrl[TRAIN].target == ct.TARGETS[ct.HOLD]) &
                                              (self.ctrl[TRAIN].step == hold_step)) |
-                                            ((self.ctrl[TRAIN].target == TARGETS[BUY]) &
+                                            ((self.ctrl[TRAIN].target == ct.TARGETS[ct.BUY]) &
                                              (self.ctrl[TRAIN].step == buy_step)) |
-                                            ((self.ctrl[TRAIN].target == TARGETS[SELL]) &
+                                            ((self.ctrl[TRAIN].target == ct.TARGETS[ct.SELL]) &
                                              (self.ctrl[TRAIN].step == sell_step))) &
                                            (self.ctrl[TRAIN].use.__eq__(True))]
             # report_setsize(f"{sym} {TRAIN} set step {step}", base_df)
@@ -121,15 +128,15 @@ class CryptoHistorySets:
 
     def features_from_targets(self, df, base, set_type, step):
         if df.empty:
-            raise ctf.NoSubsetWarning("empty {} subset for {}".format(set_type, base))
+            raise cf.NoSubsetWarning("empty {} subset for {}".format(set_type, base))
         sym = df.at[df.index[0], "sym"]
         df_base = env.base_of_sym(sym)
         if base != df_base:
             raise ValueError(f"features_from_targets: base(df)={df_base} != base={base}")
         tfv = self.get_targets_features_of_base(base)
         try:
-            subset_df = ctf.targets_to_features(tfv, df)
-        except ctf.NoSubsetWarning as msg:
+            subset_df = cf.targets_to_features(tfv, df)
+        except cf.NoSubsetWarning as msg:
             print("features_from_targets  {} {} set step {}: {}".format(
                         base, set_type, step, msg))
             raise
@@ -206,7 +213,7 @@ class CryptoHistorySets:
         """
 
         for base in self.bases:
-            tf = ctf.TargetsFeatures(base)
+            tf = cf.TargetsFeatures(base)
             try:
                 tf.load_classifier_features()
             except env.MissingHistoryData:
@@ -228,7 +235,7 @@ class CryptoHistorySets:
             raise KeyError()
         tf = self.bases[base]
         if tf is None:
-            tf = ctf.TargetsFeatures(base)
+            tf = cf.TargetsFeatures(base)
             tf.load_classifier_features()
         if tf is not None:
             if tf.vec is None:
@@ -251,11 +258,11 @@ class CryptoHistorySets:
         df = self.ctrl[set_type]
         tdf = target_df
         sym = env.sym_of_base(base)
-        # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "hold_prob"] = pd.DataFrame(pred[:, TARGETS[HOLD]])
-        # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "buy_prob"] = pd.DataFrame(pred[:, TARGETS[BUY]])
-        # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "sell_prob"] = pd.DataFrame(pred[:, TARGETS[SELL]])
+        # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "hold_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.HOLD]])
+        # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "buy_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.BUY]])
+        # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "sell_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.SELL]])
         df.loc[df.index.isin(tdf.index) & (df.sym == sym), ["hold_prob", "buy_prob", "sell_prob"]] = \
-            pd.DataFrame(pred[:, [TARGETS[HOLD], TARGETS[BUY], TARGETS[SELL]]])
+            pd.DataFrame(pred[:, [ct.TARGETS[ct.HOLD], ct.TARGETS[ct.BUY], ct.TARGETS[ct.SELL]]])
         if set_type == TRAIN:
             df.loc[tdf.index, "tcount"] = df.loc[tdf.index, "tcount"] + 1
 
@@ -264,24 +271,24 @@ class CryptoHistorySets:
         """
         df = self.ctrl[set_type]
         df["use"] = False
-        df.loc[(df.target == TARGETS[HOLD]) &
+        df.loc[(df.target == ct.TARGETS[ct.HOLD]) &
                ((df.buy_prob >= df.hold_prob) | (df.sell_prob >= df.hold_prob)), "use"] = True
-        df.loc[(df.target == TARGETS[BUY]) &
+        df.loc[(df.target == ct.TARGETS[ct.BUY]) &
                ((df.hold_prob >= df.buy_prob) | (df.sell_prob >= df.buy_prob)), "use"] = True
-        df.loc[(df.target == TARGETS[SELL]) &
+        df.loc[(df.target == ct.TARGETS[ct.SELL]) &
                ((df.buy_prob >= df.sell_prob) | (df.hold_prob >= df.sell_prob)), "use"] = True
         return len(df[df.use.__eq__(True)])
 
     def __base_label_check(self, base):
         print("{} maxsteps of buy:{} sell:{} hold:{} max:{}".format(
-                base, self.max_steps[base][BUY], self.max_steps[base][SELL],
-                self.max_steps[base][HOLD], self.max_steps[base]["max"]))
+                base, self.max_steps[base][ct.BUY], self.max_steps[base][ct.SELL],
+                self.max_steps[base][ct.HOLD], self.max_steps[base]["max"]))
         holds = sells = buys = totals = 0
         for step in range(self.max_steps[base]["max"]):
             df = self.trainset_step(base, step)
-            hc = len(df[df.target == TARGETS[HOLD]])
-            sc = len(df[df.target == TARGETS[SELL]])
-            bc = len(df[df.target == TARGETS[BUY]])
+            hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
+            sc = len(df[df.target == ct.TARGETS[ct.SELL]])
+            bc = len(df[df.target == ct.TARGETS[ct.BUY]])
             tc = hc + sc + bc
             print(f"buy {bc} sell {sc} hold {hc} total {tc} on label_check {step}")
             if step < self.max_steps[base]["max"]:
@@ -290,9 +297,9 @@ class CryptoHistorySets:
                 buys += bc
                 totals += tc
         df = self.set_of_type(base, TRAIN)
-        hc = len(df[df.target == TARGETS[HOLD]])
-        sc = len(df[df.target == TARGETS[SELL]])
-        bc = len(df[df.target == TARGETS[BUY]])
+        hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
+        sc = len(df[df.target == ct.TARGETS[ct.SELL]])
+        bc = len(df[df.target == ct.TARGETS[ct.BUY]])
         nc = len(df)
         tc = hc + sc + bc
         print(f"label check set: buy {bc} sell {sc} hold {hc} total {tc} whole set{nc}")
@@ -318,10 +325,10 @@ class CryptoHistorySets:
             sym = env.sym_of_base(base)
             tdf = self.ctrl[TRAIN]
             tdf = tdf[tdf.sym == sym]
-            self.max_steps[base] = {HOLD: 0, BUY: 0, SELL: 0}
-            holds = len(tdf[(tdf.target == TARGETS[HOLD]) & (tdf.use.__eq__(True))])
-            sells = len(tdf[(tdf.target == TARGETS[SELL]) & (tdf.use.__eq__(True))])
-            buys = len(tdf[(tdf.target == TARGETS[BUY]) & (tdf.use.__eq__(True))])
+            self.max_steps[base] = {ct.HOLD: 0, ct.BUY: 0, ct.SELL: 0}
+            holds = len(tdf[(tdf.target == ct.TARGETS[ct.HOLD]) & (tdf.use.__eq__(True))])
+            sells = len(tdf[(tdf.target == ct.TARGETS[ct.SELL]) & (tdf.use.__eq__(True))])
+            buys = len(tdf[(tdf.target == ct.TARGETS[ct.BUY]) & (tdf.use.__eq__(True))])
             all_use = len(tdf[(tdf.use.__eq__(True))])
             all_sym = len(tdf)
             samples = holds + sells + buys
@@ -339,21 +346,21 @@ class CryptoHistorySets:
             iix = tdf.columns.get_loc("step")
             for ix in range(len(tdf.index)):
                 target = tdf.iat[ix, tix]
-                if target == TARGETS[BUY]:
+                if target == ct.TARGETS[ct.BUY]:
                     tdf.iat[ix, iix] = bi
                     bi = (bi + 1) % b_step
-                elif target == TARGETS[SELL]:
+                elif target == ct.TARGETS[ct.SELL]:
                     tdf.iat[ix, iix] = si
                     si = (si + 1) % s_step
-                elif target == TARGETS[HOLD]:
+                elif target == ct.TARGETS[ct.HOLD]:
                     tdf.iat[ix, iix] = hi
                     hi = (hi + 1) % h_step
                 else:  # hold
                     print(f"error: unexpected target {target}")
             self.ctrl[TRAIN].loc[(self.ctrl[TRAIN].sym == sym), "step"] = tdf.step
-            self.max_steps[base][BUY] = b_step
-            self.max_steps[base][SELL] = s_step
-            self.max_steps[base][HOLD] = h_step
+            self.max_steps[base][ct.BUY] = b_step
+            self.max_steps[base][ct.SELL] = s_step
+            self.max_steps[base][ct.HOLD] = h_step
             self.max_steps[base]["max"] = max([h_step, b_step, s_step])
             self.max_steps["total"] += self.max_steps[base]["max"]
         return self.max_steps["total"]
@@ -393,8 +400,8 @@ class CryptoHistorySets:
             dfm = tf.minute_data
             assert dfm is not None
             dfm = dfm.loc[(dfm.index >= wsts) & (dfm.index <= wets), ["target", "volume"]]
-            buys = len(dfm.loc[dfm.target == TARGETS[BUY]])
-            sells = len(dfm.loc[dfm.target == TARGETS[SELL]])
+            buys = len(dfm.loc[dfm.target == ct.TARGETS[ct.BUY]])
+            sells = len(dfm.loc[dfm.target == ct.TARGETS[ct.SELL]])
             vcount = len(dfm)
             avgvol = int(dfm["volume"].mean())
             novol = len(dfm.loc[dfm.volume <= 0])
@@ -404,7 +411,7 @@ class CryptoHistorySets:
         blocks = set()
         for base in self.bases:
             sym = base + "_usdt"
-            tf = ctf.TargetsFeatures(base)
+            tf = cf.TargetsFeatures(base)
             tf.load_classifier_features()
             (wsts, wets) = first_week_ts(tf)
             while wets is not None:

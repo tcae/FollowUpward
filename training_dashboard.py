@@ -10,8 +10,9 @@ from dash.dependencies import Input, Output
 import pandas as pd
 import numpy as np
 from env_config import Env
-import env_config as env
-import crypto_targets_features as ctf
+# import env_config as env
+import crypto_targets as ct
+import crypto_features as cf
 import cached_crypto_data as ccd
 import indicators as ind
 
@@ -289,7 +290,7 @@ def time_linear_regression(df):
     return (delta, df.Y_regression)
 
 
-def open_timeline_graph(timerange, aggregation, click_data, bases, regression_base):
+def open_timeline_graph(timerange, aggregation, click_data, bases, regression_base, indicators):
     """ Displays a line chart of open prices
         and a one dimensional data regression df with the same Datetimeindex as the input df.
     """
@@ -302,8 +303,12 @@ def open_timeline_graph(timerange, aggregation, click_data, bases, regression_ba
             end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
     start = end - timerange
 
-    if regression_base is not None:
-        graph_bases.append(normalized_regression_graph(start, end, cdf[regression_base], aggregation))
+    if indicators is None:
+        indicators = []
+    else:
+        if "regression 1D" in indicators:
+            if regression_base is not None:
+                graph_bases.append(normalized_regression_graph(start, end, cdf[regression_base], aggregation))
 
     if bases is None:
         bases = []
@@ -334,33 +339,36 @@ def open_timeline_graph(timerange, aggregation, click_data, bases, regression_ba
     dash.dependencies.Output('halfyear-graph', 'figure'),
     [dash.dependencies.Input('full-time-graph', 'clickData'),
      dash.dependencies.Input('crossfilter-crypto-select', 'value'),
-     dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
-def update_halfyear_by_click(click_data, bases, regression_base):
+     dash.dependencies.Input('crossfilter-crypto-radio', 'value'),
+     dash.dependencies.Input('crossfilter-indicator-select', 'value')])
+def update_halfyear_by_click(click_data, bases, regression_base, indicators):
     aggregation = "H"
     timerange = pd.Timedelta(365/2, "D")
-    return open_timeline_graph(timerange, aggregation, click_data, bases, regression_base)
+    return open_timeline_graph(timerange, aggregation, click_data, bases, regression_base, indicators)
 
 
 @app.callback(
     dash.dependencies.Output('ten-day-time-graph', 'figure'),
     [dash.dependencies.Input('halfyear-graph', 'clickData'),
      dash.dependencies.Input('crossfilter-crypto-select', 'value'),
-     dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
-def update_ten_day_by_click(click_data, bases, regression_base):
+     dash.dependencies.Input('crossfilter-crypto-radio', 'value'),
+     dash.dependencies.Input('crossfilter-indicator-select', 'value')])
+def update_ten_day_by_click(click_data, bases, regression_base, indicators):
     aggregation = "T"
     timerange = pd.Timedelta(Env.minimum_minute_df_len, "T")
-    return open_timeline_graph(timerange, aggregation, click_data, bases, regression_base)
+    return open_timeline_graph(timerange, aggregation, click_data, bases, regression_base, indicators)
 
 
 @app.callback(
     dash.dependencies.Output('full-day-time-graph', 'figure'),
     [dash.dependencies.Input('ten-day-time-graph', 'clickData'),
      dash.dependencies.Input('crossfilter-crypto-select', 'value'),
-     dash.dependencies.Input('crossfilter-crypto-radio', 'value')])
-def update_full_day_by_click(click_data, bases, regression_base):
+     dash.dependencies.Input('crossfilter-crypto-radio', 'value'),
+     dash.dependencies.Input('crossfilter-indicator-select', 'value')])
+def update_full_day_by_click(click_data, bases, regression_base, indicators):
     aggregation = "T"
     timerange = pd.Timedelta(24*60, "T")
-    return open_timeline_graph(timerange, aggregation, click_data, bases, regression_base)
+    return open_timeline_graph(timerange, aggregation, click_data, bases, regression_base, indicators)
 
 
 def target_list(base, start, end, dcdf):
@@ -370,19 +378,23 @@ def target_list(base, start, end, dcdf):
     target_dict = dict()
     fstart = start - pd.Timedelta(Env.minimum_minute_df_len, "m")
     fdf = dcdf.loc[(dcdf.index >= fstart) & (dcdf.index <= end)]
-    tf = ctf.TargetsFeatures(base)
+    tf = cf.TargetsFeatures(base)
     tf.calc_features_and_targets(fdf)
     dcdf = tf.minute_data.loc[(tf.minute_data.index >= start) & (tf.minute_data.index <= end)]
+
+    targets = [t for t in dcdf["target_thresholds"]]
+    labels = [ct.TARGET_NAMES[t] for t in targets]
+    target_dict["target_thresholds"] = {"targets": targets, "labels": labels}
+
+    targets = [t for t in dcdf["target_spike_cleanup"]]
+    labels = [ct.TARGET_NAMES[t] for t in targets]
+    target_dict["target_spike_cleanup"] = {"targets": targets, "labels": labels}
+
     targets = [t for t in dcdf["target"]]
-    labels = [ctf.TARGET_NAMES[t] for t in targets]
+    labels = [ct.TARGET_NAMES[t] for t in targets]
     target_dict["target1"] = {"targets": targets, "labels": labels}
-    targets = [t for t in dcdf["target2"]]
-    labels = [ctf.TARGET_NAMES[t] for t in targets]
-    target_dict["target2"] = {"targets": targets, "labels": labels}
-    targets = [t for t in dcdf["target3"]]
-    labels = [ctf.TARGET_NAMES[t] for t in targets]
-    target_dict["target3"] = {"targets": targets, "labels": labels}
-    # labels2 = [ctf.TARGET_NAMES[t] for t in dcdf["target2"]]
+
+    # labels2 = [ct.TARGET_NAMES[t] for t in dcdf["target2"]]
     # print(len(labels1), labels1, len(targets1), targets1)
     # print(len(labels2), labels2)
     return target_dict
@@ -402,9 +414,9 @@ def target_heatmap(base, start, end, dcdf, target_dict):
         hoverinfo="x+y+z+text+name",
         showscale=False,
         # autocolorscale=False,
-        # colorscale=[[ctf.TARGETS[ctf.HOLD]/2, "rgb(255, 234, 0)"],
-        #             [ctf.TARGETS[ctf.SELL]/2, "rgb(255, 0, 0)"],
-        #             [ctf.TARGETS[ctf.BUY]/2, "rgb(116, 196, 118)"]],
+        # colorscale=[[cf.TARGETS[cf.HOLD]/2, "rgb(255, 234, 0)"],
+        #             [cf.TARGETS[cf.SELL]/2, "rgb(255, 0, 0)"],
+        #             [cf.TARGETS[cf.BUY]/2, "rgb(116, 196, 118)"]],
         colorbar=dict(tick0=0, dtick=1))
 
 
@@ -422,32 +434,37 @@ def update_detail_graph_by_click(click_data, base, indicators):
     zoom_in_time = 4*60
 
     aggregation = "T"
+    if indicators is None:
+        indicators = []
     end = pd.Timestamp.now(tz='UTC')
-    if base is not None:
-        if click_data is None:
-            end = cdf[base].index[len(cdf[base])-1]
-        else:
-            end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
+    if click_data is None:
+        end = cdf[base].index[len(cdf[base])-1]
+    else:
+        end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
     start = end - pd.Timedelta(zoom_in_time, "m")
-    target_dict = target_list(base, start, end, dcdf)
 
     ndcdf = normalize_ohlc(dcdf, start, end, aggregation)
     # print(f"update_detail_graph_by_click: len(ndcdf): {len(ndcdf)}, len(labels): {len(labels1)}")
-    graph_bases.append(
-        go.Candlestick(x=ndcdf.index, open=ndcdf.open, high=ndcdf.high, low=ndcdf.low,
-                       close=ndcdf.close, yaxis='y',
-                       hoverinfo="x+y+z+text+name", text=target_dict["target1"]["labels"]))
+    if "targets" in indicators:
+        target_dict = target_list(base, start, end, dcdf)
+        graph_bases.append(
+            go.Candlestick(x=ndcdf.index, open=ndcdf.open, high=ndcdf.high, low=ndcdf.low,
+                           close=ndcdf.close, yaxis='y',
+                           hoverinfo="x+y+z+text+name", text=target_dict["target1"]["labels"]))
+        graph_bases.append(target_heatmap(base, start, end, ndcdf, target_dict))
+    else:
+        graph_bases.append(
+            go.Candlestick(x=ndcdf.index, open=ndcdf.open, high=ndcdf.high, low=ndcdf.low,
+                           close=ndcdf.close, yaxis='y',
+                           hoverinfo="x+y+z+text+name"))
+
+    if "regression 1D" in indicators:
+        graph_bases.append(regression_graph(start, end, ndcdf, aggregation))
+        graph_bases.append(regression_graph(end - pd.Timedelta(5, "m"), end, ndcdf, aggregation))
+        graph_bases.append(regression_graph(end - pd.Timedelta(11, "m"),
+                           end - pd.Timedelta(6, "m"), ndcdf, aggregation))
+        graph_bases.append(regression_graph(end - pd.Timedelta(30, "m"), end, ndcdf, aggregation))
     graph_bases.append(volume_graph(start, end, dcdf))
-
-    if indicators is None:
-        indicators = []
-
-    graph_bases.append(regression_graph(start, end, ndcdf, aggregation))
-    graph_bases.append(regression_graph(end - pd.Timedelta(5, "m"), end, ndcdf, aggregation))
-    graph_bases.append(regression_graph(end - pd.Timedelta(11, "m"), end - pd.Timedelta(6, "m"), ndcdf, aggregation))
-    graph_bases.append(regression_graph(end - pd.Timedelta(30, "m"), end, ndcdf, aggregation))
-
-    graph_bases.append(target_heatmap(base, start, end, ndcdf, target_dict))
 
     timeinfo = aggregation + ": " + start.strftime(Env.dt_format) + " - " + end.strftime(Env.dt_format)
     return {
@@ -480,6 +497,6 @@ def load_crypto_data():
 
 if __name__ == '__main__':
     # load_crypto_data()
-    env.test_mode()
+    # env.test_mode()
     cdf = {base: ccd.load_asset_dataframe(base, path=Env.data_path) for base in Env.usage.bases}
     app.run_server(debug=True)

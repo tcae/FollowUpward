@@ -10,7 +10,8 @@ import timeit
 import time
 import env_config as env
 # from env_config import Env
-import crypto_targets_features as ctf
+import crypto_targets as ct
+import crypto_features as cf
 import classify_keras as ck
 from classify_keras import PerfMatrix, EvalPerf  # required for pickle  # noqa
 from local_xch import Xch
@@ -191,7 +192,7 @@ class Trading():
             and the close price is below the buy price for more
             than a configurable number of minutes MAX_MINBELOW
         """
-        if trade_signal != ctf.TARGETS[ctf.BUY]:
+        if trade_signal != ct.TARGETS[ct.BUY]:
             # emergency sell in case no SELL signal but performance drops
             if Bk.book.loc[base, "buyprice"] > 0:
                 if Bk.book.loc[base, "buyprice"] > last_close:
@@ -204,7 +205,7 @@ class Trading():
                             env.nowstr(), sym,
                             Bk.book.loc[base, "minbelow"],
                             Bk.book.loc[base, "buyprice"]))
-                    trade_signal = ctf.TARGETS[ctf.SELL]
+                    trade_signal = ct.TARGETS[ct.SELL]
                     Bk.book.loc[base, "buyprice"] = 0  # reset price monitoring
                     Bk.book.loc[base, "minbelow"] = 0  # minutes below buy price
         return trade_signal
@@ -215,7 +216,7 @@ class Trading():
         """
         if base in Bk.black_bases:  # USDT is in Bk.book
             return None, 0
-        ttf = ctf.TargetsFeatures(base)
+        ttf = cf.TargetsFeatures(base)
         ohlcv_df = Bk.get_ohlcv(base, env.Env.minimum_minute_df_len, date_time)
         if ohlcv_df is None:
             print(f"{env.nowstr()} skipping {base} due to missing ohlcv")
@@ -254,11 +255,11 @@ class Trading():
                         continue
 
                     trade_signal = self.__force_sell_check(base, last_close, trade_signal)
-                    if trade_signal != ctf.TARGETS[ctf.HOLD]:
-                        print(f"{env.nowstr()} {base} {ctf.TARGET_NAMES[trade_signal]}")
-                    if trade_signal == ctf.TARGETS[ctf.SELL]:
+                    if trade_signal != ct.TARGETS[ct.HOLD]:
+                        print(f"{env.nowstr()} {base} {ct.TARGET_NAMES[trade_signal]}")
+                    if trade_signal == ct.TARGETS[ct.SELL]:
                         self.sell_order(base, ratio=1)
-                    if trade_signal == ctf.TARGETS[ctf.BUY]:
+                    if trade_signal == ct.TARGETS[ct.BUY]:
                         buylist.append(base)  # amount to be determined by __distribute_buy_amount
 
                 self.__distribute_buy_amount(buylist)
