@@ -8,15 +8,12 @@ import dash_html_components as html
 from dash.dependencies import Input, Output
 # import plotly.graph_objs as go
 import pandas as pd
-import numpy as np
 from env_config import Env
 # import env_config as env
 import crypto_targets as ct
 import crypto_features as cf
 import cached_crypto_data as ccd
 import indicators as ind
-
-from sklearn.linear_model import LinearRegression
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
@@ -239,7 +236,7 @@ def normalize_ohlc(dcdf, start, end, aggregation):
 
 def regression_graph(start, end, dcdf, aggregation):
     reduced_dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
-    delta, Y_pred = time_linear_regression(reduced_dcdf["open"])
+    delta, Y_pred = ind.time_linear_regression(reduced_dcdf["open"])
     aggmin = (end - start) / pd.Timedelta(1, aggregation)
     legendname = "{:4.0f} {} = delta/h: {:4.3f}".format(aggmin, aggregation, delta)
     return dict(x=reduced_dcdf.index, y=Y_pred, mode='lines', name=legendname, yaxis='y')  # 'lines+markers'
@@ -247,7 +244,7 @@ def regression_graph(start, end, dcdf, aggregation):
 
 def normalized_regression_graph(start, end, dcdf, aggregation):
     reduced_dcdf = normalize_open(dcdf, start, end, aggregation)
-    delta, Y_pred = time_linear_regression(reduced_dcdf["open"])
+    delta, Y_pred = ind.time_linear_regression(reduced_dcdf["open"])
     aggmin = (end - start) / pd.Timedelta(1, aggregation)
     legendname = "{:4.0f} {} = delta/h: {:4.3f}".format(aggmin, aggregation, delta)
     return dict(x=reduced_dcdf.index, y=Y_pred, mode='lines', name=legendname, yaxis='y')  # 'lines+markers'
@@ -267,27 +264,6 @@ def volume_graph(start, end, dcdf):
         else:
             colors.append(DECREASING_COLOR)
     return dict(x=dcdf.index, y=dcdf.volume, marker=dict(color=colors), type='bar', yaxis='y2', name='Volume')
-
-
-def time_linear_regression(df):
-    """ Receives a one column data dataframe with a Datetimeindex in fixed frequency.
-
-        Returns a (hourly_delta, regression_df) tuple containing the regression delta within 1 hour
-        and a one dimensional data regression df with the same Datetimeindex as the input df.
-    """
-    X = np.arange(len(df)).reshape(-1, 1)
-    Y = df.values.reshape(-1, 1)  # -1 means that calculate the dimension of rows, but have 1 column
-    linear_regressor = LinearRegression()  # create object for the class
-    linear_regressor.fit(X, Y)  # perform linear regression
-    Y_pred = linear_regressor.predict(X)[:, 0]  # make predictions
-    df = df.to_frame()
-    df = df.assign(Y_regression=Y_pred)
-    df["delta"] = (df.Y_regression - df.Y_regression.shift(1))
-    # print("df.Y_reg", df.head(5))
-    delta = Y_pred[1]-Y_pred[0]
-    timediff_factor = pd.Timedelta(60, unit="m") / (df.index[1]-df.index[0])
-    delta = delta * timediff_factor
-    return (delta, df.Y_regression)
 
 
 def open_timeline_graph(timerange, aggregation, click_data, bases, regression_base, indicators):
@@ -378,8 +354,7 @@ def target_list(base, start, end, dcdf):
     target_dict = dict()
     fstart = start - pd.Timedelta(Env.minimum_minute_df_len, "m")
     fdf = dcdf.loc[(dcdf.index >= fstart) & (dcdf.index <= end)]
-    tf = cf.TargetsFeatures(base)
-    tf.calc_features_and_targets(fdf)
+    tf = cf.TargetsFeatures(base, minute_dataframe=fdf)
     dcdf = tf.minute_data.loc[(tf.minute_data.index >= start) & (tf.minute_data.index <= end)]
 
     # targets = [t for t in dcdf["target_thresholds"]]
@@ -405,7 +380,7 @@ def target_heatmap(base, start, end, dcdf, target_dict):
     dcdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
     # df_check(dcdf, pd.Timedelta(end-start, "m"))
     return go.Heatmap(
-        x=dcdf.index, y=[i+1 for i in range(len(target_dict))],
+        x=dcdf.index, y=[i for i in target_dict],
         z=[target_dict[t]["targets"] for t in target_dict], zmin=0, zmax=2,
         yaxis='y3', name='labels',
         text=[target_dict[t]["labels"] for t in target_dict],
@@ -479,7 +454,7 @@ def update_detail_graph_by_click(click_data, base, indicators):
                 'text': "normalized crypto prices"
             }],
             'yaxis2': {"domain": [0., 0.2]},
-            'yaxis3': {"domain": [0.2, 0.24], "showticklabels": False},
+            'yaxis3': {"domain": [0.2, 0.23], "showticklabels": False},
             'yaxis': {'type': 'linear', "domain": [0.3, 1]},
             'xaxis': {'showgrid': False, 'title': timeinfo, "rangeslider": {"visible": False}}
         }
