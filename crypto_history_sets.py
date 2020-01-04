@@ -31,7 +31,7 @@ class CryptoHistorySets:
         training control:
         =================
         - df[common timeline index, base, target, tcount, buy_prob, sell_prob, hold_prob, use]
-        - step within an epoch, every step-th class of a sym is used
+        - step within an epoch, every step-th class of a base is used
         - tcount is incremented with every training cycle usage
         - buy_prob, sell_prob, hold_prob are the class probabilities of the last evaluation
         - use is an earmark that this sample shall be used for the next training epoch/validation
@@ -47,12 +47,12 @@ class CryptoHistorySets:
                                               "buys", "sells", "avg_vol", "novol_count"])
 
         self.ctrl = dict()
-        self.ctrl[TRAIN] = pd.DataFrame(columns=["sym", "timestamp", "target", "use",
+        self.ctrl[TRAIN] = pd.DataFrame(columns=["base", "timestamp", "target", "use",
                                                  "hold_prob", "buy_prob", "sell_prob",
                                                  "step", "tcount"])
-        self.ctrl[VAL] = pd.DataFrame(columns=["sym", "timestamp", "target", "use",
+        self.ctrl[VAL] = pd.DataFrame(columns=["base", "timestamp", "target", "use",
                                                "hold_prob", "buy_prob", "sell_prob"])
-        self.ctrl[TEST] = pd.DataFrame(columns=["sym", "timestamp", "target", "use",
+        self.ctrl[TEST] = pd.DataFrame(columns=["base", "timestamp", "target", "use",
                                                 "hold_prob", "buy_prob", "sell_prob"])
         self.last_base = None
 
@@ -69,29 +69,23 @@ class CryptoHistorySets:
         """ returns the base data of a specific type: TRAIN, VAL, TEST
             if the system is configured as having less than 16GB RAM then the last base data is released
         """
-        sym = env.sym_of_base(base)
-        if Env.smaller_16gb_ram and (self.last_base != base):
-            self.__release_features_of_base(self.last_base)
         try:
-            base_df = self.ctrl[set_type].loc[(self.ctrl[set_type].sym == sym) &
+            base_df = self.ctrl[set_type].loc[(self.ctrl[set_type].base == base) &
                                               (self.ctrl[set_type].use.__eq__(True))]
-            # print(f"{set_type} set with {len(base_df)} samples for {sym}")
+            # print(f"{set_type} set with {len(base_df)} samples for {base}")
             return base_df
         except KeyError:
-            print(f"no {self.set_type} set for {sym}")
+            print(f"no {self.set_type} set for {base}")
             pass
 
     def trainset_step(self, base, step):  # public
         """ returns the training subset of base for the next training step
         """
-        sym = env.sym_of_base(base)
-        if Env.smaller_16gb_ram and (self.last_base != base):
-            self.__release_features_of_base(self.last_base)
         try:
             hold_step = step % self.max_steps[base][ct.HOLD]
             buy_step = step % self.max_steps[base][ct.BUY]
             sell_step = step % self.max_steps[base][ct.SELL]
-            base_df = self.ctrl[TRAIN].loc[(self.ctrl[TRAIN].sym == sym) &
+            base_df = self.ctrl[TRAIN].loc[(self.ctrl[TRAIN].base == base) &
                                            (((self.ctrl[TRAIN].target == ct.TARGETS[ct.HOLD]) &
                                              (self.ctrl[TRAIN].step == hold_step)) |
                                             ((self.ctrl[TRAIN].target == ct.TARGETS[ct.BUY]) &
@@ -99,10 +93,10 @@ class CryptoHistorySets:
                                             ((self.ctrl[TRAIN].target == ct.TARGETS[ct.SELL]) &
                                              (self.ctrl[TRAIN].step == sell_step))) &
                                            (self.ctrl[TRAIN].use.__eq__(True))]
-            # report_setsize(f"{sym} {TRAIN} set step {step}", base_df)
+            # report_setsize(f"{base} {TRAIN} set step {step}", base_df)
             return base_df
         except KeyError:
-            print(f"no {self.set_type} set for {sym}")
+            print(f"no {self.set_type} set for {base}")
             pass
 
     def __load_sets_config(self, config_fname):
@@ -129,14 +123,12 @@ class CryptoHistorySets:
     def features_from_targets(self, df):
         if df.empty:
             raise cf.NoSubsetWarning("empty subset")
-        sym = df.at[df.index[0], "sym"]
-        df_base = env.base_of_sym(sym)
-        tfv = self.get_targets_features_of_base(df_base)
+        base = df.at[df.index[0], "base"]
+        tfv = self.get_targets_features_of_base(base)
         try:
             subset_df = cf.targets_to_features(tfv, df)
         except cf.NoSubsetWarning as msg:
-            print("features_from_targets {}: {}".format(
-                        df_base, msg))
+            print("features_from_targets {}: {}".format(base, msg))
             raise
         return subset_df
 
@@ -190,7 +182,7 @@ class CryptoHistorySets:
             df = dft.loc[(dft.index >= dfcfg.at[block, "start"]) &
                          (dft.index <= dfcfg.at[block, "end"]), ["target", "close"]]
             df["timestamp"] = df.index
-            df["sym"] = sym
+            df["base"] = base
             df["use"] = True
             df["buy_prob"] = float(0)
             df["sell_prob"] = float(0)
@@ -216,17 +208,15 @@ class CryptoHistorySets:
 
         for base in self.bases:
             tf = cf.TargetsFeatures(base, path=Env.data_path)
-            self.bases[base] = tf
             self.__extract_set_type_targets(base, tf, TRAIN)
             self.__extract_set_type_targets(base, tf, VAL)
             self.__extract_set_type_targets(base, tf, TEST)
+            del tf
 
     def get_targets_features_of_base(self, base):
         if base not in self.bases:
             raise KeyError()
-        tf = self.bases[base]
-        if tf is None:
-            tf = cf.TargetsFeatures(base, path=Env.data_path)
+        tf = cf.TargetsFeatures(base, path=Env.data_path)
         if tf.vec is None:
             try:
                 tf.calc_features_and_targets()
@@ -234,26 +224,16 @@ class CryptoHistorySets:
                 print(f"get_targets_features_of_base {base}: {msg}")
         return tf.vec
 
-    def __release_features_of_base(self, base):
-        """ setting the only refernce to the base data to None releases the data from RAM through garbage collection
-        """
-        if base in self.bases:
-            tf = self.bases[base]
-            if tf is not None:
-                del tf.vec
-                tf.vec = None
-
     def register_probabilties(self, base, set_type, pred, target_df):
         """ Used by performance evaluation to register prediction probabilities.
             Those registered probabilities are evaluated by 'use_mistakes'.
         """
         df = self.ctrl[set_type]
         tdf = target_df
-        sym = env.sym_of_base(base)
-        # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "hold_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.HOLD]])
-        # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "buy_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.BUY]])
-        # df.loc[df.index.isin(tdf.index) & (df.sym == sym), "sell_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.SELL]])
-        df.loc[df.index.isin(tdf.index) & (df.sym == sym), ["hold_prob", "buy_prob", "sell_prob"]] = \
+        # df.loc[df.index.isin(tdf.index) & (df.base == base), "hold_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.HOLD]])
+        # df.loc[df.index.isin(tdf.index) & (df.base == base), "buy_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.BUY]])
+        # df.loc[df.index.isin(tdf.index) & (df.base == base), "sell_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.SELL]])
+        df.loc[df.index.isin(tdf.index) & (df.base == base), ["hold_prob", "buy_prob", "sell_prob"]] = \
             pd.DataFrame(pred[:, [ct.TARGETS[ct.HOLD], ct.TARGETS[ct.BUY], ct.TARGETS[ct.SELL]]])
         if set_type == TRAIN:
             df.loc[tdf.index, "tcount"] = df.loc[tdf.index, "tcount"] + 1
@@ -280,7 +260,7 @@ class CryptoHistorySets:
         MANDATORY_STEPS, i.e. each sample is labeled
         with a step between 0 and MANDATORY_STEPS - 1.
         The larger classes have more step labels according to
-        their ratio with the smallest class. This is determined per sym,
+        their ratio with the smallest class. This is determined per base,
         timeblock and target class.
 
         This sample distribution over steps shall balance the training of classes
@@ -288,19 +268,18 @@ class CryptoHistorySets:
         """
         self.max_steps["total"] = 0
         for base in self.bases:
-            sym = env.sym_of_base(base)
             tdf = self.ctrl[TRAIN]
-            tdf = tdf[tdf.sym == sym]
+            tdf = tdf[tdf.base == base]
             self.max_steps[base] = {ct.HOLD: 0, ct.BUY: 0, ct.SELL: 0}
             holds = len(tdf[(tdf.target == ct.TARGETS[ct.HOLD]) & (tdf.use.__eq__(True))])
             sells = len(tdf[(tdf.target == ct.TARGETS[ct.SELL]) & (tdf.use.__eq__(True))])
             buys = len(tdf[(tdf.target == ct.TARGETS[ct.BUY]) & (tdf.use.__eq__(True))])
             all_use = len(tdf[(tdf.use.__eq__(True))])
-            all_sym = len(tdf)
+            all_base = len(tdf)
             samples = holds + sells + buys
-            # print(f"{sym} buys:{buys} sells:{sells} holds:{holds} total:{samples} on {TRAIN}")
+            # print(f"{base} buys:{buys} sells:{sells} holds:{holds} total:{samples} on {TRAIN}")
             if all_use != samples:
-                print(f"samples {samples} != all use {all_use} as subset from all {sym} {all_sym}")
+                print(f"samples {samples} != all use {all_use} as subset from all {base} {all_base}")
             min_step = min([buys, sells, holds])
             if min_step == 0:
                 continue
@@ -323,7 +302,7 @@ class CryptoHistorySets:
                     hi = (hi + 1) % h_step
                 else:  # hold
                     print(f"error: unexpected target {target}")
-            self.ctrl[TRAIN].loc[(self.ctrl[TRAIN].sym == sym), "step"] = tdf.step
+            self.ctrl[TRAIN].loc[(self.ctrl[TRAIN].base == base), "step"] = tdf.step
             self.max_steps[base][ct.BUY] = b_step
             self.max_steps[base][ct.SELL] = s_step
             self.max_steps[base][ct.HOLD] = h_step
