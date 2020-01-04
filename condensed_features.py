@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import indicators as ind
 import env_config as env
 

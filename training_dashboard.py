@@ -239,15 +239,7 @@ def regression_graph(start, end, dcdf, aggregation):
     delta, Y_pred = ind.time_linear_regression(reduced_dcdf["open"])
     aggmin = (end - start) / pd.Timedelta(1, aggregation)
     legendname = "{:4.0f} {} = delta/h: {:4.3f}".format(aggmin, aggregation, delta)
-    return dict(x=reduced_dcdf.index, y=Y_pred, mode='lines', name=legendname, yaxis='y')  # 'lines+markers'
-
-
-def normalized_regression_graph(start, end, dcdf, aggregation):
-    reduced_dcdf = normalize_open(dcdf, start, end, aggregation)
-    delta, Y_pred = ind.time_linear_regression(reduced_dcdf["open"])
-    aggmin = (end - start) / pd.Timedelta(1, aggregation)
-    legendname = "{:4.0f} {} = delta/h: {:4.3f}".format(aggmin, aggregation, delta)
-    return dict(x=reduced_dcdf.index, y=Y_pred, mode='lines', name=legendname, yaxis='y')  # 'lines+markers'
+    return dict(x=reduced_dcdf.index[[0, -1]], y=Y_pred, mode='lines', name=legendname, yaxis='y')
 
 
 def volume_graph(start, end, dcdf):
@@ -284,7 +276,8 @@ def open_timeline_graph(timerange, aggregation, click_data, bases, regression_ba
     else:
         if "regression 1D" in indicators:
             if regression_base is not None:
-                graph_bases.append(normalized_regression_graph(start, end, cdf[regression_base], aggregation))
+                reduced_dcdf = normalize_open(cdf[regression_base], start, end, aggregation)
+                graph_bases.append(regression_graph(start, end, reduced_dcdf, aggregation))
 
     if bases is None:
         bases = []
