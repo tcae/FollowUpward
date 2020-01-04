@@ -22,7 +22,7 @@ def dfdescribe(desc, df):
     print(df.tail())
 
 
-def save_asset_dataframe(df, base, path=None):
+def save_asset_dataframe(df, base, path="missing path"):
     """ saves the base/quote data
     """
     print("{}: writing {} {} tics ({} - {})".format(
