@@ -648,8 +648,7 @@ class Cpc:
         pm = PerfMatrix(0, chs.VAL)
         for bix, base in enumerate(self.hs.bases):
             df = self.hs.set_of_type(base, chs.VAL)
-            tfv = self.hs.get_targets_features_of_base(base)
-            subset_df = cf.targets_to_features(tfv, df)
+            tfv = self.hs.features_from_targets(df)
             samples = cf.to_scikitlearn(subset_df, np_data=None, descr=f"{base}")
             if (samples is None) or (samples.data is None) or (len(samples.data) == 0):
                 print(
@@ -771,11 +770,11 @@ def plot_confusion_matrix(cm, class_names):
 
 if __name__ == "__main__":
     tee = env.Tee()
-    load_classifier = "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
+    load_classifier = None  # "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
     save_classifier = None
     #     load_classifier = str("{}{}".format(BASE, target_key))
     cpc = Cpc(load_classifier, save_classifier)
-    if False:
+    if True:
         cpc.adapt_keras()
     else:
         # cpc.save()

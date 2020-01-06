@@ -117,7 +117,7 @@ class TargetsFeatures:
                 raise
             else:
                 self.crypto_targets()
-        report_setsize(self.__base, minute_dataframe)
+        report_setsize(self.__base, self.minute_data)
         self.vec = None  # is a  DataFrame with features columns and 'target', 'close' columns
 
     def __load_ohlcv_and_targets(self):
@@ -171,6 +171,7 @@ class TargetsFeatures:
         self.vec = af.calc_features(self.minute_data)
         if "target" not in self.vec:
             self.vec["target"] = self.minute_data["target"]
+        return self.vec
 
     def __append_minute_df_with_targets(self, minute_df):
         """ unused?

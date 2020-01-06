@@ -345,8 +345,9 @@ def target_list(base, start, end, dcdf):
     # print(len(labels1), labels1)
     # return labels1, None
     target_dict = dict()
+    # fstart = start - pd.Timedelta(Env.minimum_minute_df_len, "m")
     fstart = start - pd.Timedelta(Env.minimum_minute_df_len, "m")
-    fdf = dcdf.loc[(dcdf.index >= fstart) & (dcdf.index <= end)]
+    fdf = dcdf.loc[(dcdf.index >= start) & (dcdf.index <= end)]
     tf = cf.TargetsFeatures(base, minute_dataframe=fdf)
     dcdf = tf.minute_data.loc[(tf.minute_data.index >= start) & (tf.minute_data.index <= end)]
 
@@ -354,9 +355,9 @@ def target_list(base, start, end, dcdf):
     # labels = [ct.TARGET_NAMES[t] for t in targets]
     # target_dict["target_thresholds"] = {"targets": targets, "labels": labels}
 
-    # targets = [t for t in dcdf["target_spike_cleanup"]]
-    # labels = [ct.TARGET_NAMES[t] for t in targets]
-    # target_dict["target_spike_cleanup"] = {"targets": targets, "labels": labels}
+    targets = [t for t in dcdf["target2"]]
+    labels = [ct.TARGET_NAMES[t] for t in targets]
+    target_dict["newtargets"] = {"targets": targets, "labels": labels}
 
     targets = [t for t in dcdf["target"]]
     labels = [ct.TARGET_NAMES[t] for t in targets]
@@ -374,11 +375,11 @@ def target_heatmap(base, start, end, dcdf, target_dict):
     # df_check(dcdf, pd.Timedelta(end-start, "m"))
     return go.Heatmap(
         x=dcdf.index, y=[i for i in target_dict],
-        z=[target_dict[t]["targets"] for t in target_dict], zmin=0, zmax=2,
+        z=[target_dict[t]["targets"] for t in target_dict], zmin=-1, zmax=1,
         yaxis='y3', name='labels',
         text=[target_dict[t]["labels"] for t in target_dict],
         colorscale='RdYlGn',
-        reversescale=True,
+        reversescale=False,
         hoverinfo="x+y+z+text+name",
         showscale=False,
         # autocolorscale=False,

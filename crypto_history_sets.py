@@ -124,13 +124,10 @@ class CryptoHistorySets:
         if df.empty:
             raise cf.NoSubsetWarning("empty subset")
         base = df.at[df.index[0], "base"]
-        tfv = self.get_targets_features_of_base(base)
-        try:
-            subset_df = cf.targets_to_features(tfv, df)
-        except cf.NoSubsetWarning as msg:
-            print("features_from_targets {}: {}".format(base, msg))
-            raise
-        return subset_df
+        minute_data = load_asset_dataframe(base, path=Env.data_path, limit=None)
+        subset_df = cf.targets_to_features(minute_data, df)
+        tf = cf.TargetsFeatures(base, minute_dataframe = minute_data)
+        return tf.calc_features_and_targets()
 
     def __samples_concat(self, target, to_be_added):
         if target.empty:
@@ -194,7 +191,7 @@ class CryptoHistorySets:
                 extract = df
             else:
                 extract = self.__samples_concat(extract, df)
-        df = df[df.index.isin(tf.vec.index)]
+        df = df[df.index.isin(tf.minute_data)]
         self.ctrl[set_type] = self.__samples_concat(self.ctrl[set_type], df)
 
     def __prepare_training(self):
@@ -212,17 +209,6 @@ class CryptoHistorySets:
             self.__extract_set_type_targets(base, tf, VAL)
             self.__extract_set_type_targets(base, tf, TEST)
             del tf
-
-    def get_targets_features_of_base(self, base):
-        if base not in self.bases:
-            raise KeyError()
-        tf = cf.TargetsFeatures(base, path=Env.data_path)
-        if tf.vec is None:
-            try:
-                tf.calc_features_and_targets()
-            except env.MissingHistoryData as msg:
-                print(f"get_targets_features_of_base {base}: {msg}")
-        return tf.vec
 
     def register_probabilties(self, base, set_type, pred, target_df):
         """ Used by performance evaluation to register prediction probabilities.
@@ -350,7 +336,7 @@ class CryptoHistorySets:
         """
 
         def first_week_ts(tf):
-            df = tf.vec
+            df = tf.minute_data
             assert df is not None
             first_tic = df.index[0].to_pydatetime()
             last_tic = df.index[len(df.index)-1].to_pydatetime()
@@ -366,7 +352,7 @@ class CryptoHistorySets:
         def next_week_ts(tf, wets):
             wsts = wets + timedelta(minutes=1)
             wets = wsts + timedelta(minutes=self.timeblock-1)
-            df = tf.vec
+            df = tf.minute_data
             assert df is not None
             last_tic = df.index[len(df.index)-1].to_pydatetime()
             if last_tic < wsts:
