@@ -6,11 +6,11 @@ import env_config as env
 """ Alternative feature set. Approach: less features and closer to intuitive performance correlation
     (what would I look at?).
 
-    - regression line percentage increase per hour calculated on last 10d basis
-    - regression line percentage increase per hour calculated on last 12h basis
-    - regression line percentage increase per hour calculated on last 4h basis
-    - regression line percentage increase per hour calculated on last 0.5h basis
-    - regression line percentage increase per hour calculated on last 5min basis for last 2x5min periods
+    - regression line percentage gain per hour calculated on last 10d basis
+    - regression line percentage gain per hour calculated on last 12h basis
+    - regression line percentage gain per hour calculated on last 4h basis
+    - regression line percentage gain per hour calculated on last 0.5h basis
+    - regression line percentage gain per hour calculated on last 5min basis for last 2x5min periods
     - percentage of last 5min mean volume compared to last 1h mean 5min volume
     - not directly used: SDU = absolute standard deviation of price points above regression line
     - SDU - (current price - regression price) (== up potential) for 12h, 4h, 0.5h, 5min regression
@@ -36,6 +36,30 @@ def __check_input_consistency(df):
         print(f"len(df) = {len(df)} <= len for required history data elements {__MHE}")
         ok = False
     return ok
+
+
+def __cal_features(prices):
+    """ Receives a numpy array of consecutive prices in fixed frequency starting with the oldest price.
+        Returns a structured numpy array of features per price.
+    """
+    historyonly = 10*24*60
+    if prices.ndim > 1:
+        print("WARNING: unexpected close array dimension {close.ndim}")
+        return None
+    if prices.size <= historyonly:
+        print(f"WARNING: insufficient length of price vector tocalculate any features")
+        return None
+    resulttype = np.dtype(
+        [("regrgain10d", "f8"), ("regrgain12h", "f8"), ("regrgain4h", "f8"), ("regrgain30m", "f8"),
+         ("regrgain5m_1", "f8"), ("regrgain5m_0", "f8"),
+         ("regrprc10d", "f8"), ("regrprc12h", "f8"), ("regrprc4h", "f8"), ("regrprc30m", "f8"),
+         ("regrprc5m_1", "f8"), ("regrprc5m_0", "f8"), ("vol5m_rel1h", "f8"), ("vol5m_rel12h", "f8"),
+         ("SDU-regr12h", "f8"), ("SDU-regr4h", "f8"), ("SDU-regr30m", "f8"), ("SDU-regr5m", "f8"),
+         ("SDD-regr12h", "f8"), ("SDD-regr4h", "f8"), ("SDD-regr30m", "f8"), ("SDD-regr5m", "f8")])
+    result = np.zeros(prices.size, resulttype)
+    regrtype = np.dtype(
+        [("X", "f8"), ("Y", "f8"), ("Y_pred", "f8"), ("delta", "f8"), ("sdu", "f8"), ("sdd", "f8")])
+    regr = np.zeros(historyonly+1, regrtype)
 
 
 def calc_features(minute_data):
