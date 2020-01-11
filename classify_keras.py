@@ -649,11 +649,11 @@ class Cpc:
         for bix, base in enumerate(self.hs.bases):
             df = self.hs.set_of_type(base, chs.VAL)
             tfv = self.hs.features_from_targets(df)
-            samples = cf.to_scikitlearn(subset_df, np_data=None, descr=f"{base}")
+            samples = cf.to_scikitlearn(tfv, np_data=None, descr=f"{base}")
             if (samples is None) or (samples.data is None) or (len(samples.data) == 0):
                 print(
                     "skipping {} len(VAL): {} len(tfv): {} len(subset): {} len(samples)"
-                    .format(base, len(df), len(tfv), len(subset_df), (len(samples.data))))
+                    .format(base, len(df), len(tfv), len(tfv), (len(samples.data))))
                 continue
             if self.scaler is not None:
                 samples.data = self.scaler.transform(samples.data)

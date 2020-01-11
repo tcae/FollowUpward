@@ -6,7 +6,7 @@ import math
 # import sys
 import env_config as env
 from env_config import Env
-# import cached_crypto_data as ccd
+import cached_crypto_data as ccd
 import crypto_targets as ct
 import crypto_features as cf
 
@@ -124,9 +124,9 @@ class CryptoHistorySets:
         if df.empty:
             raise cf.NoSubsetWarning("empty subset")
         base = df.at[df.index[0], "base"]
-        minute_data = load_asset_dataframe(base, path=Env.data_path, limit=None)
+        minute_data = ccd.load_asset_dataframe(base, path=Env.data_path, limit=None)
         subset_df = cf.targets_to_features(minute_data, df)
-        tf = cf.TargetsFeatures(base, minute_dataframe = minute_data)
+        tf = cf.TargetsFeatures(base, minute_dataframe=subset_df)
         return tf.calc_features_and_targets()
 
     def __samples_concat(self, target, to_be_added):
