@@ -24,8 +24,8 @@ from sklearn.linear_model import LinearRegression
 """
 # REGRESSION_KPI = [(0, 0, 5, "5m_0"), (1, 5, 5, "5m_5")]
 REGRESSION_KPI = [(1, 0, 5, "5m_0"), (1, 5, 5, "5m_5"),
-                    (0, 0, 30, "30m"), (0, 0, 4*60, "4h"),
-                    (0, 0, 12*60, "12h"), (1, 0, 10*24*60, "10d")]
+                  (0, 0, 30, "30m"), (0, 0, 4*60, "4h"),
+                  (0, 0, 12*60, "12h"), (1, 0, 10*24*60, "10d")]
 MHE = max([offset+minutes for (regr_only, offset, minutes, ext) in REGRESSION_KPI]) - 1
 # VOL_KPI = [(5, 60, "5m1h")]
 # MHE == max history elements last element is part of history

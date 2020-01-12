@@ -396,3 +396,16 @@ class CryptoHistorySets:
             self.analysis.loc[lastix] = [sym, NA, wsts, wets, vcount, buys, sells, avgvol, novol]
         cfname = env.sets_config_fname()
         self.analysis.to_csv(cfname, sep="\t", index=False)
+
+
+if __name__ == "__main__":
+    env.test_mode()
+    hs = CryptoHistorySets(env.sets_config_fname())
+    for set_type in [TRAIN, VAL, TEST]:
+        for base in hs.bases:
+            bix = list(hs.bases.keys()).index(base)
+            df = hs.set_of_type(base, set_type)
+            tfv = hs.features_from_targets(df)
+            descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
+                                                      bix, cf.str_setsize(tfv))
+            print(descr)
