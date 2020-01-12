@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import math
-import indicators as ind
+# import indicators as ind
 import env_config as env
 from env_config import Env
 import cached_crypto_data as ccd
@@ -18,18 +18,18 @@ from sklearn.linear_model import LinearRegression
     - regression line percentage gain per hour calculated on last 5min basis for last 2x5min periods
     - percentage of last 5min mean volume compared to last 1h and to 12h mean volume
     - not directly used: SDA = absolute standard deviation of price points above regression line
-    - chance: SDA - (current price - regression price) (== up potential) for 12h, 4h, 0.5h, 5min regression
+    - chance: 2*SDA - (current price - regression price) (== up potential) for 12h, 4h, 0.5h, 5min regression
     - not directly used: SDB = absolute standard deviation of price points below regression line
-    - risk: SDB + (current price - regression price) (== down potential) for 12h, 4h, 0.5h, 5min regression
+    - risk: 2*SDB + (current price - regression price) (== down potential) for 12h, 4h, 0.5h, 5min regression
 """
-REGRESSION_KPI = [(0, 0, 12*60, "12h"), (1, 5, 5, "5m_5")]
-# REGRESSION_KPI = [(0, 0, 5, "5m_0"), (1, 5, 5, "5m_5"),
-#                     (0, 0, 30, "30m"), (0, 0, 4*60, "4h"),
-#                     (0, 0, 12*60, "12h"), (1, 0, 10*24*60, "10d")]
+# REGRESSION_KPI = [(0, 0, 5, "5m_0"), (1, 5, 5, "5m_5")]
+REGRESSION_KPI = [(1, 0, 5, "5m_0"), (1, 5, 5, "5m_5"),
+                    (0, 0, 30, "30m"), (0, 0, 4*60, "4h"),
+                    (0, 0, 12*60, "12h"), (1, 0, 10*24*60, "10d")]
 MHE = max([offset+minutes for (regr_only, offset, minutes, ext) in REGRESSION_KPI]) - 1
-VOL_KPI = [(5, 60, "5m1h")]
-# VOL_KPI = [(5, 60, "5m1h"), (5, 12*60, "5m12h")]
+# VOL_KPI = [(5, 60, "5m1h")]
 # MHE == max history elements last element is part of history
+VOL_KPI = [(5, 60, "5m1h"), (5, 12*60, "5m12h")]
 COL_PREFIX = ["price", "gain", "chance", "risk", "vol"]
 
 
@@ -40,8 +40,20 @@ def __check_input_consistency(df):
         print(f"{env.nowstr()}: Warning: unexpected index differences")
         print(diff)
         ok = False
+    # if "open" not in df:
+    #     print(f"{env.nowstr()} ERROR: missing 'open' column")
+    #     ok = False
+    # if "high" not in df:
+    #     print(f"{env.nowstr()} ERROR: missing 'high' column")
+    #     ok = False
+    # if "low" not in df:
+    #     print(f"{env.nowstr()} ERROR: missing 'low' column")
+    #     ok = False
     if "close" not in df:
         print(f"{env.nowstr()} ERROR: missing 'close' column")
+        ok = False
+    if "volume" not in df:
+        print(f"{env.nowstr()} ERROR: missing 'volume' column")
         ok = False
     if len(df) <= MHE:
         print(f"len(df) = {len(df)} <= len for required history data elements {MHE}")
@@ -90,10 +102,10 @@ def __linregr_gain_price_chance_risk(linregr, x_vec, y_vec, regr_period, offset=
     y_mean = y_vec.mean()
 
     sda = math.sqrt(np.mean(np.absolute(y_vec[y_vec >= y_pred] - y_mean)**2))
-    chance = (sda - (y_vec[-1] - y_pred[-1])) / sda
+    chance = (2 * sda - (y_vec[-1] - y_pred[-1]))  # / sda
 
     sdb = math.sqrt(np.mean(np.absolute(y_vec[y_vec < y_pred] - y_mean)**2))
-    risk = (sdb + (y_vec[-1] - y_pred[-1])) / sdb
+    risk = (2 * sdb + (y_vec[-1] - y_pred[-1]))  # / sdb
 
     delta = y_pred[-1] - y_pred[0]
     timediff_factor = 60 / (regr_period - 1)  # constraint: y_vec values have consecutive 1 minute distance
@@ -111,11 +123,9 @@ def __vol_rel(volumes, long_period, short_period=5):
 
 def __cal_features(ohlcv):
     """ Receives a float ohlcv DataFrame of consecutive prices in fixed minute frequency starting with the oldest price.
-        Returns a structured numpy array of features per price base on close prices and volumes.
+        Returns a DataFrame of features per price base on close prices and volumes
+        that begins 'MHE' minutes later than 'ohlcv'.
     """
-    if len(ohlcv) <= MHE:
-        print(f"WARNING: insufficient length of price vector tocalculate any features")
-        return None
     cols = [
         COL_PREFIX[ix] + ext
         for regr_only, offset, minutes, ext in REGRESSION_KPI
@@ -142,19 +152,13 @@ def __cal_features(ohlcv):
 
 
 def calc_features(minute_data):
-    """ minute_data has to be in minute frequency and shall have 10*24*60 minutes more history elements than
+    """ minute_data has to be in minute frequency and shall have 'MHE' minutes more history elements than
         the oldest returned element with feature data.
-        The calculation is performed on 'close' data.
+        The calculation is performed on 'close' and 'volume' data.
     """
     if not __check_input_consistency(minute_data):
         return None
-    vec = minute_data.iloc[MHE:]
-    for tix in range(MHE, len(minute_data)):
-        for (offset, minutes) in REGRESSION_KPI:
-            df = minute_data.iloc[(tix-(offset+minutes)):(tix+1-offset)]
-            delta, pred = ind.time_linear_regression(df)
-            vec.loc[minute_data.index[tix], f"{offset}+{minutes}"] = delta
-    return vec
+    return __cal_features(minute_data)
 
 
 if __name__ == "__main__":

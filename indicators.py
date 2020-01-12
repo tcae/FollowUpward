@@ -1,8 +1,6 @@
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
-options = ["regression 1D", "targets"]
-
 
 def time_linear_regression(df):
     """ Receives a one column data dataframe with a Datetimeindex in fixed frequency.
