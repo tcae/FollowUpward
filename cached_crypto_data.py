@@ -61,6 +61,7 @@ def load_asset_dataframe(base, path="missing path", limit=None):
             if pd.isna(df[key]).any():
                 print(df.loc[df[key][pd.isna(df[key])].index])
         df = df.fillna(method='ffill')
+        save_asset_dataframe(df, base, path)
     return df
 
 

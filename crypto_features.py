@@ -13,7 +13,8 @@ import env_config as env
 from env_config import Env
 import crypto_targets as ct
 import cached_crypto_data as ccd
-import aggregated_features as af
+import aggregated_features as caf
+import condensed_features as cof
 
 
 PICKLE_EXT = ".pydata"  # pickle file extension
@@ -22,6 +23,7 @@ MSG_EXT = ".msg"  # msgpack file extension
 
 VOL_BASE_PERIOD = "1D"
 TARGET_KEY = 5
+CONDENSED_FEATURES = True
 
 
 class NoSubsetWarning(Exception):
@@ -168,9 +170,12 @@ class TargetsFeatures:
         """
 
         self.crypto_targets()
-        self.vec = af.calc_features(self.minute_data)
-        if "target" not in self.vec:
-            self.vec["target"] = self.minute_data["target"]
+        if CONDENSED_FEATURES:
+            self.vec = cof.calc_features(self.minute_data)
+        else:
+            self.vec = caf.calc_features(self.minute_data)
+        if "target" in self.minute_data:
+            self.vec.loc[:, "target"] = self.minute_data.loc[:, "target"]
         return self.vec
 
     def __append_minute_df_with_targets(self, minute_df):

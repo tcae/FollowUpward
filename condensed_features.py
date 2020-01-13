@@ -35,10 +35,12 @@ COL_PREFIX = ["price", "gain", "chance", "risk", "vol"]
 
 def __check_input_consistency(df):
     ok = True
-    diff = pd.date_range(start=df.index[0], end=df.index[len(df)-1], freq="T").difference(df.index)
+    rng = pd.date_range(start=df.index[0], end=df.index[len(df)-1], freq="T")
+    rlen = len(rng)
+    diff = rng.difference(df.index)
     if len(diff) > 0:
-        print(f"{env.nowstr()}: Warning: unexpected index differences")
-        print(diff)
+        print(f"{env.nowstr()}: Warning: unexpected index differences: len(df)={len(df)} vs range={rlen}")
+        # print(diff)
         ok = False
     # if "open" not in df:
     #     print(f"{env.nowstr()} ERROR: missing 'open' column")

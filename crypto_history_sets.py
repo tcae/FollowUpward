@@ -24,6 +24,8 @@ class CryptoHistorySets:
     avoid label leakage. timeblocks are then distributed to train, validate and test to
     balance buy and sell signals.
     """
+    # ! TODO: problem: history for feature calculation of interrupted train/test/val subsets
+    # ! TODO: option: pre calc features and store them on disk, fetch set parts from disk
 
     def __init__(self, sets_config_fname):
         """Uses history data of baselist/USDT as history set to train and evaluate.
@@ -130,7 +132,7 @@ class CryptoHistorySets:
         return tf.calc_features_and_targets()
 
     def __samples_concat(self, target, to_be_added):
-        if target.empty:
+        if (target is None) or (target.empty):
             target = to_be_added
             # print("target empty --> target = to_be_added", target.head(), target.tail())
             return to_be_added
@@ -187,12 +189,8 @@ class CryptoHistorySets:
             if set_type == TRAIN:
                 df["tcount"] = int(0)
                 df["step"] = int(0)
-            if extract is None:
-                extract = df
-            else:
-                extract = self.__samples_concat(extract, df)
-        df = df[df.index.isin(tf.minute_data)]
-        self.ctrl[set_type] = self.__samples_concat(self.ctrl[set_type], df)
+            extract = self.__samples_concat(extract, df)
+        self.ctrl[set_type] = self.__samples_concat(self.ctrl[set_type], extract)
 
     def __prepare_training(self):
         """Prepares training, validation and test sets with targets and admin info
@@ -208,7 +206,7 @@ class CryptoHistorySets:
             self.__extract_set_type_targets(base, tf, TRAIN)
             self.__extract_set_type_targets(base, tf, VAL)
             self.__extract_set_type_targets(base, tf, TEST)
-            del tf
+            # del tf
 
     def register_probabilties(self, base, set_type, pred, target_df):
         """ Used by performance evaluation to register prediction probabilities.

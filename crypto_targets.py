@@ -97,7 +97,7 @@ def crypto_trade_targets(df):
         The modified DataFrame is returned.
     """
     trade_targets = __trade_signals(df.close.values)
-    df["target"] = trade_targets
+    df.loc[:, "target"] = trade_targets
     return df
 
 
