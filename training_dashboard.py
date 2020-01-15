@@ -11,12 +11,13 @@ import pandas as pd
 from env_config import Env
 # import env_config as env
 import crypto_targets as ct
-import crypto_features as cf
 import condensed_features as cof
 import cached_crypto_data as ccd
 import indicators as ind
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+ActiveFeatures = cof.CondensedFeatures
+
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 cmd = None  # cmd == crypto minute data
@@ -285,7 +286,7 @@ def volume_ratio_marker(time, vol_ratio, legendname):
     return dict(x=[time], y=[vol_ratio], mode="scatter", name=legendname, yaxis='y')
 
 
-def condensed_features(start, time, bmd):
+def show_condensed_features(start, time, bmd):
     """ Input 'time' timestamp of period and base minute data 'bmd' for which features are required.
         'bmd' shall have history data of cof.MHE minutes before 'time' for feature calculation.
 
@@ -300,7 +301,7 @@ def condensed_features(start, time, bmd):
     red_bmdc.loc[:, "volume"] = reduced_bmd["volume"]
     # df_check(red_bmdc, pd.Timedelta(time-start, "m"))
 
-    bf = cof.calc_features(red_bmdc)  # bf == base features
+    bf = cof.calc_features_nocache(red_bmdc)  # bf == base features
     # df_check(bf, pd.Timedelta(time-start, "m"))
 
     start = max(start, regr_start)
@@ -416,7 +417,7 @@ def target_list(base, start, end, bmd):
     target_dict = dict()
     # fstart = start - pd.Timedelta(Env.minimum_minute_df_len, "m")
     fdf = bmd.loc[(bmd.index >= start) & (bmd.index <= end)]
-    tf = cf.TargetsFeatures(base, minute_dataframe=fdf)
+    tf = ActiveFeatures(base, minute_dataframe=fdf)
     bmd = tf.minute_data.loc[(tf.minute_data.index >= start) & (tf.minute_data.index <= end)]
 
     # targets = [t for t in bmd["target_thresholds"]]
@@ -506,7 +507,7 @@ def update_detail_graph_by_click(zoom_click, day_click, base, indicators):
 
     if ("features" in indicators) and (zoom_click is not None):
         clicked_time = pd.Timestamp(zoom_click['points'][0]['x'], tz='UTC')
-        for graph in condensed_features(start, clicked_time, bmd):
+        for graph in show_condensed_features(start, clicked_time, bmd):
             # print(graph)
             graph_bases.append(graph)
 

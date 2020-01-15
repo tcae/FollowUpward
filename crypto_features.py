@@ -5,25 +5,15 @@ Created on Mon Jan  7 21:43:26 2019
 
 @author: tc
 """
-# import numpy as np
+from datetime import datetime  # , timedelta
+import numpy as np
 import pandas as pd
 from sklearn.utils import Bunch
-import numpy as np
+
 import env_config as env
 from env_config import Env
 import crypto_targets as ct
 import cached_crypto_data as ccd
-import aggregated_features as caf
-import condensed_features as cof
-
-
-PICKLE_EXT = ".pydata"  # pickle file extension
-JSON_EXT = ".json"  # msgpack file extension
-MSG_EXT = ".msg"  # msgpack file extension
-
-VOL_BASE_PERIOD = "1D"
-TARGET_KEY = 5
-CONDENSED_FEATURES = True
 
 
 class NoSubsetWarning(Exception):
@@ -47,11 +37,7 @@ def targets_to_features(tfv_ta_df, target_df):
 
 
 def report_setsize(setname, df):
-    hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
-    sc = len(df[df.target == ct.TARGETS[ct.SELL]])
-    bc = len(df[df.target == ct.TARGETS[ct.BUY]])
-    tc = hc + sc + bc
-    print(f"buy {bc} sell {sc} hold {hc} total {tc} on {setname}")
+    print(f"{str_setsize(df)} on {setname}")
 
 
 def str_setsize(df):
@@ -108,6 +94,8 @@ class TargetsFeatures:
         assert(env.config_ok())
         self.__base = base
         self.__quote = Env.quote
+        self.__feature_type = "Finvalid"
+        self.path = path
         assert (minute_dataframe is not None) or (path is not None)
         self.minute_data = minute_dataframe  # is DataFrame with ohlvc and target columns
         if self.minute_data is not None:
@@ -122,18 +110,9 @@ class TargetsFeatures:
         report_setsize(self.__base, self.minute_data)
         self.vec = None  # is a  DataFrame with features columns and 'target', 'close' columns
 
-    def __load_ohlcv_and_targets(self):
-        """ OBSOLETE
-            Loads the historic data temporarily, calculates the features and targets
-            and releases the original data afterwards
-        """
-        try:
-            df = ccd.load_asset_dataframe(self.__base, path=Env.data_path)
-        except env.MissingHistoryData:
-            raise
-        else:
-            self.calc_features_and_targets(df)
-            report_setsize(self.__base, self.vec)
+    def calc_features(self, minute_data):
+        print("ERROR: no features implemented")
+        return None
 
     def crypto_targets(self):
         """Assigns minute_dataframe to attribute *minute_data*.
@@ -154,6 +133,49 @@ class TargetsFeatures:
         if "target" not in self.minute_data:
             ct.crypto_trade_targets(self.minute_data)  # add aggregation targets
 
+    def load_cache_ok(self):
+        """ Will load cached base data if present.
+
+            Returns True if cache can be loaded and False if not.
+        """
+        if self.path is None:
+            return False
+        df = None
+        sym = env.sym_of_base(self.__base)
+        fname = Env.cache_path + sym + "_" + self.__feature_type + "_DataFrame.h5"
+        try:
+            # df = pd.read_msgpack(fname)
+            df = pd.read_hdf(fname, sym)
+            print("{}: loaded {}({}) {} tics ({} - {})".format(
+                datetime.now().strftime(Env.dt_format), self.__feature_type, env.sym_of_base(self.__base),
+                len(df), df.index[0].strftime(Env.dt_format),
+                df.index[len(df)-1].strftime(Env.dt_format)))
+            if not self.minute_data.index.isin(df).all:
+                to_be_calculated = self.minute_data.index(df.index)
+                # ! TODO split into subset of consecutive elements, calc features and targets for missing parts
+                # ! TODO concat loaded and calculated sets
+                print("WARNING: need to calculate features as loaded features are only subset of main set")
+                return False
+        except IOError:
+            return False
+        return (df is not None)
+
+    def save_cache(self):
+        """ Will save features and targets of self.base in Env.cache_path.
+        """
+        if self.path is None:
+            return
+        if self.vec is None:
+            print("WARNING: Unexpected call to save features in cache with missing features")
+            return
+        print("{}: writing {}({}) {} tics ({} - {})".format(
+            datetime.now().strftime(Env.dt_format), self.__feature_type, env.sym_of_base(self.__base),
+            len(df), df.index[0].strftime(Env.dt_format),
+            df.index[len(df)-1].strftime(Env.dt_format)))
+        sym = env.sym_of_base(self.__base)
+        fname = Env.cache_path + sym + "_" + self.__feature_type + "_DataFrame.h5"
+        df.to_hdf(fname, sym, mode="w")
+
     def calc_features_and_targets(self):
         """Assigns minute_dataframe to attribute *minute_data*.
         Calculates features and assigns them to attribute *vec*.
@@ -169,13 +191,16 @@ class TargetsFeatures:
         the columns: open, high, low, close, volume and timestamps as index
         """
 
-        self.crypto_targets()
-        if CONDENSED_FEATURES:
-            self.vec = cof.calc_features(self.minute_data)
-        else:
-            self.vec = caf.calc_features(self.minute_data)
-        if "target" in self.minute_data:
-            self.vec.loc[:, "target"] = self.minute_data.loc[:, "target"]
+        if not self.load_cache_ok():
+            self.crypto_targets()
+            self.vec = self.calc_features(self.minute_data)
+            if self.vec is not None:
+                if "target" in self.minute_data:
+                    self.vec.loc[:, "target"] = self.minute_data.loc[:, "target"]
+                if self.path is not None:
+                    self.save_cache()
+            else:
+                print(f"ERROR: feature calculation failed")
         return self.vec
 
     def __append_minute_df_with_targets(self, minute_df):

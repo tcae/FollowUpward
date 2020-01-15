@@ -9,6 +9,7 @@ from env_config import Env
 import cached_crypto_data as ccd
 import crypto_targets as ct
 import crypto_features as cf
+import condensed_features as cof
 
 MANDATORY_STEPS = 2  # number of steps for the smallest class (in general BUY)
 NA = "not assigned"
@@ -16,6 +17,7 @@ TRAIN = "training"
 VAL = "validation"
 TEST = "test"
 LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
+ActiveFeatures = cof.CondensedFeatures
 
 
 class CryptoHistorySets:
@@ -128,7 +130,7 @@ class CryptoHistorySets:
         base = df.at[df.index[0], "base"]
         minute_data = ccd.load_asset_dataframe(base, path=Env.data_path, limit=None)
         subset_df = cf.targets_to_features(minute_data, df)
-        tf = cf.TargetsFeatures(base, minute_dataframe=subset_df)
+        tf = ActiveFeatures(base, minute_dataframe=subset_df)
         return tf.calc_features_and_targets()
 
     def __samples_concat(self, target, to_be_added):
@@ -202,7 +204,7 @@ class CryptoHistorySets:
         """
 
         for base in self.bases:
-            tf = cf.TargetsFeatures(base, path=Env.data_path)
+            tf = ActiveFeatures(base, path=Env.data_path)
             self.__extract_set_type_targets(base, tf, TRAIN)
             self.__extract_set_type_targets(base, tf, VAL)
             self.__extract_set_type_targets(base, tf, TEST)
@@ -373,7 +375,7 @@ class CryptoHistorySets:
         blocks = set()
         for base in self.bases:
             sym = base + "_usdt"
-            tf = cf.TargetsFeatures(base, path=Env.data_path)
+            tf = ActiveFeatures(base, path=Env.data_path)
             (wsts, wets) = first_week_ts(tf)
             while wets is not None:
                 blocks.add(wets)

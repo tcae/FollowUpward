@@ -220,7 +220,7 @@ class Trading():
         if ohlcv_df is None:
             print(f"{env.nowstr()} skipping {base} due to missing ohlcv")
             return None, 0
-        ttf = cf.TargetsFeatures(base, minute_dataframe=ohlcv_df)
+        ttf = Env.ActiveFeatures(base, minute_dataframe=ohlcv_df)
         ttf.calc_features_and_targets()
         tfv = ttf.vec.iloc[[len(ttf.vec)-1]]
         trade_signal = cpc.class_of_features(tfv, buy_trshld, sell_trshld, base)

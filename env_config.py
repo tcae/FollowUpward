@@ -4,6 +4,8 @@ import platform
 from datetime import datetime  # , timedelta
 import pandas as pd
 
+PICKLE_EXT = ".pydata"  # pickle file extension
+
 
 def nowstr():
     return datetime.now().strftime("%Y-%m-%d_%H:%M:%S")

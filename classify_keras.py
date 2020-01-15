@@ -38,6 +38,7 @@ import crypto_targets as ct
 import crypto_features as cf
 import crypto_history_sets as chs
 
+
 print(f"Tensorflow version: {tf.version.VERSION}")
 print(f"Keras version: {krs.__version__}")
 print(__doc__)
@@ -351,7 +352,7 @@ class Cpc:
         step = self.step
         epoch = self.epoch
         talos_iter = self.talos_iter
-        fname = str("{}{}{}".format(self.model_path, self.load_classifier, cf.PICKLE_EXT))
+        fname = str("{}{}{}".format(self.model_path, self.load_classifier, env.PICKLE_EXT))
         try:
             with open(fname, "rb") as df_f:
                 tmp_dict = pickle.load(df_f)  # requires import * to resolve Cpc attribute
@@ -406,7 +407,7 @@ class Cpc:
             # , save_format="tf", signatures=None)
 
         fname = str("{}{}_{}{}".format(self.model_path, self.save_classifier,
-                    self.epoch, cf.PICKLE_EXT))
+                    self.epoch, env.PICKLE_EXT))
         df_f = open(fname, "wb")
         pickle.dump(self.__dict__, df_f, pickle.HIGHEST_PROTOCOL)
         df_f.close()

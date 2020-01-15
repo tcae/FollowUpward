@@ -5,6 +5,7 @@ import math
 import env_config as env
 from env_config import Env
 import cached_crypto_data as ccd
+from crypto_features import TargetsFeatures
 from sklearn.linear_model import LinearRegression
 
 
@@ -33,7 +34,7 @@ VOL_KPI = [(5, 60, "5m1h"), (5, 12*60, "5m12h")]
 COL_PREFIX = ["price", "gain", "chance", "risk", "vol"]
 
 
-def __check_input_consistency(df):
+def check_input_consistency(df):
     ok = True
     rng = pd.date_range(start=df.index[0], end=df.index[len(df)-1], freq="T")
     rlen = len(rng)
@@ -123,7 +124,7 @@ def __vol_rel(volumes, long_period, short_period=5):
     return volumes[-short_period:].mean() / volumes[-long_period:].mean()
 
 
-def __cal_features(ohlcv):
+def cal_features(ohlcv):
     """ Receives a float ohlcv DataFrame of consecutive prices in fixed minute frequency starting with the oldest price.
         Returns a DataFrame of features per price base on close prices and volumes
         that begins 'MHE' minutes later than 'ohlcv'.
@@ -153,20 +154,42 @@ def __cal_features(ohlcv):
     return df
 
 
-def calc_features(minute_data):
+def calc_features_nocache(minute_data):
     """ minute_data has to be in minute frequency and shall have 'MHE' minutes more history elements than
         the oldest returned element with feature data.
         The calculation is performed on 'close' and 'volume' data.
     """
-    if not __check_input_consistency(minute_data):
+    if not check_input_consistency(minute_data):
         return None
-    return __cal_features(minute_data)
+    return cal_features(minute_data)
+
+
+class CondensedFeatures(TargetsFeatures):
+    """ Holds the source ohlcv data as pandas DataFrame 'minute_data',
+        the feature vectors as DataFrame rows of 'vec' and
+        the target trade signals in column 'target' in both DataFrames.
+
+    """
+
+    def __init__(self, base, minute_dataframe=None, path=None):
+        res = super().__init__(base, minute_dataframe, path)
+        self.__feature_type = "Fcondensed1"
+        return res
+
+    def calc_features(self, minute_data):
+        """ minute_data has to be in minute frequency and shall have 'MHE' minutes more history elements than
+            the oldest returned element with feature data.
+            The calculation is performed on 'close' and 'volume' data.
+        """
+        if not check_input_consistency(minute_data):
+            return None
+        return cal_features(minute_data)
 
 
 if __name__ == "__main__":
     if True:
         cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=MHE+10)
-        features = __cal_features(cdf)
+        features = cal_features(cdf)
         print(cdf.head(5))
         print(cdf.tail(5))
         print(features.head(5))

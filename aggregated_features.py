@@ -1,6 +1,7 @@
 import pandas as pd
 import env_config as env
 from env_config import Env
+from crypto_features import TargetsFeatures
 
 VOL_BASE_PERIOD = "1D"
 TARGET_KEY = 5
@@ -46,10 +47,22 @@ target_key:
 """
 
 
-def calc_features(minute_data):
-    tf_aggs = __calc_aggregation(minute_data, Env.time_aggs)
-    vec = __expand_feature_vectors(tf_aggs, TARGET_KEY)
-    return vec
+class CondensedFeatures(TargetsFeatures):
+    """ Holds the source ohlcv data as pandas DataFrame 'minute_data',
+        the feature vectors as DataFrame rows of 'vec' and
+        the target trade signals in column 'target' in both DataFrames.
+
+    """
+
+    def __init__(self, base, minute_dataframe=None, path=None):
+        res = super().__init__(base, minute_dataframe, path)
+        self.__feature_type = "Faggregated1"
+        return res
+
+    def calc_features(self, minute_data):
+        tf_aggs = __calc_aggregation(minute_data, Env.time_aggs)
+        vec = __expand_feature_vectors(tf_aggs, TARGET_KEY)
+        return vec
 
 
 def __smallest_dict_key(thisdict):
