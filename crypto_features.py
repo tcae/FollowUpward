@@ -133,6 +133,50 @@ class TargetsFeatures:
         if "target" not in self.minute_data:
             ct.crypto_trade_targets(self.minute_data)  # add aggregation targets
 
+    def calc_gap_subset_features_and_targets(self, gap_subset, fdf_list):
+        """ Calculate targets and features for given gap_subset with ohlc data
+            and append result to fdf_list
+        """
+        self.minute_data = gap_subset
+        fdf_calc = self.calc_features(self.minute_data)
+        if "target" not in self.minute_data:
+            self.crypto_targets()
+        if fdf_calc is not None:
+            if "target" in self.minute_data:
+                fdf_calc.loc[:, "target"] = self.minute_data.loc[:, "target"]
+            fdf_list.append(fdf_calc)
+            print("{}: loaded {}({}) {} tics ({} - {})".format(
+                    datetime.now().strftime(Env.dt_format),
+                    self.__feature_type, env.sym_of_base(self.__base),
+                    len(fdf_calc), fdf_calc.index[0].strftime(Env.dt_format),
+                    fdf_calc.index[len(fdf_calc)-1].strftime(Env.dt_format)))
+        return fdf_list
+
+    def fill_features_targets_gaps(self):
+        """ Split into subset of consecutive elements, calc features and targets for missing parts
+        """
+        to_be_calculated = self.minute_data.index.difference(self.vec.index)
+        if to_be_calculated is not None:
+            fdf_loaded = self.vec
+            local_md = self.minute_data  # locally store minute_data to use class methods working on it
+            tix1 = tix3 = to_be_calculated[0]
+            fdf_list = list()
+            tdelta = pd.Timedelta(1, unit="T")
+            for tix2 in to_be_calculated:
+                if tix2 > tix1:
+                    if (tix2-tix1) > tdelta:
+                        if fdf_loaded is not None:
+                            if tix1 > fdf_loaded.index[0]:
+                                fdf_list.append(fdf_loaded)
+                                fdf_loaded = None
+                        fdf_list = self.calc_gap_subset_features_and_targets(local_md[tix1:tix3], fdf_list)
+                        tix1 = tix2
+                    tix3 = tix2
+            if fdf_loaded is not None:
+                fdf_list.append(fdf_loaded)
+            self.vec = pd.concat(fdf_list)
+            self.minute_data = local_md  # restore minute_data
+
     def load_cache_ok(self):
         """ Will load cached base data if present.
 
@@ -140,20 +184,16 @@ class TargetsFeatures:
         """
         if self.path is None:
             return False
-        df = None
         sym = env.sym_of_base(self.__base)
         fname = Env.cache_path + sym + "_" + self.__feature_type + "_DataFrame.h5"
         try:
-            # df = pd.read_msgpack(fname)
-            df = pd.read_hdf(fname, sym)
+            self.vec = pd.read_hdf(fname, sym)
             print("{}: loaded {}({}) {} tics ({} - {})".format(
                 datetime.now().strftime(Env.dt_format), self.__feature_type, env.sym_of_base(self.__base),
-                len(df), df.index[0].strftime(Env.dt_format),
-                df.index[len(df)-1].strftime(Env.dt_format)))
-            if not self.minute_data.index.isin(df).all:
-                to_be_calculated = self.minute_data.index(df.index)
-                # ! TODO split into subset of consecutive elements, calc features and targets for missing parts
-                # ! TODO concat loaded and calculated sets
+                len(self.vec), self.vec.index[0].strftime(Env.dt_format),
+                self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
+            if not self.minute_data.index.isin(self.vec).all:
+                self.fill_features_targets_gaps()
                 print("WARNING: need to calculate features as loaded features are only subset of main set")
                 return False
         except IOError:
