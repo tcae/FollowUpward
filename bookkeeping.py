@@ -172,7 +172,7 @@ class Bk():
         for base in Bk.book.index:
             if base in Xch.ohlcv:
                 df = Xch.ohlcv[base]
-                df = df[Xch.data_keys]
+                df = df[ccd.data_keys]
                 df = df.drop([df.index[len(df.index)-1]])  # the last candle is incomplete
                 ccd.save_asset_dataframe(df, base, path=Env.cache_path)
 

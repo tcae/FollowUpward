@@ -3,9 +3,9 @@ from datetime import datetime  # , timedelta
 import pandas as pd
 import env_config as env
 from env_config import Env
-from local_xch import Xch
 
 print("cached_crypto_data init")
+data_keys = ["open", "high", "low", "close", "volume"]
 
 
 """ provides pandas prepresentation of cached crypto data.
@@ -57,7 +57,7 @@ def load_asset_dataframe(base, path="missing path", limit=None):
         df = df.drop(df.index[:len(df)-limit])  # only hold the last `limit` minutes
     if pd.isna(df).any().any():
         print(f"Warning: identified NaN in loaded data - will be filled")
-        for key in Xch.data_keys:
+        for key in data_keys:
             if pd.isna(df[key]).any():
                 print(df.loc[df[key][pd.isna(df[key])].index])
         df = df.fillna(method='ffill')

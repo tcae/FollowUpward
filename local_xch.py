@@ -25,7 +25,6 @@ class Xch():
 
 
     """
-    data_keys = ["open", "high", "low", "close", "volume"]
     min_daily_avg_usdt = 1500*60*24  # minimum average daily volume in USDT to be considered
     auth = None
     ohlcv = dict()
@@ -356,7 +355,7 @@ class Xch():
         if df is None:
             # df = pd.DataFrame(index=pd.DatetimeIndex(freq="T", start=start, end=when, tz="UTC"),
             df = pd.DataFrame(index=pd.DatetimeIndex(pd.date_range(freq="T", start=start, periods=0, tz="UTC")),
-                              dtype=np.float64, columns=Xch.data_keys)
+                              dtype=np.float64, columns=ccd.data_keys)
             assert df is not None, "failed to create ohlcv df for {}-{} = {} minutes".format(
                 start.strftime(Env.dt_format), when.strftime(Env.dt_format), minutes)
         else:
@@ -496,7 +495,7 @@ def OBSOLETE_merge_asset_dataframe(path, base):
             basebtc = basebtc[basebtc.index.isin(btcusdt.index)]
             basemerged = pd.DataFrame(btcusdt)
             basemerged = basemerged[basemerged.index.isin(basebtc.index)]
-            for key in Xch.data_keys:
+            for key in ccd.data_keys:
                 if key != "volume":
                     basemerged[key] = basebtc[key] * btcusdt[key]
             basemerged["volume"] = basebtc.volume

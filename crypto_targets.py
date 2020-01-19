@@ -11,9 +11,10 @@ SELL_THRESHOLD = float(-5/1000)  # in per mille
 HOLD = "hold"
 BUY = "buy"
 SELL = "sell"
-UNDETERMINED = "undetermined"
-TARGETS = {UNDETERMINED: -2, BUY: 1, HOLD: 0, SELL: -1}  # dict with int encoding of target labels
-TARGET_NAMES = {-2: UNDETERMINED, 1: BUY, 0: HOLD, -1: SELL}  # dict with int encoding of targets
+UNDETERMINED = -2  # don't consider UNDETERMINED a valid target
+TARGETS = {HOLD: 0, BUY: 1, SELL: 2}  # dict with int encoding of target labels
+TARGET_CLASS_COUNT = len(TARGETS)
+TARGET_NAMES = {0: HOLD, 1: BUY, 2: SELL}  # dict with int encoding of targets
 
 
 def __trade_signals(close):
@@ -26,10 +27,10 @@ def __trade_signals(close):
     dt = np.dtype([("target", "i4"), ("nowdelta", "f8"), ("fardelta", "f8"),
                    ("flag", "bool"), ("back", "i4"), ("forward", "i4"), ("holdtrace", "i4")])
     notes = np.zeros(close.size, dt)
-    notes["target"] = TARGETS[UNDETERMINED]
-    notes["back"] = TARGETS[UNDETERMINED]
-    notes["forward"] = TARGETS[UNDETERMINED]
-    notes["holdtrace"] = TARGETS[UNDETERMINED]
+    notes["target"] = UNDETERMINED
+    notes["back"] = UNDETERMINED
+    notes["forward"] = UNDETERMINED
+    notes["holdtrace"] = UNDETERMINED
     notes["nowdelta"][0] = 0.
     subnotes = notes[1:]
     subnotes["nowdelta"] = (close[1:] - close[:-1]) / close[:-1]
@@ -46,14 +47,14 @@ def __trade_signals(close):
 
         subnotes["flag"] = (
             (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
-            (subnotes["target"] == TARGETS[UNDETERMINED]))
+            (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[SELL]
         subnotes["back"][subnotes["flag"]] = TARGETS[SELL]
         subnotes["forward"][subnotes["flag"]] = TARGETS[SELL]
 
         subnotes["flag"] = (
             (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
-            (subnotes["target"] == TARGETS[UNDETERMINED]))
+            (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[BUY]
         subnotes["back"][subnotes["flag"]] = TARGETS[BUY]
         subnotes["forward"][subnotes["flag"]] = TARGETS[BUY]
@@ -61,13 +62,13 @@ def __trade_signals(close):
         subnotes["flag"] = (
             (((subnotes["fardelta"] < 0.) & (subnotes["nowdelta"] > 0.)) |
              ((subnotes["fardelta"] > 0.) & (subnotes["nowdelta"] < 0.))) &
-            (subnotes["target"] == TARGETS[UNDETERMINED]))
+            (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
 
     for eix in range(close.size - 1, close.size - 1 - maxdistance, -1):
         subnotes = notes[1:eix+1]
         one_earlier = notes[:eix]
-        subnotes["flag"] = (one_earlier["back"] == TARGETS[UNDETERMINED])
+        subnotes["flag"] = (one_earlier["back"] == UNDETERMINED)
         if ~np.any(subnotes["flag"]):
             break
         one_earlier["back"][subnotes["flag"]] = subnotes["back"][subnotes["flag"]]
@@ -75,12 +76,12 @@ def __trade_signals(close):
     for bix in range(1, maxdistance):
         subnotes = notes[bix:]
         one_earlier = notes[bix-1:-1]
-        subnotes["flag"] = (subnotes["forward"] == TARGETS[UNDETERMINED])
+        subnotes["flag"] = (subnotes["forward"] == UNDETERMINED)
         if ~np.any(subnotes["flag"]):
             break
         subnotes["forward"][subnotes["flag"]] = one_earlier["forward"][subnotes["flag"]]
 
-    notes["flag"] = (notes["target"] == TARGETS[UNDETERMINED])
+    notes["flag"] = (notes["target"] == UNDETERMINED)
     notes["target"][notes["flag"]] = TARGETS[HOLD]
 
     notes["flag"] = (notes["back"] == notes["forward"]) & (notes["target"] == TARGETS[HOLD])

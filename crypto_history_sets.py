@@ -6,7 +6,7 @@ import math
 # import sys
 import env_config as env
 from env_config import Env
-import cached_crypto_data as ccd
+# import cached_crypto_data as ccd
 import crypto_targets as ct
 import crypto_features as cf
 import condensed_features as cof
@@ -25,9 +25,10 @@ class CryptoHistorySets:
     timeblock is the time window in minutes that is analyzed equally for all bases to
     avoid label leakage. timeblocks are then distributed to train, validate and test to
     balance buy and sell signals.
+
+    problem: history for feature calculation of interrupted train/test/val subsets
+    implemented solution: pre calc features and store them on disk, fetch set parts from disk
     """
-    # ! TODO: problem: history for feature calculation of interrupted train/test/val subsets
-    # ! TODO: option: pre calc features and store them on disk, fetch set parts from disk
 
     def __init__(self, sets_config_fname):
         """Uses history data of baselist/USDT as history set to train and evaluate.
@@ -51,14 +52,14 @@ class CryptoHistorySets:
                                               "buys", "sells", "avg_vol", "novol_count"])
 
         self.ctrl = dict()
-        self.ctrl[TRAIN] = pd.DataFrame(columns=["base", "timestamp", "target", "use",
+        self.ctrl[TRAIN] = pd.DataFrame(columns=["base", "timestamp", "close", "target", "use",
                                                  "hold_prob", "buy_prob", "sell_prob",
                                                  "step", "tcount"])
-        self.ctrl[VAL] = pd.DataFrame(columns=["base", "timestamp", "target", "use",
+        self.ctrl[VAL] = pd.DataFrame(columns=["base", "timestamp", "close", "target", "use",
                                                "hold_prob", "buy_prob", "sell_prob"])
-        self.ctrl[TEST] = pd.DataFrame(columns=["base", "timestamp", "target", "use",
+        self.ctrl[TEST] = pd.DataFrame(columns=["base", "timestamp", "close", "target", "use",
                                                 "hold_prob", "buy_prob", "sell_prob"])
-        self.last_base = None
+        self.tf = None
 
         # for base in self.bases:
         #     merge_asset_dataframe(DATA_PATH, base)
@@ -128,45 +129,21 @@ class CryptoHistorySets:
         if df.empty:
             raise cf.NoSubsetWarning("empty subset")
         base = df.at[df.index[0], "base"]
-        minute_data = ccd.load_asset_dataframe(base, path=Env.data_path, limit=None)
-        subset_df = cf.targets_to_features(minute_data, df)
-        tf = ActiveFeatures(base, minute_dataframe=subset_df)
-        return tf.calc_features_and_targets()
+        if (self.tf is None) or (self.tf.base != base):
+            self.tf = ActiveFeatures(base, path=Env.data_path)
+        tfv = self.tf.calc_features_and_targets()
+        tfv = cf.targets_to_features(tfv, df)
+        return tfv
 
-    def __samples_concat(self, target, to_be_added):
-        if (target is None) or (target.empty):
-            target = to_be_added
-            # print("target empty --> target = to_be_added", target.head(), target.tail())
+    def __samples_concat(self, dest, to_be_added):
+        if (dest is None) or (dest.empty):
+            dest = to_be_added
             return to_be_added
-        if False:
-            # debugging output
-            elen = len(target)
-            xdf = target.tail()
-            if ("step" in xdf.columns):
-                xdf = xdf[["target", "timestamp", "step"]]
-            else:
-                xdf = xdf[["target", "timestamp"]]
-            print(f"target len: {elen}", xdf)
-            ydf = to_be_added.head()
-            if ("step" in ydf.columns):
-                ydf = ydf[["target", "timestamp", "step"]]
-            else:
-                ydf = ydf[["target", "timestamp"]]
-            print(f"time agg timeblock len: {len(to_be_added)}", ydf)
-        target = pd.concat([target, to_be_added], sort=False)
-        if False:
-            # debugging output
-            zdf = target.iloc[range(elen-5, elen+5)]
-            elen = len(target)
-            if ("step" in zdf.columns):
-                zdf = zdf[["target", "timestamp", "step"]]
-            else:
-                zdf = zdf[["target", "timestamp"]]
-            print(f"concat with new len {elen} result at interface: ", zdf)
-        return target
+        dest = pd.concat([dest, to_be_added], sort=False)
+        return dest
 
     def __extract_set_type_targets(self, base, tf, set_type):
-        """ Extracts the time ranges of set_type and the corresponding target and cose data from ohlcv data.
+        """ Extracts the time ranges of set_type and the corresponding target and close data from ohlcv data.
             Initializes an internal DataFrame with that data.
         """
         sym = env.sym_of_base(base)
@@ -181,7 +158,7 @@ class CryptoHistorySets:
         extract = None
         for block in dfcfg.index:
             df = dft.loc[(dft.index >= dfcfg.at[block, "start"]) &
-                         (dft.index <= dfcfg.at[block, "end"]), ["target", "close"]]
+                         (dft.index <= dfcfg.at[block, "end"]), ["close", "target"]]
             df["timestamp"] = df.index
             df["base"] = base
             df["use"] = True
@@ -219,8 +196,8 @@ class CryptoHistorySets:
         # df.loc[df.index.isin(tdf.index) & (df.base == base), "hold_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.HOLD]])
         # df.loc[df.index.isin(tdf.index) & (df.base == base), "buy_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.BUY]])
         # df.loc[df.index.isin(tdf.index) & (df.base == base), "sell_prob"] = pd.DataFrame(pred[:, ct.TARGETS[ct.SELL]])
-        df.loc[df.index.isin(tdf.index) & (df.base == base), ["hold_prob", "buy_prob", "sell_prob"]] = \
-            pd.DataFrame(pred[:, [ct.TARGETS[ct.HOLD], ct.TARGETS[ct.BUY], ct.TARGETS[ct.SELL]]])
+        df.loc[df.index.isin(tdf.index) & (df.base == base), ["hold_prob", "buy_prob", "sell_prob"]] = pred
+        #  = pd.DataFrame(pred[:, [ct.TARGETS[ct.HOLD], ct.TARGETS[ct.BUY], ct.TARGETS[ct.SELL]]]) - keep it simple ;-)
         if set_type == TRAIN:
             df.loc[tdf.index, "tcount"] = df.loc[tdf.index, "tcount"] + 1
 
@@ -399,7 +376,7 @@ class CryptoHistorySets:
 
 
 if __name__ == "__main__":
-    env.test_mode()
+    # env.test_mode()
     hs = CryptoHistorySets(env.sets_config_fname())
     for set_type in [TRAIN, VAL, TEST]:
         for base in hs.bases:

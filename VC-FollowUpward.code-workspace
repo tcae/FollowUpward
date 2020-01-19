@@ -5,6 +5,7 @@
 		}
 	],
 	"settings": {
-		"terminal.integrated.inheritEnv": false
+		"terminal.integrated.inheritEnv": false,
+		"python.dataScience.debugJustMyCode": false
 	}
 }

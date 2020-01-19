@@ -104,10 +104,19 @@ def __linregr_gain_price_chance_risk(linregr, x_vec, y_vec, regr_period, offset=
     y_vec = y_vec.reshape(-1)
     y_mean = y_vec.mean()
 
-    sda = math.sqrt(np.mean(np.absolute(y_vec[y_vec >= y_pred] - y_mean)**2))
+    filter = y_vec > y_pred
+    if filter.any():
+        sda = math.sqrt(np.mean(np.absolute(y_vec[y_vec > y_pred] - y_mean)**2))
+    else:
+        sda = 0  # no vector elements above regression line in filled gaps, i.e. y_vec == y_mean
     chance = (2 * sda - (y_vec[-1] - y_pred[-1]))  # / sda
 
-    sdb = math.sqrt(np.mean(np.absolute(y_vec[y_vec < y_pred] - y_mean)**2))
+    filter = (y_vec < y_pred)
+    if filter.any():
+        sdb = math.sqrt(np.mean(np.absolute(y_vec[filter] - y_mean)**2))
+    else:
+        sdb = 0  # no vector elements below regression line in filled gaps, i.e. y_vec == y_mean
+
     risk = (2 * sdb + (y_vec[-1] - y_pred[-1]))  # / sdb
 
     delta = y_pred[-1] - y_pred[0]
@@ -121,6 +130,7 @@ def __vol_rel(volumes, long_period, short_period=5):
 
         Returns the ratio of the short period volumes mean and the long period volumes mean.
     """
+    assert volumes.size > 0
     return volumes[-short_period:].mean() / volumes[-long_period:].mean()
 
 
@@ -172,9 +182,8 @@ class CondensedFeatures(TargetsFeatures):
     """
 
     def __init__(self, base, minute_dataframe=None, path=None):
-        res = super().__init__(base, minute_dataframe, path)
-        self.__feature_type = "Fcondensed1"
-        return res
+        self.feature_type = "Fcondensed1"
+        super().__init__(base, minute_dataframe, path)
 
     def calc_features(self, minute_data):
         """ minute_data has to be in minute frequency and shall have 'MHE' minutes more history elements than

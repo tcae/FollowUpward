@@ -55,8 +55,8 @@ class CondensedFeatures(TargetsFeatures):
     """
 
     def __init__(self, base, minute_dataframe=None, path=None):
+        self.feature_type = "Faggregated1"
         res = super().__init__(base, minute_dataframe, path)
-        self.__feature_type = "Faggregated1"
         return res
 
     def calc_features(self, minute_data):

@@ -44,8 +44,8 @@ def str_setsize(df):
     hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
     sc = len(df[df.target == ct.TARGETS[ct.SELL]])
     bc = len(df[df.target == ct.TARGETS[ct.BUY]])
-    tc = hc + sc + bc
-    return f"buy {bc} sell {sc} hold {hc} total {tc}"
+    sumc = hc + sc + bc
+    return f"buy {bc} sell {sc} hold {hc} sum {sumc}; total {len(df)}"
 
 
 def to_scikitlearn(df, np_data=None, descr=None):
@@ -54,7 +54,6 @@ def to_scikitlearn(df, np_data=None, descr=None):
 
     fn_list = list(df.keys())
     fn_list.remove("target")
-    fn_list.remove("close")
     if np_data is None:
         # data = df[fn_list].to_numpy(dtype=float) # incompatible with pandas 0.19.2
         data = df[fn_list].values
@@ -63,14 +62,13 @@ def to_scikitlearn(df, np_data=None, descr=None):
         # target = df["target"].to_numpy(dtype=float) # incompatible with pandas 0.19.2
         # tics = df.index.to_numpy(dtype=np.datetime64) # incompatible with pandas 0.19.2
     target = df["target"].values  # compatible with pandas 0.19.2
-    close = df["close"].values  # compatible with pandas 0.19.2
     tics = df.index.values  # compatible with pandas 0.19.2
     feature_names = np.array(fn_list)
     target_names = np.array(ct.TARGETS.keys())
     if descr is None:
         descr = "missing description"
 
-    return Bunch(data=data, target=target, close=close,
+    return Bunch(data=data, target=target,
                  target_names=target_names,
                  tics=tics,
                  descr=descr,
@@ -92,23 +90,21 @@ class TargetsFeatures:
 
         """
         assert(env.config_ok())
-        self.__base = base
-        self.__quote = Env.quote
-        self.__feature_type = "Finvalid"
+        self.vec = None
+        self.base = base
+        self.quote = Env.quote
         self.path = path
-        assert (minute_dataframe is not None) or (path is not None)
         self.minute_data = minute_dataframe  # is DataFrame with ohlvc and target columns
-        if self.minute_data is not None:
-            self.crypto_targets()
-        elif path is not None:
+        if (self.minute_data is None) and (path is not None):
             try:
-                self.minute_data = ccd.load_asset_dataframe(self.__base, path=path)
+                self.minute_data = ccd.load_asset_dataframe(self.base, path=path)
             except env.MissingHistoryData:
                 raise
-            else:
-                self.crypto_targets()
-        report_setsize(self.__base, self.minute_data)
-        self.vec = None  # is a  DataFrame with features columns and 'target', 'close' columns
+            # else:
+            #     print(f"ERROR TargetsFeatures: neither minute_data nor path")
+        if self.minute_data is not None:
+            self.calc_features_and_targets()
+        # report_setsize(self.base, self.minute_data)
 
     def calc_features(self, minute_data):
         print("ERROR: no features implemented")
@@ -125,11 +121,11 @@ class TargetsFeatures:
 
         if self.minute_data is None:
             raise env.MissingHistoryData("{}–{} symbol without minute data ({})".format(
-                                        self.__base, self.__quote, self.vec))
+                                        self.base, self.quote, self.vec))
         if self.minute_data.empty is None:
             self.minute_data = None
             raise env.MissingHistoryData("{}–{} symbol with empty minute data".format(
-                                     self.__base, self.__quote))
+                                     self.base, self.quote))
         if "target" not in self.minute_data:
             ct.crypto_trade_targets(self.minute_data)  # add aggregation targets
 
@@ -147,7 +143,7 @@ class TargetsFeatures:
             fdf_list.append(fdf_calc)
             print("{}: loaded {}({}) {} tics ({} - {})".format(
                     datetime.now().strftime(Env.dt_format),
-                    self.__feature_type, env.sym_of_base(self.__base),
+                    self.feature_type, env.sym_of_base(self.base),
                     len(fdf_calc), fdf_calc.index[0].strftime(Env.dt_format),
                     fdf_calc.index[len(fdf_calc)-1].strftime(Env.dt_format)))
         return fdf_list
@@ -184,21 +180,22 @@ class TargetsFeatures:
         """
         if self.path is None:
             return False
-        sym = env.sym_of_base(self.__base)
-        fname = Env.cache_path + sym + "_" + self.__feature_type + "_DataFrame.h5"
+        sym = env.sym_of_base(self.base)
+        fname = self.path + sym + "_" + self.feature_type + "_DataFrame.h5"
         try:
             self.vec = pd.read_hdf(fname, sym)
             print("{}: loaded {}({}) {} tics ({} - {})".format(
-                datetime.now().strftime(Env.dt_format), self.__feature_type, env.sym_of_base(self.__base),
+                datetime.now().strftime(Env.dt_format), self.feature_type, env.sym_of_base(self.base),
                 len(self.vec), self.vec.index[0].strftime(Env.dt_format),
                 self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
             if not self.minute_data.index.isin(self.vec).all:
                 self.fill_features_targets_gaps()
                 print("WARNING: need to calculate features as loaded features are only subset of main set")
                 return False
+            self.minute_data.loc[self.vec.index, "target"] = self.vec.loc[:, "target"]
         except IOError:
             return False
-        return (df is not None)
+        return (self.vec is not None)
 
     def save_cache(self):
         """ Will save features and targets of self.base in Env.cache_path.
@@ -209,12 +206,12 @@ class TargetsFeatures:
             print("WARNING: Unexpected call to save features in cache with missing features")
             return
         print("{}: writing {}({}) {} tics ({} - {})".format(
-            datetime.now().strftime(Env.dt_format), self.__feature_type, env.sym_of_base(self.__base),
-            len(df), df.index[0].strftime(Env.dt_format),
-            df.index[len(df)-1].strftime(Env.dt_format)))
-        sym = env.sym_of_base(self.__base)
-        fname = Env.cache_path + sym + "_" + self.__feature_type + "_DataFrame.h5"
-        df.to_hdf(fname, sym, mode="w")
+            datetime.now().strftime(Env.dt_format), self.feature_type, env.sym_of_base(self.base),
+            len(self.vec), self.vec.index[0].strftime(Env.dt_format),
+            self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
+        sym = env.sym_of_base(self.base)
+        fname = self.path + sym + "_" + self.feature_type + "_DataFrame.h5"
+        self.vec.to_hdf(fname, sym, mode="w")
 
     def calc_features_and_targets(self):
         """Assigns minute_dataframe to attribute *minute_data*.
@@ -231,16 +228,17 @@ class TargetsFeatures:
         the columns: open, high, low, close, volume and timestamps as index
         """
 
-        if not self.load_cache_ok():
-            self.crypto_targets()
-            self.vec = self.calc_features(self.minute_data)
-            if self.vec is not None:
-                if "target" in self.minute_data:
-                    self.vec.loc[:, "target"] = self.minute_data.loc[:, "target"]
-                if self.path is not None:
-                    self.save_cache()
-            else:
-                print(f"ERROR: feature calculation failed")
+        if self.vec is None:
+            if not self.load_cache_ok():
+                self.crypto_targets()
+                self.vec = self.calc_features(self.minute_data)
+                if self.vec is not None:
+                    if "target" in self.minute_data:
+                        self.vec.loc[:, "target"] = self.minute_data.loc[:, "target"]
+                    if self.path is not None:
+                        self.save_cache()
+                else:
+                    print(f"ERROR: feature calculation failed")
         return self.vec
 
     def __append_minute_df_with_targets(self, minute_df):
@@ -260,13 +258,4 @@ def target_labels(target_id):
 
 
 if __name__ == "__main__":
-    env.test_mode()
-    base = "xrp"
-    df = ccd.load_asset_dataframe(base, Env.data_path)
-    df = df.loc[(df.index >= pd.Timestamp("2019-01-01 15:59:00+00:00")) &
-                (df.index <= pd.Timestamp("2019-01-31 15:58:00+00:00"))]
-    tf = TargetsFeatures(base, df)
-    tf.minute_data["label"] = tf.minute_data["target"].apply(lambda x: ct.TARGET_NAMES[x])
-    tf.minute_data["label2"] = tf.minute_data["target2"].apply(lambda x: ct.TARGET_NAMES[x])
-    print(tf.minute_data.head(2))
-    print(tf.minute_data.tail(2))
+    print("probably launched wrong python file")

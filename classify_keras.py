@@ -91,7 +91,7 @@ class PerfMatrix:
             for sp in self.p_range:
                 self.perf[bp - self.p_range[0], sp - self.p_range[0]] = \
                     EvalPerf(float((bp)/10), float((sp)/10))
-        self.confusion = np.zeros((len(ct.TARGETS), len(ct.TARGETS)), dtype=int)
+        self.confusion = np.zeros((ct.TARGET_CLASS_COUNT, ct.TARGET_CLASS_COUNT), dtype=int)
         self.epoch = epoch
         self.set_type = set_type
         self.start_ts = timeit.default_timer()
@@ -478,7 +478,7 @@ class Cpc:
                 samples.data = self.scaler.transform(samples.data)
             pred = self.classifier.predict_on_batch(samples.data)
             self.__log_predict_results(tfv, base, pred)
-            pm.assess_prediction(pred, samples.close, samples.target, samples.tics, samples.descr)
+            pm.assess_prediction(pred, df.close, samples.target, samples.tics, samples.descr)
             self.hs.register_probabilties(base, set_type, pred, df)
         self.pmlist.append(pm)
         pm.report_assessment()
@@ -504,7 +504,7 @@ class Cpc:
                         samples.data = self.scaler.transform(samples.data)
                     # print(f"iteration_gen {base}({bix}) {bstep}(of {hs.max_steps[base]["max"]})")
                     targets = tf.keras.utils.to_categorical(samples.target,
-                                                            num_classes=len(ct.TARGETS))
+                                                            num_classes=ct.TARGET_CLASS_COUNT)
                     yield samples.data, targets
 
     def base_generator(self, hs, set_type, epochs):
@@ -526,7 +526,7 @@ class Cpc:
                     samples.data = self.scaler.transform(samples.data)
                 # print(f"base_gen {base}({bix}) {set_type}")
                 targets = tf.keras.utils.to_categorical(samples.target,
-                                                        num_classes=len(ct.TARGETS))
+                                                        num_classes=ct.TARGET_CLASS_COUNT)
                 yield samples.data, targets
 
     def adapt_keras(self):
@@ -660,7 +660,7 @@ class Cpc:
                 samples.data = self.scaler.transform(samples.data)
             pred1 = self.classifier.predict_on_batch(samples.data)
 
-            pm.assess_prediction(pred1, samples.close, samples.target, samples.tics, samples.descr)
+            pm.assess_prediction(pred1, df.close, samples.target, samples.tics, samples.descr)
         pm.report_assessment()
 
         tdiff = (timeit.default_timer() - start_time) / 60

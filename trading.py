@@ -9,9 +9,9 @@ import timeit
 # import logging
 import time
 import env_config as env
-# from env_config import Env
+from env_config import Env
 import crypto_targets as ct
-import crypto_features as cf
+# import crypto_features as cf
 import classify_keras as ck
 from classify_keras import PerfMatrix, EvalPerf  # required for pickle  # noqa
 from local_xch import Xch
