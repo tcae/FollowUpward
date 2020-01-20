@@ -770,7 +770,7 @@ def plot_confusion_matrix(cm, class_names):
 
 
 if __name__ == "__main__":
-    env.test_mode()
+    # env.test_mode()
     tee = env.Tee()
     load_classifier = None  # "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
     save_classifier = None

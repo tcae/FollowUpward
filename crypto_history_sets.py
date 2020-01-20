@@ -264,7 +264,7 @@ class CryptoHistorySets:
                     tdf.iat[ix, iix] = hi
                     hi = (hi + 1) % h_step
                 else:  # hold
-                    print(f"error: unexpected target {target}")
+                    print(f"error: unexpected target {target} at {tdf.index[ix]}")
             self.ctrl[TRAIN].loc[(self.ctrl[TRAIN].base == base), "step"] = tdf.step
             self.max_steps[base][ct.BUY] = b_step
             self.max_steps[base][ct.SELL] = s_step

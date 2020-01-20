@@ -239,6 +239,8 @@ class TargetsFeatures:
                         self.save_cache()
                 else:
                     print(f"ERROR: feature calculation failed")
+        if self.minute_data is not None:
+            self.minute_data = self.minute_data[self.minute_data.index.isin(self.vec)]
         return self.vec
 
     def __append_minute_df_with_targets(self, minute_df):
