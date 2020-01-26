@@ -25,12 +25,15 @@ def dfdescribe(desc, df):
 def save_asset_dataframe(df, base, path="missing path"):
     """ saves the base/quote data
     """
-    print("{}: writing {} {} tics ({} - {})".format(
+    print("{}: writing ohlcv of {} {} tics ({} - {})".format(
         datetime.now().strftime(Env.dt_format), env.sym_of_base(base),
         len(df), df.index[0].strftime(Env.dt_format),
         df.index[len(df)-1].strftime(Env.dt_format)))
     sym = env.sym_of_base(base)
     fname = path + sym + "_DataFrame.h5"
+    if "target" in df:
+        df = df.drop(columns=["target"])
+
     # df.to_msgpack(fname)
     df.to_hdf(fname, sym, mode="w")
 

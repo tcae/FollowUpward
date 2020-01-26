@@ -4,7 +4,8 @@ import math
 # import indicators as ind
 import env_config as env
 from env_config import Env
-import cached_crypto_data as ccd
+# import cached_crypto_data as ccd
+import crypto_features as cf
 from crypto_features import TargetsFeatures
 from sklearn.linear_model import LinearRegression
 
@@ -59,7 +60,7 @@ def check_input_consistency(df):
         print(f"{env.nowstr()} ERROR: missing 'volume' column")
         ok = False
     if len(df) <= MHE:
-        print(f"len(df) = {len(df)} <= len for required history data elements {MHE}")
+        print(f"len(df) = {len(df)} <= len for required history data elements {MHE+1}")
         ok = False
     return ok
 
@@ -182,8 +183,11 @@ class CondensedFeatures(TargetsFeatures):
     """
 
     def __init__(self, base, minute_dataframe=None, path=None):
-        self.feature_type = "Fcondensed1"
         super().__init__(base, minute_dataframe, path)
+        self.feature_type = "Fcondensed1"
+
+    def history_minutes_without_features(self):
+        return MHE
 
     def calc_features(self, minute_data):
         """ minute_data has to be in minute frequency and shall have 'MHE' minutes more history elements than
@@ -196,6 +200,13 @@ class CondensedFeatures(TargetsFeatures):
 
 
 if __name__ == "__main__":
+    for base in Env.usage.bases:
+        tf = CondensedFeatures(base, path=Env.data_path)
+        tfv = tf.calc_features_and_targets()
+        cf.report_setsize(f"{base} tf.minute_data", tf.minute_data)
+        cf.report_setsize(f"tf.vec {base} tf.vec", tf.vec)
+        cf.report_setsize(f"tfv {base} tf.vec", tfv)
+"""
     if True:
         cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=MHE+10)
         features = cal_features(cdf)
@@ -210,3 +221,4 @@ if __name__ == "__main__":
             for ix in range(4) if ((ix < 2) or (not regr_only))]
         cols = cols + [COL_PREFIX[4] + ext for (svol, lvol, ext) in VOL_KPI]
         print(cols)
+"""

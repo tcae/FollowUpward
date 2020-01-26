@@ -181,10 +181,15 @@ class CryptoHistorySets:
         """
 
         for base in self.bases:
-            tf = ActiveFeatures(base, path=Env.data_path)
-            self.__extract_set_type_targets(base, tf, TRAIN)
-            self.__extract_set_type_targets(base, tf, VAL)
-            self.__extract_set_type_targets(base, tf, TEST)
+            self.tf = ActiveFeatures(base, path=Env.data_path)
+            self.tf.calc_features_and_targets()
+
+            # limit minute_data to data with corresponding features
+            self.tf.minute_data = self.tf.minute_data.loc[self.tf.minute_data.index >= self.tf.vec.index[0]]
+
+            self.__extract_set_type_targets(base, self.tf, TRAIN)
+            self.__extract_set_type_targets(base, self.tf, VAL)
+            self.__extract_set_type_targets(base, self.tf, TEST)
             # del tf
 
     def register_probabilties(self, base, set_type, pred, target_df):

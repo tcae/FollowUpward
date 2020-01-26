@@ -84,7 +84,9 @@ def __trade_signals(close):
     notes["flag"] = (notes["target"] == UNDETERMINED)
     notes["target"][notes["flag"]] = TARGETS[HOLD]
 
-    notes["flag"] = (notes["back"] == notes["forward"]) & (notes["target"] == TARGETS[HOLD]) & (notes["back"] != UNDETERMINED)
+    notes["flag"] = (notes["back"] == notes["forward"]) & \
+                    (notes["target"] == TARGETS[HOLD]) & \
+                    (notes["back"] != UNDETERMINED)
     notes["target"][notes["flag"]] = notes["back"][notes["flag"]]
     assert ~(notes["target"] == UNDETERMINED).any()
     return notes["target"]

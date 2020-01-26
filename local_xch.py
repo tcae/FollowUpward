@@ -360,7 +360,7 @@ class Xch():
                 start.strftime(Env.dt_format), when.strftime(Env.dt_format), minutes)
         else:
             last_tic = df.index[len(df.index)-1]
-            dtlast = last_tic  # ! .replace(tzinfo=None)
+            dtlast = last_tic
             dfdiff = int((when - dtlast) / pd.Timedelta(minutes-1, unit='T'))
             if dfdiff < remaining:
                 remaining = dfdiff

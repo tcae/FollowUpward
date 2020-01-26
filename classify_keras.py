@@ -608,12 +608,12 @@ class Cpc:
         dummy_x = np.empty((1, samples.shape[1]))
         dummy_y = np.empty((1, targets.shape[1]))
 
-        params = {"l1_neurons": [60, 80, 100],
-                  "h_neuron_var": [0.8],  # 0.4, 0.6,
+        params = {"l1_neurons": [20, 40],
+                  "h_neuron_var": [0.6, 0.8],  # 0.4, 0.6,
                   "epochs": [50],
                   "use_l3": [False],  # True
                   "kernel_initializer": ["he_uniform"],
-                  "dropout": [0.4],  # 0.6,
+                  "dropout": [0, 0.2, 0.45],  # 0.6,
                   "optimizer": ["Adam"],
                   "losses": ["categorical_crossentropy"],
                   "activation": ["relu"],

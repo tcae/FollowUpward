@@ -45,7 +45,7 @@ def str_setsize(df):
     sc = len(df[df.target == ct.TARGETS[ct.SELL]])
     bc = len(df[df.target == ct.TARGETS[ct.BUY]])
     sumc = hc + sc + bc
-    return f"buy {bc} sell {sc} hold {hc} sum {sumc}; total {len(df)}"
+    return f"buy={bc} sell={sc} hold={hc} sum={sumc}; total={len(df)} diff={len(df)-sumc}"
 
 
 def to_scikitlearn(df, np_data=None, descr=None):
@@ -93,6 +93,7 @@ class TargetsFeatures:
         self.vec = None
         self.base = base
         self.quote = Env.quote
+        self.feature_type = "AbstractTargetsFeatures"
         self.path = path
         self.minute_data = minute_dataframe  # is DataFrame with ohlvc and target columns
         if (self.minute_data is None) and (path is not None):
@@ -100,11 +101,9 @@ class TargetsFeatures:
                 self.minute_data = ccd.load_asset_dataframe(self.base, path=path)
             except env.MissingHistoryData:
                 raise
-            # else:
-            #     print(f"ERROR TargetsFeatures: neither minute_data nor path")
-        if self.minute_data is not None:
-            self.calc_features_and_targets()
-        # report_setsize(self.base, self.minute_data)
+
+    def history_minutes_without_features(self):
+        return 0
 
     def calc_features(self, minute_data):
         print("ERROR: no features implemented")
@@ -122,56 +121,41 @@ class TargetsFeatures:
         if self.minute_data is None:
             raise env.MissingHistoryData("{}–{} symbol without minute data ({})".format(
                                         self.base, self.quote, self.vec))
-        if self.minute_data.empty is None:
+        if self.minute_data.empty:
             self.minute_data = None
             raise env.MissingHistoryData("{}–{} symbol with empty minute data".format(
                                      self.base, self.quote))
         if "target" not in self.minute_data:
             ct.crypto_trade_targets(self.minute_data)  # add aggregation targets
 
-    def calc_gap_subset_features_and_targets(self, gap_subset, fdf_list):
-        """ Calculate targets and features for given gap_subset with ohlc data
-            and append result to fdf_list
-        """
-        self.minute_data = gap_subset
-        fdf_calc = self.calc_features(self.minute_data)
-        if "target" not in self.minute_data:
-            self.crypto_targets()
-        if fdf_calc is not None:
-            if "target" in self.minute_data:
-                fdf_calc.loc[:, "target"] = self.minute_data.loc[:, "target"]
-            fdf_list.append(fdf_calc)
-            print("{}: loaded {}({}) {} tics ({} - {})".format(
-                    datetime.now().strftime(Env.dt_format),
-                    self.feature_type, env.sym_of_base(self.base),
-                    len(fdf_calc), fdf_calc.index[0].strftime(Env.dt_format),
-                    fdf_calc.index[len(fdf_calc)-1].strftime(Env.dt_format)))
-        return fdf_list
-
-    def fill_features_targets_gaps(self):
-        """ Split into subset of consecutive elements, calc features and targets for missing parts
-        """
-        to_be_calculated = self.minute_data.index.difference(self.vec.index)
-        if to_be_calculated is not None:
-            fdf_loaded = self.vec
-            local_md = self.minute_data  # locally store minute_data to use class methods working on it
-            tix1 = tix3 = to_be_calculated[0]
-            fdf_list = list()
-            tdelta = pd.Timedelta(1, unit="T")
-            for tix2 in to_be_calculated:
-                if tix2 > tix1:
-                    if (tix2-tix1) > tdelta:
-                        if fdf_loaded is not None:
-                            if tix1 > fdf_loaded.index[0]:
-                                fdf_list.append(fdf_loaded)
-                                fdf_loaded = None
-                        fdf_list = self.calc_gap_subset_features_and_targets(local_md[tix1:tix3], fdf_list)
-                        tix1 = tix2
-                    tix3 = tix2
-            if fdf_loaded is not None:
-                fdf_list.append(fdf_loaded)
-            self.vec = pd.concat(fdf_list)
-            self.minute_data = local_md  # restore minute_data
+    def index_ok(self):
+        assert self.minute_data is not None
+        assert self.vec is not None
+        ok = True
+        len_md = len(self.minute_data)
+        len_vec = len(self.vec)
+        if len_md == len_vec:  # minute_data was already reduced to vec length
+            if self.minute_data.index[0] != self.vec.index[0]:
+                print("vec start is {} but was expected {}".format(self.vec.index[0], self.minute_data.index[0]))
+                ok = False
+            if self.minute_data.index[len_md-1] != self.vec.index[len_vec-1]:
+                print("unexpected last tic of minute data {} versus vec {}".format(
+                    self.minute_data.index[len_md-1], self.vec.index[len_vec-1]))
+                ok = False
+        else:   # orignal minute data length including history that is not in vec
+            hmwf = self.history_minutes_without_features()
+            vec_start = self.minute_data.index[0] + pd.Timedelta(hmwf, unit='T')
+            if vec_start != self.vec.index[0]:
+                print("vec start is {} but was expected {}".format(self.vec.index[0], vec_start))
+                ok = False
+            if len_vec != (len_md - hmwf):
+                print("len(vec {} != len(reduced minute data) {})".format(len_vec, len_md-hmwf))
+                ok = False
+            if self.minute_data.index[len_md-1] != self.vec.index[len_vec-1]:
+                print("unexpected last tic of minute data {} versus vec {}".format(
+                    self.minute_data.index[len_md-1], self.vec.index[len_vec-1]))
+                ok = False
+        return ok
 
     def load_cache_ok(self):
         """ Will load cached base data if present.
@@ -183,16 +167,15 @@ class TargetsFeatures:
         sym = env.sym_of_base(self.base)
         fname = self.path + sym + "_" + self.feature_type + "_DataFrame.h5"
         try:
-            self.vec = pd.read_hdf(fname, sym)
+            self.vec = pd.read_hdf(fname, sym)  # targets and features
             print("{}: loaded {}({}) {} tics ({} - {})".format(
                 datetime.now().strftime(Env.dt_format), self.feature_type, env.sym_of_base(self.base),
                 len(self.vec), self.vec.index[0].strftime(Env.dt_format),
                 self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
-            if not self.minute_data.index.isin(self.vec).all:
-                self.fill_features_targets_gaps()
-                print("WARNING: need to calculate features as loaded features are only subset of main set")
-                return False
-            self.minute_data.loc[self.vec.index, "target"] = self.vec.loc[:, "target"]
+            if self.index_ok():
+                self.minute_data.loc[self.vec.index, "target"] = self.vec.loc[:, "target"]
+            else:
+                self.vec = None
         except IOError:
             return False
         return (self.vec is not None)
@@ -202,16 +185,16 @@ class TargetsFeatures:
         """
         if self.path is None:
             return
-        if self.vec is None:
-            print("WARNING: Unexpected call to save features in cache with missing features")
-            return
-        print("{}: writing {}({}) {} tics ({} - {})".format(
-            datetime.now().strftime(Env.dt_format), self.feature_type, env.sym_of_base(self.base),
-            len(self.vec), self.vec.index[0].strftime(Env.dt_format),
-            self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
-        sym = env.sym_of_base(self.base)
-        fname = self.path + sym + "_" + self.feature_type + "_DataFrame.h5"
-        self.vec.to_hdf(fname, sym, mode="w")
+        if self.index_ok():
+            print("{}: writing {}({}) {} tics ({} - {})".format(
+                datetime.now().strftime(Env.dt_format), self.feature_type, env.sym_of_base(self.base),
+                len(self.vec), self.vec.index[0].strftime(Env.dt_format),
+                self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
+            sym = env.sym_of_base(self.base)
+            fname = self.path + sym + "_" + self.feature_type + "_DataFrame.h5"
+            self.vec.to_hdf(fname, sym, mode="w")
+        else:
+            print(f"feature cache save of {self.base} failed due to index check")
 
     def calc_features_and_targets(self):
         """Assigns minute_dataframe to attribute *minute_data*.
@@ -234,13 +217,14 @@ class TargetsFeatures:
                 self.vec = self.calc_features(self.minute_data)
                 if self.vec is not None:
                     if "target" in self.minute_data:
-                        self.vec.loc[:, "target"] = self.minute_data.loc[:, "target"]
+                        smd = self.minute_data.loc[self.minute_data.index >= self.vec.index[0]]
+                        self.vec["target"] = smd["target"]
                     if self.path is not None:
                         self.save_cache()
                 else:
                     print(f"ERROR: feature calculation failed")
-        if self.minute_data is not None:
-            self.minute_data = self.minute_data[self.minute_data.index.isin(self.vec)]
+        # if self.minute_data is not None:  # disabled to not loose history data
+        #     self.minute_data = self.minute_data[self.minute_data.index >= self.vec.index[0]]
         return self.vec
 
     def __append_minute_df_with_targets(self, minute_df):
