@@ -16,14 +16,15 @@ import itertools
 # import math
 import pickle
 # import h5py
+import threading
 
 # Import datasets, classifiers and performance metrics
 from sklearn import preprocessing
 # from sklearn.neural_network import MLPClassifier
 
 import tensorflow as tf
-import tensorflow.keras as krs
-import tensorflow.keras.metrics as km
+import keras
+import keras.metrics as km
 # import tensorflow.compat.v1 as tf1
 import talos as ta
 
@@ -40,8 +41,41 @@ import crypto_history_sets as chs
 
 
 print(f"Tensorflow version: {tf.version.VERSION}")
-print(f"Keras version: {krs.__version__}")
+print(f"Keras version: {keras.__version__}")
 print(__doc__)
+TLOCK = threading.Lock()
+TLOCAL = threading.local()
+
+
+'''
+    A generic iterator and generator that takes any iterator and wrap it to make it thread safe.
+    This method was introducted by Anand Chitipothu in http://anandology.com/blog/using-iterators-and-generators/
+    but was not compatible with python 3. This modified version is now compatible and works both in python 2.8 and 3.0
+'''
+
+
+class threadsafe_iter:
+    """Takes an iterator/generator and makes it thread-safe by
+    serializing call to the `next` method of given iterator/generator.
+    """
+    def __init__(self, it):
+        self.it = it
+        self.lock = threading.Lock()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        with self.lock:
+            return self.it.__next__()
+
+
+def threadsafe_generator(f):
+    """A decorator that takes a generator function and makes it thread-safe.
+    """
+    def g(*a, **kw):
+        return threadsafe_iter(f(*a, **kw))
+    return g
 
 
 class EvalPerf:
@@ -261,7 +295,7 @@ class PerfMatrix:
         print("^bpt")
 
 
-class EpochPerformance(tf.keras.callbacks.Callback):
+class EpochPerformance(keras.callbacks.Callback):
     def __init__(self, cpc, patience_mistake_focus=6, patience_stop=12):
         self.cpc = cpc
         self.missing_improvements = 0
@@ -374,7 +408,7 @@ class Cpc:
             with open(fname, "rb") as df_f:
                 df_f.close()
 
-                self.classifier = tf.keras.models.load_model(fname, custom_objects=None, compile=True)
+                self.classifier = keras.models.load_model(fname, custom_objects=None, compile=True)
                 print(f"classifier loaded from {fname}")
         except IOError:
             print(f"IO-error when loading classifier from {fname}")
@@ -403,7 +437,7 @@ class Cpc:
                         self.epoch, ".h5"))
             # Save entire tensorflow keras model to a HDF5 file
             classifier.save(fname)
-            # tf.keras.models.save_model(classifier, fname, overwrite=True, include_optimizer=True)
+            # keras.models.save_model(classifier, fname, overwrite=True, include_optimizer=True)
             # , save_format="tf", signatures=None)
 
         fname = str("{}{}_{}{}".format(self.model_path, self.save_classifier,
@@ -484,74 +518,72 @@ class Cpc:
         pm.report_assessment()
         return pm.best()
 
+    # @threadsafe_generator
     def iteration_generator(self, hs, epochs):
-        "Generate one batch of data"
-        for e in range(epochs):  # due to prefetch of max_queue_size
-            for base in hs.bases:
-                bix = list(hs.bases.keys()).index(base)
-                for bstep in range(hs.max_steps[base]["max"]):
-                    df = hs.trainset_step(base, bstep)
+        """ Generate one batch of data. Must be threadsafe if keras worker > 1.
+        """
+        for TLOCAL.ig_e in range(epochs):  # due to prefetch of max_queue_size
+            for TLOCAL.ig_base in hs.bases:
+                # bix = list(hs.bases.keys()).index(TLOCAL.ig_base)
+                for TLOCAL.ig_bstep in range(hs.max_steps[TLOCAL.ig_base]["max"]):
+                    with TLOCK:
+                        df = hs.trainset_step(TLOCAL.ig_base, TLOCAL.ig_bstep)
+                        tfv = hs.features_from_targets(df)
+                        descr = "{} iteration_gen {} {} set step {} (of {}): {}".format(
+                            env.timestr(), TLOCAL.ig_base, chs.TRAIN, TLOCAL.ig_bstep,
+                            hs.max_steps[TLOCAL.ig_base]["max"], cf.str_setsize(tfv))
+                        print(descr)
+                        TLOCAL.samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
+                        if TLOCAL.samples is None:
+                            return None, None
+                        if self.scaler is not None:
+                            TLOCAL.samples.data = self.scaler.transform(TLOCAL.samples.data)
+                        TLOCAL.samples.target = keras.utils.to_categorical(
+                            TLOCAL.samples.target, num_classes=ct.TARGET_CLASS_COUNT)
+                    yield TLOCAL.samples.data, TLOCAL.samples.target
+
+    # @threadsafe_generator
+    def base_generator(self, hs, set_type, epochs):
+        """ Generate one batch of data per base. Must be threadsafe if keras worker > 1.
+        """
+        for TLOCAL.bg_e in range(epochs):
+            for TLOCAL.bg_base in hs.bases:
+                with TLOCK:
+                    df = hs.set_of_type(TLOCAL.bg_base, set_type)
                     tfv = hs.features_from_targets(df)
-                    descr = "{} {} {} set step {}: {}".format(env.timestr(), base, chs.TRAIN,
-                                                              bix, cf.str_setsize(tfv))
-                    # print(descr)
-                    samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
-                    del tfv
-                    # print(f">>> getitem: {samples.descr}", flush=True)
-                    if samples is None:
+                    descr = "{} base_gen {} {} set, {}".format(
+                        env.timestr(), TLOCAL.bg_base, set_type, cf.str_setsize(tfv))
+                    print(descr)
+                    TLOCAL.samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
+                    if TLOCAL.samples is None:
                         return None, None
                     if self.scaler is not None:
-                        samples.data = self.scaler.transform(samples.data)
-                    # print(f"iteration_gen {base}({bix}) {bstep}(of {hs.max_steps[base]["max"]})")
-                    targets = tf.keras.utils.to_categorical(samples.target,
-                                                            num_classes=ct.TARGET_CLASS_COUNT)
-                    yield samples.data, targets
-
-    def base_generator(self, hs, set_type, epochs):
-        "Generate one batch of data per base"
-        for e in range(epochs):
-            for base in hs.bases:
-                bix = list(hs.bases.keys()).index(base)
-                df = hs.set_of_type(base, set_type)
-                tfv = hs.features_from_targets(df)
-                descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
-                                                          bix, cf.str_setsize(tfv))
-                # print(descr)
-                samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
-                del tfv
-                # print(f">>> getitem: {samples.descr}", flush=True)
-                if samples is None:
-                    return None, None
-                if self.scaler is not None:
-                    samples.data = self.scaler.transform(samples.data)
-                # print(f"base_gen {base}({bix}) {set_type}")
-                targets = tf.keras.utils.to_categorical(samples.target,
-                                                        num_classes=ct.TARGET_CLASS_COUNT)
-                yield samples.data, targets
+                        TLOCAL.samples.data = self.scaler.transform(TLOCAL.samples.data)
+                    TLOCAL.samples.target = keras.utils.to_categorical(
+                        TLOCAL.samples.target, num_classes=ct.TARGET_CLASS_COUNT)
+                yield TLOCAL.samples.data, TLOCAL.samples.target
 
     def adapt_keras(self):
 
         def MLP1(x, y, x_val, y_val, params):
-            krs.backend.clear_session()  # done by switch in talos Scan command
+            keras.backend.clear_session()  # done by switch in talos Scan command
             self.talos_iter += 1
             print(f"talos iteration: {self.talos_iter}")
-            model = krs.models.Sequential()
-            model.add(krs.layers.Dense(params["l1_neurons"],
-                                       input_dim=samples.shape[1],
-                                       kernel_initializer=params["kernel_initializer"],
-                                       activation=params["activation"]))
-            model.add(krs.layers.Dropout(params["dropout"]))
-            model.add(krs.layers.Dense(int(params["l1_neurons"]*params["h_neuron_var"]),
-                                       kernel_initializer=params["kernel_initializer"],
-                                       activation=params["activation"]))
+            model = keras.models.Sequential()
+            model.add(keras.layers.Dense(
+                params["l1_neurons"], input_dim=samples.shape[1],
+                kernel_initializer=params["kernel_initializer"], activation=params["activation"]))
+            model.add(keras.layers.Dropout(params["dropout"]))
+            model.add(keras.layers.Dense(
+                int(params["l1_neurons"]*params["h_neuron_var"]),
+                kernel_initializer=params["kernel_initializer"], activation=params["activation"]))
             if params["use_l3"]:
-                model.add(krs.layers.Dropout(params["dropout"]))
-                model.add(krs.layers.Dense(
+                model.add(keras.layers.Dropout(params["dropout"]))
+                model.add(keras.layers.Dense(
                     int(params["l1_neurons"]*params["h_neuron_var"]*params["h_neuron_var"]),
                     kernel_initializer=params["kernel_initializer"],
                     activation=params["activation"]))
-            model.add(krs.layers.Dense(3,
-                                       activation=params["last_activation"]))
+            model.add(keras.layers.Dense(3, activation=params["last_activation"]))
 
             model.compile(optimizer=params["optimizer"],
                           loss="categorical_crossentropy",
@@ -567,9 +599,9 @@ class Cpc:
             callbacks = [
                 EpochPerformance(self, patience_mistake_focus=5, patience_stop=10),
                 # Interrupt training if `val_loss` stops improving for over 2 epochs
-                # krs.callbacks.EarlyStopping(patience=10),
-                # krs.callbacks.ModelCheckpoint(tensorfile, verbose=1),
-                krs.callbacks.TensorBoard(log_dir=tensorfile)]
+                # keras.callbacks.EarlyStopping(patience=10),
+                # keras.callbacks.ModelCheckpoint(tensorfile, verbose=1),
+                keras.callbacks.TensorBoard(log_dir=tensorfile)]
 
             steps_per_epoch = self.hs.label_steps()
             epochs = params["epochs"]
@@ -586,7 +618,7 @@ class Cpc:
                     validation_steps=len(self.hs.bases),
                     class_weight=None,
                     max_queue_size=10,
-                    workers=1,
+                    workers=2,
                     use_multiprocessing=False,
                     shuffle=False,
                     initial_epoch=0)
@@ -595,9 +627,11 @@ class Cpc:
             return out, model
 
         start_time = timeit.default_timer()
+        print(f"{env.timestr()} loading history sets")
         self.hs = chs.CryptoHistorySets(env.sets_config_fname())
         self.talos_iter = 0
 
+        print(f"{env.timestr()} adapting scaler")
         scaler = preprocessing.StandardScaler(copy=False)
         for (samples, targets) in self.base_generator(self.hs, chs.TRAIN, 1):
             # print("scaler fit")

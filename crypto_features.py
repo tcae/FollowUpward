@@ -102,7 +102,8 @@ class TargetsFeatures:
             except env.MissingHistoryData:
                 raise
 
-    def history_minutes_without_features(self):
+    def history(self):
+        "history_minutes_without_features"
         return 0
 
     def calc_features(self, minute_data):
@@ -143,7 +144,7 @@ class TargetsFeatures:
                     self.minute_data.index[len_md-1], self.vec.index[len_vec-1]))
                 ok = False
         else:   # orignal minute data length including history that is not in vec
-            hmwf = self.history_minutes_without_features()
+            hmwf = self.history()
             vec_start = self.minute_data.index[0] + pd.Timedelta(hmwf, unit='T')
             if vec_start != self.vec.index[0]:
                 print("vec start is {} but was expected {}".format(self.vec.index[0], vec_start))
@@ -219,8 +220,8 @@ class TargetsFeatures:
                     if "target" in self.minute_data:
                         smd = self.minute_data.loc[self.minute_data.index >= self.vec.index[0]]
                         self.vec["target"] = smd["target"]
-                    if self.path is not None:
-                        self.save_cache()
+                    # if self.path is not None:
+                    #     self.save_cache()
                 else:
                     print(f"ERROR: feature calculation failed")
         # if self.minute_data is not None:  # disabled to not loose history data

@@ -351,19 +351,14 @@ class Xch():
         if base in Xch.ohlcv:
             df = Xch.ohlcv[base]
             df = df.drop([df.index[len(df.index)-1]])  # because the last candle is incomplete
-        remaining = minutes
         if df is None:
-            # df = pd.DataFrame(index=pd.DatetimeIndex(freq="T", start=start, end=when, tz="UTC"),
+            remaining = minutes
             df = pd.DataFrame(index=pd.DatetimeIndex(pd.date_range(freq="T", start=start, periods=0, tz="UTC")),
                               dtype=np.float64, columns=ccd.data_keys)
             assert df is not None, "failed to create ohlcv df for {}-{} = {} minutes".format(
                 start.strftime(Env.dt_format), when.strftime(Env.dt_format), minutes)
         else:
-            last_tic = df.index[len(df.index)-1]
-            dtlast = last_tic
-            dfdiff = int((when - dtlast) / pd.Timedelta(minutes-1, unit='T'))
-            if dfdiff < remaining:
-                remaining = dfdiff
+            remaining = int((when - df.index[-1]) / pd.Timedelta(1, unit='T'))
         return df, remaining
 
     def __ohlcvs2df_fill_gaps(ohlcvs, df, fromdate, base):
@@ -447,6 +442,8 @@ class Xch():
         Xch.ohlcv[base] = df
         if len(df) < minutes:
             print(f"{base} len(df) {len(df)} < {minutes} minutes")
+        if len(df) > minutes:
+            df = df.iloc[-minutes:]
         Xch.check_df_result(df)
         return df
 

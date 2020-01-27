@@ -7,6 +7,7 @@ from local_xch import Xch
 # import crypto_features as cf
 import crypto_targets as ct
 import condensed_features as cof
+import aggregated_features as agf
 
 
 def OBSOLETE_merge_asset_dataframe(path, base):
@@ -97,101 +98,99 @@ def check_labels(tf):
     print("{} {} {} {}".format(env.timestr(), tf.base, tf.feature_type, target_str))
 
 
-def calc_targets_features_and_concat(stored_tf, downloaded_df):
+def calc_targets_features_and_concat(stored_tf, downloaded_df, fclass):
     """ Calculates targets and features for the new downloaded ohlcv data and concatenates it with the
-        already stored data, targets and features.
+        already stored data, targets and features. The class 'fclass' implements the feature calculation.
     """
-    stored_df = stored_tf.minute_data
-    last = stored_df.index[len(stored_df)-1]
-    if last == downloaded_df.index[0]:
-        stored_df = stored_df.drop([last])  # the last saved sample is incomple and needs to be updated
-        last = stored_df.index[len(stored_df)-1]
-    if (downloaded_df.index[0] - last) != pd.Timedelta(1, unit='T'):
-        print(f"unexpected gap: minute data last stored: {last} / first loaded: {downloaded_df.index[0]}")
-        return None, None
+    if (downloaded_df is None) or (downloaded_df.index[-1] <= stored_tf.minute_data.index[-1]):
+        new_minute_data = stored_tf.minute_data
+    else:
+        new_minute_data = pd.concat([stored_tf.minute_data, downloaded_df], sort=False)
 
-    new_minute_data = pd.concat([stored_df, downloaded_df], sort=False)
-    if stored_tf.vec is None:  # complete targets and features calculation
-        if "target" in new_minute_data:
-            new_minute_data = new_minute_data.drop(columns=["target"])  # enforce recalculation of target
-        subset_tf = cof.CondensedFeatures(stored_tf.base, minute_dataframe=new_minute_data)
-        subset_tf.calc_features_and_targets()
-        new_df_vec = subset_tf.vec
-    else:  # only targets and features calculation for the downloaded part
+    assert stored_tf.vec is not None
+    if new_minute_data.index[-1] > stored_tf.vec.index[-1]:
         subset_df = new_minute_data.loc[
-            new_minute_data.index >= (downloaded_df.index[0] - pd.Timedelta(cof.MHE, unit='T'))]
+            new_minute_data.index >= (stored_tf.vec.index[-1] - pd.Timedelta(stored_tf.history(), unit='T'))]
         if "target" in subset_df:
             subset_df = subset_df.drop(columns=["target"])  # enforce recalculation of target
-        subset_tf = cof.CondensedFeatures(stored_tf.base, minute_dataframe=subset_df)
+        subset_tf = fclass(stored_tf.base, minute_dataframe=subset_df)
         subset_tf.calc_features_and_targets()
-        last = stored_tf.vec.index[len(stored_tf.vec)-1]
-        if last == subset_tf.vec.index[0]:
-            stored_tf.vec = stored_tf.vec.drop([last])
-            last = stored_tf.vec.index[len(stored_tf.vec)-1]
-        if (subset_tf.vec.index[0] - last) == pd.Timedelta(1, unit='T'):
+        if stored_tf.vec.index[-1] == subset_tf.vec.index[0]:
+            stored_tf.vec = stored_tf.vec.drop([stored_tf.vec.index[-1]])
+        if (subset_tf.vec.index[0] - stored_tf.vec.index[-1]) == pd.Timedelta(1, unit='T'):
             new_df_vec = pd.concat([stored_tf.vec, subset_tf.vec], sort=False)
         else:
-            print("unexpected gap: vec last stored: {} / first loaded: {}".format(last, subset_tf.vec.index[0]))
+            print("unexpected gap: vec last stored: {} / first loaded: {}".format(
+                stored_tf.vec.index[-1], subset_tf.vec.index[0]))
             return None, None
 
         # now concat minute_data including the new targets with stored data
         subset_tf.minute_data = subset_tf.minute_data.loc[subset_tf.minute_data.index >= subset_tf.vec.index[0]]
-        new_minute_data = pd.concat([stored_df, subset_tf.minute_data], sort=False)
-        ok2save = check_df(new_minute_data)  # attention "target" of downloaded_df missing
+        # attention "target" of downloaded_df missing --> concat again with subset minute data including "target"
+        new_minute_data = pd.concat([stored_tf.minute_data, subset_tf.minute_data], sort=False)
+        ok2save = check_df(new_minute_data)
         if not ok2save:
             print(f"merged df.minute_data checked: {ok2save} - dataframe not saved")
             return None, None
+    else:  # no new data and vec up to date
+        new_df_vec = stored_tf.vec
     return new_minute_data, new_df_vec
 
 
-def load_asset(bases):
+def load_assets(bases, lastdatetime, feature_classes):
     """ Loads the cached history data as well as live data from the xch
     """
     print(bases)  # Env.usage.bases)
     for base in bases:
         print(f"supplementing {base}")
 
-        stored_tf = cof.CondensedFeatures(base, path=Env.data_path)
-        stored_tf.calc_features_and_targets()
-        stored_df = stored_tf.minute_data
-        # stored_df = ccd.load_asset_dataframe(base, path=Env.data_path)
-        # stored_df.index.tz_localize(tz='UTC')
+        for fclass in feature_classes:
+            stored_tf = fclass(base, path=Env.data_path)
+            stored_tf.calc_features_and_targets()
 
-        last = stored_df.index[len(stored_df)-1]
-        now = pd.Timestamp.utcnow()
-        diffmin = int((now - last)/pd.Timedelta(1, unit='T'))
-        downloaded_df = Xch.get_ohlcv(base, diffmin, now)
-        if downloaded_df is None:
-            print("skipping {}".format(base))
-            continue
+            downloaded_df = None
+            if lastdatetime is not None:
+                diffmin = int((lastdatetime - stored_tf.minute_data.index[-1])/pd.Timedelta(1, unit='T'))
+                if diffmin > 0:
+                    downloaded_df = Xch.get_ohlcv(base, diffmin, lastdatetime)
+                    if downloaded_df is None:
+                        print("skipping {}".format(base))
+                        continue
+                    else:
+                        if stored_tf.minute_data.index[-1] == downloaded_df.index[0]:
+                            # the last saved sample is incomplete and needs to be updated
+                            stored_tf.minute_data = stored_tf.minute_data.drop([stored_tf.minute_data.index[-1]])
+                        if (downloaded_df.index[0] - stored_tf.minute_data.index[-1]) != pd.Timedelta(1, unit='T'):
+                            print("unexpected gap: minute data last stored: {} / first loaded: {}".format(
+                                stored_tf.minute_data.index[-1], downloaded_df.index[0]))
+                            continue
 
-        new_minute_data, new_df_vec = calc_targets_features_and_concat(stored_tf, downloaded_df)
-        if (new_minute_data is None) or (new_df_vec is None):
-            print("processing downloaded data failed")
-            continue
-        ok2save = check_df(new_df_vec)
-        if ok2save:
-            stored_tf.vec = new_df_vec  # dirty trick: use stored_tf to save_cache of vec
-            stored_tf.minute_data = new_minute_data
-            check_labels(stored_tf)
-            # continue  # don't save - for test purposes
-            ccd.save_asset_dataframe(new_minute_data, base, path=Env.data_path)
-            stored_tf.save_cache()
-        else:
-            print(f"merged df.vec checked: {ok2save} - dataframe not saved")
+            new_minute_data, new_df_vec = calc_targets_features_and_concat(stored_tf, downloaded_df, fclass)
+            if (new_minute_data is None) or (new_df_vec is None):
+                print("no new data to store")
+                continue
+            ok2save = check_df(new_df_vec)
+            if ok2save:
+                stored_tf.vec = new_df_vec  # dirty trick: use stored_tf to save_cache of vec
+                stored_tf.minute_data = new_minute_data
+                check_labels(stored_tf)
+                # continue  # don't save - for test purposes
+                ccd.save_asset_dataframe(new_minute_data, base, path=Env.data_path)
+                stored_tf.save_cache()
+            else:
+                print(f"merged df.vec checked: {ok2save} - dataframe not saved")
+
+
+def repair_stored_ohlcv():
+    df = ccd.load_asset_dataframe("xrp", Env.data_path)
+    df = df.loc[df.index < pd.Timestamp("2020-01-24 10:00:00+00:00")]
+    ccd.save_asset_dataframe(df, "xrp", Env.data_path)
 
 
 if __name__ == "__main__":
-    # env.test_mode()
     if True:
-        load_asset(Env.usage.bases)
+        load_assets(Env.bases, pd.Timestamp.utcnow(), [cof.CondensedFeatures, agf.AggregatedFeatures])
     else:
+        env.test_mode()
         base = "xrp"
-        load_asset([base])
-
-        # tf = cof.CondensedFeatures(base, path=Env.data_path)
-        # tf.calc_features_and_targets()
-        # tf.minute_data = tf.minute_data.loc[tf.minute_data.index < pd.Timestamp("2020-01-14 21:54:00+00:00")]
-        # tf.vec = tf.vec.loc[tf.vec.index < pd.Timestamp("2020-01-14 21:54:00+00:00")]
-        # ccd.save_asset_dataframe(tf.minute_data, base, path=Env.data_path)
-        # tf.save_cache()
+        load_assets([base], pd.Timestamp.utcnow(), [cof.CondensedFeatures, agf.AggregatedFeatures])

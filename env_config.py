@@ -31,20 +31,11 @@ class Env():
         Env.test_mode = usage.test_mode
         Env.cache_path = f"{calc.data_path_prefix}cache/"
         Env.bases = usage.bases
-        Env.time_aggs = usage.time_aggs
         Env.model_path = f"{calc.other_path_prefix}classifier/"
         Env.tfblog_path = f"{calc.other_path_prefix}tensorflowlog/"
         Env.auth_file = calc.auth_path_prefix + "auth_Tst1.json"
-        Env.minimum_minute_df_len = 0
         Env.calc = calc
         Env.usage = usage
-        for agg in Env.time_aggs:
-            assert isinstance(agg, int)
-            value = Env.time_aggs[agg]
-            assert isinstance(value, int)
-            minlen = agg * value
-            if Env.minimum_minute_df_len < minlen:
-                Env.minimum_minute_df_len = minlen
 
     def tensorboardpath():
         path = f"{Env.tfblog_path}{timestr()}"
@@ -89,7 +80,6 @@ class Floydhub(Calc):
 class Usage():
     data_path = "data path not initialized"
     bases = []
-    time_aggs = {}
     conf_fname = "conf fname not initialized"
     test_mode = False
 
@@ -97,7 +87,6 @@ class Usage():
 class Production(Usage):
     data_path_suffix = "Features/"
     bases = ["btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
-    time_aggs = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
     conf_fname = "target_5_sets_split.config"
     test_mode = False
 
@@ -105,7 +94,6 @@ class Production(Usage):
 class Test(Usage):
     data_path_suffix = "TestFeatures/"
     bases = ["xrp"]
-    time_aggs = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}
     # conf_fname = "target_5_sets_split_unit-test.config"
     conf_fname = "target_5_sets_split.config"
     test_mode = True

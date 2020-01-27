@@ -28,9 +28,9 @@ from sklearn.linear_model import LinearRegression
 REGRESSION_KPI = [(1, 0, 5, "5m_0"), (1, 5, 5, "5m_5"),
                   (0, 0, 30, "30m"), (0, 0, 4*60, "4h"),
                   (0, 0, 12*60, "12h"), (1, 0, 10*24*60, "10d")]
-MHE = max([offset+minutes for (regr_only, offset, minutes, ext) in REGRESSION_KPI]) - 1
+HMWF = max([offset+minutes for (regr_only, offset, minutes, ext) in REGRESSION_KPI]) - 1
+# HMWF == history minutes required without features
 # VOL_KPI = [(5, 60, "5m1h")]
-# MHE == max history elements last element is part of history
 VOL_KPI = [(5, 60, "5m1h"), (5, 12*60, "5m12h")]
 COL_PREFIX = ["price", "gain", "chance", "risk", "vol"]
 
@@ -59,8 +59,8 @@ def check_input_consistency(df):
     if "volume" not in df:
         print(f"{env.nowstr()} ERROR: missing 'volume' column")
         ok = False
-    if len(df) <= MHE:
-        print(f"len(df) = {len(df)} <= len for required history data elements {MHE+1}")
+    if len(df) <= HMWF:
+        print(f"len(df) = {len(df)} <= len for required history data elements {HMWF+1}")
         ok = False
     return ok
 
@@ -138,7 +138,7 @@ def __vol_rel(volumes, long_period, short_period=5):
 def cal_features(ohlcv):
     """ Receives a float ohlcv DataFrame of consecutive prices in fixed minute frequency starting with the oldest price.
         Returns a DataFrame of features per price base on close prices and volumes
-        that begins 'MHE' minutes later than 'ohlcv'.
+        that begins 'HMWF' minutes later than 'ohlcv'.
     """
     cols = [
         COL_PREFIX[ix] + ext
@@ -147,12 +147,12 @@ def cal_features(ohlcv):
     cols = cols + [COL_PREFIX[4] + ext for (svol, lvol, ext) in VOL_KPI]
     prices = ohlcv["close"]
     volumes = ohlcv["volume"].values
-    df = pd.DataFrame(columns=cols, index=prices.index[MHE:], dtype=np.double)
-    xfull = np.arange(MHE+1).reshape(-1, 1)
+    df = pd.DataFrame(columns=cols, index=prices.index[HMWF:], dtype=np.double)
+    xfull = np.arange(HMWF+1).reshape(-1, 1)
     prices = prices.values.reshape(-1, 1)
     linregr = LinearRegression()  # create object for the class
-    for pix in range(MHE, prices.size):  # pix == prices index
-        tic = df.index[pix - MHE]
+    for pix in range(HMWF, prices.size):  # pix == prices index
+        tic = df.index[pix - HMWF]
         for (regr_only, offset, minutes, ext) in REGRESSION_KPI:
             if regr_only:
                 df.loc[tic, ["gain"+ext, "price"+ext]] = \
@@ -166,7 +166,7 @@ def cal_features(ohlcv):
 
 
 def calc_features_nocache(minute_data):
-    """ minute_data has to be in minute frequency and shall have 'MHE' minutes more history elements than
+    """ minute_data has to be in minute frequency and shall have 'HMWF' minutes more history elements than
         the oldest returned element with feature data.
         The calculation is performed on 'close' and 'volume' data.
     """
@@ -186,11 +186,12 @@ class CondensedFeatures(TargetsFeatures):
         super().__init__(base, minute_dataframe, path)
         self.feature_type = "Fcondensed1"
 
-    def history_minutes_without_features(self):
-        return MHE
+    def history(self):
+        "history_minutes_without_features"
+        return HMWF
 
     def calc_features(self, minute_data):
-        """ minute_data has to be in minute frequency and shall have 'MHE' minutes more history elements than
+        """ minute_data has to be in minute frequency and shall have 'HMWF' minutes more history elements than
             the oldest returned element with feature data.
             The calculation is performed on 'close' and 'volume' data.
         """
@@ -208,7 +209,7 @@ if __name__ == "__main__":
         cf.report_setsize(f"tfv {base} tf.vec", tfv)
 """
     if True:
-        cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=MHE+10)
+        cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=HMWF+10)
         features = cal_features(cdf)
         print(cdf.head(5))
         print(cdf.tail(5))

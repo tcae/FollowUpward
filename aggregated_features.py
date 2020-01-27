@@ -1,10 +1,12 @@
 import pandas as pd
 import env_config as env
-from env_config import Env
+# from env_config import Env
 from crypto_features import TargetsFeatures
 
 VOL_BASE_PERIOD = "1D"
 TARGET_KEY = 5
+TIME_AGGS = {1: 10, 5: 10, 15: 10, 60: 10, 4*60: 10, 24*60: 10}  # aggregation in minutes: times of aggregation
+
 
 """Receives a dict of currency pairs with associated minute candle data and
 transforms it into a dict of currency pairs with associated dicts of
@@ -47,7 +49,7 @@ target_key:
 """
 
 
-class CondensedFeatures(TargetsFeatures):
+class AggregatedFeatures(TargetsFeatures):
     """ Holds the source ohlcv data as pandas DataFrame 'minute_data',
         the feature vectors as DataFrame rows of 'vec' and
         the target trade signals in column 'target' in both DataFrames.
@@ -55,13 +57,17 @@ class CondensedFeatures(TargetsFeatures):
     """
 
     def __init__(self, base, minute_dataframe=None, path=None):
+        super().__init__(base, minute_dataframe, path)
         self.feature_type = "Faggregated1"
-        res = super().__init__(base, minute_dataframe, path)
-        return res
+
+    def history(self):
+        "history_minutes_without_features"
+        hmwf = max([agg*TIME_AGGS[agg] for agg in TIME_AGGS])
+        return hmwf
 
     def calc_features(self, minute_data):
-        tf_aggs = __calc_aggregation(minute_data, Env.time_aggs)
-        vec = __expand_feature_vectors(tf_aggs, TARGET_KEY)
+        tf_aggs = calc_aggregation(minute_data, TIME_AGGS)
+        vec = expand_feature_vectors(tf_aggs, TARGET_KEY)
         return vec
 
 
@@ -87,7 +93,7 @@ def __derive_features(df):
     df.loc[df["close"] <= df["open"], "bottom"] = (df["close"] - df["low"]) / df["close"] * 1000
 
 
-def __calc_aggregation(minute_df, time_aggregations):
+def calc_aggregation(minute_df, time_aggregations):
     """Time aggregation through rolling aggregation with the consequence that new data is
     generated every minute and even long time aggregations reflect all minute bumps in their
     features
@@ -127,7 +133,7 @@ def __calc_aggregation(minute_df, time_aggregations):
     return tf_aggs
 
 
-def __expand_feature_vectors(tf_aggs, target_key):
+def expand_feature_vectors(tf_aggs, target_key):
     """Builds a feature vector for just the target_key with
     1 minute DHTBV and D*V feature sequences and the remaining D sequences of
     n time steps (tics) as configured in time_aggregations in T units.
@@ -146,7 +152,7 @@ def __expand_feature_vectors(tf_aggs, target_key):
     df = pd.DataFrame(tf_aggs[target_key], columns=["close"])
     skey = __smallest_dict_key(tf_aggs)
     for ta in tf_aggs:
-        for tics in range(Env.time_aggs[ta]):
+        for tics in range(TIME_AGGS[ta]):
             ctitle = str(ta) + "T_" + str(tics) + "_"
             offset = tics*ta
             # now add feature columns according to aggregation

@@ -5,7 +5,7 @@ import env_config as env
 from env_config import Env
 
 print("cached_crypto_data init")
-data_keys = ["open", "high", "low", "close", "volume"]
+data_keys = ["open", "high", "low", "close", "volume"]  # sequence is important, don't make it a set!
 
 
 """ provides pandas prepresentation of cached crypto data.
@@ -31,8 +31,10 @@ def save_asset_dataframe(df, base, path="missing path"):
         df.index[len(df)-1].strftime(Env.dt_format)))
     sym = env.sym_of_base(base)
     fname = path + sym + "_DataFrame.h5"
-    if "target" in df:
-        df = df.drop(columns=["target"])
+    drop = [col for col in df.columns if col not in data_keys]
+    if len(drop) > 0:
+        print(f"save asset df: dropping {drop}")
+        df = df.drop(columns=drop)
 
     # df.to_msgpack(fname)
     df.to_hdf(fname, sym, mode="w")
@@ -47,7 +49,7 @@ def load_asset_dataframe(base, path="missing path", limit=None):
     try:
         # df = pd.read_msgpack(fname)
         df = pd.read_hdf(fname, sym)
-        print("{}: load {} {} tics ({} - {})".format(
+        print("{}: loaded {} {} tics ({} - {})".format(
             datetime.now().strftime(Env.dt_format), fname, len(df), df.index[0].strftime(Env.dt_format),
             df.index[len(df)-1].strftime(Env.dt_format)))
     except IOError:
@@ -58,6 +60,12 @@ def load_asset_dataframe(base, path="missing path", limit=None):
         raise env.MissingHistoryData("Cannot load {}".format(fname))
     if (limit is not None) and (limit < len(df)):
         df = df.drop(df.index[:len(df)-limit])  # only hold the last `limit` minutes
+
+    drop = [col for col in df.columns if col not in data_keys]
+    if len(drop) > 0:
+        print(f"load asset df: dropping {drop}")
+        df = df.drop(columns=drop)
+
     if pd.isna(df).any().any():
         print(f"Warning: identified NaN in loaded data - will be filled")
         for key in data_keys:
