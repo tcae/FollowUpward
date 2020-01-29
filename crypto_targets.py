@@ -17,20 +17,27 @@ TARGET_CLASS_COUNT = len(TARGETS)
 TARGET_NAMES = {0: HOLD, 1: BUY, 2: SELL}  # dict with int encoding of targets
 
 
-def __trade_signals(close):
+def __trade_signals_with_close_gap(close):
     """ Receives a numpy array of close prices starting with the oldest.
         Returns a numpy array of signals.
+
+        algorithm:
+
+        - SELL if fardelta < sell threshold within max distance reach and minute delta negative.
+        - BUY if fardelta > buy threshold within max distance reach and minute delta positive.
+        - HOLD if fardelta and minute delta have different leading sign.
+        - close gaps between equal signals.
+        - else HOLD.
     """
     if close.ndim > 1:
         print("unexpected close array dimension {close.ndim}")
     maxdistance = min(close.size, 8*60)
     dt = np.dtype([("target", "i4"), ("nowdelta", "f8"), ("fardelta", "f8"),
-                   ("flag", "bool"), ("back", "i4"), ("forward", "i4"), ("holdtrace", "i4")])
+                   ("flag", "bool"), ("back", "i4"), ("forward", "i4")])
     notes = np.zeros(close.size, dt)
     notes["target"] = UNDETERMINED
     notes["back"] = UNDETERMINED
     notes["forward"] = UNDETERMINED
-    notes["holdtrace"] = UNDETERMINED
     notes["nowdelta"][0] = 0.
     subnotes = notes[1:]
     subnotes["nowdelta"] = (close[1:] - close[:-1]) / close[:-1]
@@ -65,6 +72,7 @@ def __trade_signals(close):
             (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
 
+    # overwrite all UNDETERMINED back elements with its successor until a distance of maxdistance
     for eix in range(close.size - 1, close.size - 1 - maxdistance, -1):
         subnotes = notes[1:eix+1]
         one_earlier = notes[:eix]
@@ -73,6 +81,7 @@ def __trade_signals(close):
             break
         one_earlier["back"][subnotes["flag"]] = subnotes["back"][subnotes["flag"]]
 
+    # overwrite all UNDETERMINED forward elements with its successor until a distance of maxdistance
     for bix in range(1, maxdistance):
         subnotes = notes[bix:]
         one_earlier = notes[bix-1:-1]
@@ -81,6 +90,7 @@ def __trade_signals(close):
             break
         subnotes["forward"][subnotes["flag"]] = one_earlier["forward"][subnotes["flag"]]
 
+    # assign all UNDETERMINED targets either with HOLD or if between 2 sell/buy signals then with such signal
     notes["flag"] = (notes["target"] == UNDETERMINED)
     notes["target"][notes["flag"]] = TARGETS[HOLD]
 
@@ -88,6 +98,60 @@ def __trade_signals(close):
                     (notes["target"] == TARGETS[HOLD]) & \
                     (notes["back"] != UNDETERMINED)
     notes["target"][notes["flag"]] = notes["back"][notes["flag"]]
+    assert ~(notes["target"] == UNDETERMINED).any()
+    return notes["target"]
+
+
+def __trade_signals(close):
+    """ Receives a numpy array of close prices starting with the oldest.
+        Returns a numpy array of signals.
+
+        algorithm:
+
+        - SELL if fardelta < sell threshold within max distance reach and minute delta negative.
+        - BUY if fardelta > buy threshold within max distance reach and minute delta positive.
+        - HOLD if fardelta and minute delta have different leading sign.
+        - else HOLD.
+    """
+    if close.ndim > 1:
+        print("unexpected close array dimension {close.ndim}")
+    maxdistance = min(close.size, 8*60)
+    dt = np.dtype([("target", "i4"), ("nowdelta", "f8"), ("fardelta", "f8"),
+                   ("flag", "bool")])
+    notes = np.zeros(close.size, dt)
+    notes["target"] = UNDETERMINED
+    notes["nowdelta"][0] = 0.
+    subnotes = notes[1:]
+    subnotes["nowdelta"] = (close[1:] - close[:-1]) / close[:-1]
+    notes[-1]["fardelta"] = notes[-1]["nowdelta"]
+    notes["target"][0] = TARGETS[HOLD]
+
+    for bix in range(1, maxdistance):
+        eix = close.size - bix  # bix = begin index,  eix = end index
+        # slicing requires eix+1 because end of slice is excluded
+        subnotes = notes[1:eix+1]
+        subnotes["fardelta"] = (close[bix:] - close[:eix]) / close[:eix]
+
+        subnotes["flag"] = (
+            (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
+            (subnotes["target"] == UNDETERMINED))
+        subnotes["target"][subnotes["flag"]] = TARGETS[SELL]
+
+        subnotes["flag"] = (
+            (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
+            (subnotes["target"] == UNDETERMINED))
+        subnotes["target"][subnotes["flag"]] = TARGETS[BUY]
+
+        subnotes["flag"] = (
+            (((subnotes["fardelta"] < 0.) & (subnotes["nowdelta"] > 0.)) |
+             ((subnotes["fardelta"] > 0.) & (subnotes["nowdelta"] < 0.))) &
+            (subnotes["target"] == UNDETERMINED))
+        subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
+
+    # assign all UNDETERMINED targets a HOLD signal
+    notes["flag"] = (notes["target"] == UNDETERMINED)
+    notes["target"][notes["flag"]] = TARGETS[HOLD]
+
     assert ~(notes["target"] == UNDETERMINED).any()
     return notes["target"]
 

@@ -25,9 +25,13 @@ from sklearn.linear_model import LinearRegression
     - risk: 2*SDB + (current price - regression price) (== down potential) for 12h, 4h, 0.5h, 5min regression
 """
 # REGRESSION_KPI = [(0, 0, 5, "5m_0"), (1, 5, 5, "5m_5")]
+# (regression_only, offset, regression_minutes, label)
+# regression_only == TRUE: 3 features = slope, last point y, relative volume
+# regression_only == FALSE: 5 features = slope, last point y, risk, chance, relative volume
 REGRESSION_KPI = [(1, 0, 5, "5m_0"), (1, 5, 5, "5m_5"),
                   (0, 0, 30, "30m"), (0, 0, 4*60, "4h"),
                   (0, 0, 12*60, "12h"), (1, 0, 10*24*60, "10d")]
+FEATURE_COUNT = 3 * 3 + 3 * 5  # 14 features per sample
 HMWF = max([offset+minutes for (regr_only, offset, minutes, ext) in REGRESSION_KPI]) - 1
 # HMWF == history minutes required without features
 # VOL_KPI = [(5, 60, "5m1h")]
@@ -186,7 +190,19 @@ class CondensedFeatures(TargetsFeatures):
         super().__init__(base, minute_dataframe, path)
         self.feature_type = "Fcondensed1"
 
-    def history(self):
+    @staticmethod
+    def feature_count():
+        """ returns the number of features for one sample
+
+        - without close and target column
+        - regression_only == TRUE: 3 features = slope, last point y, relative volume
+        - regression_only == FALSE: 5 features = slope, last point y, risk, chance, relative volume
+        - FEATURE_COUNT = 3 * 3 + 3 * 5  # 14 features per sample
+        """
+        return FEATURE_COUNT
+
+    @staticmethod
+    def history():
         "history_minutes_without_features"
         return HMWF
 

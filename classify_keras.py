@@ -575,12 +575,12 @@ class Cpc:
                 kernel_initializer=params["kernel_initializer"], activation=params["activation"]))
             model.add(keras.layers.Dropout(params["dropout"]))
             model.add(keras.layers.Dense(
-                int(params["l1_neurons"]*params["h_neuron_var"]),
+                int(params["l2_neurons"]),
                 kernel_initializer=params["kernel_initializer"], activation=params["activation"]))
             if params["use_l3"]:
                 model.add(keras.layers.Dropout(params["dropout"]))
                 model.add(keras.layers.Dense(
-                    int(params["l1_neurons"]*params["h_neuron_var"]*params["h_neuron_var"]),
+                    int(params["l3_neurons"]),
                     kernel_initializer=params["kernel_initializer"],
                     activation=params["activation"]))
             model.add(keras.layers.Dense(3, activation=params["last_activation"]))
@@ -590,8 +590,8 @@ class Cpc:
                           metrics=["accuracy", km.Precision()])
             self.classifier = model
             self.save_classifier = "MLP_l1-{}_do-{}_h-{}_l3-{}_opt{}".format(
-                params["l1_neurons"], params["dropout"], params["h_neuron_var"],
-                params["use_l3"], params["optimizer"])
+                params["l1_neurons"], params["dropout"], params["l2_neurons"],
+                params["use_l3"], params["l3_neurons"], params["optimizer"])
             self.__prep_classifier_log(self.save_classifier)
 
             tensorboardpath = Env.tensorboardpath()
@@ -618,7 +618,7 @@ class Cpc:
                     validation_steps=len(self.hs.bases),
                     class_weight=None,
                     max_queue_size=10,
-                    workers=2,
+                    workers=1,
                     use_multiprocessing=False,
                     shuffle=False,
                     initial_epoch=0)
@@ -642,12 +642,16 @@ class Cpc:
         dummy_x = np.empty((1, samples.shape[1]))
         dummy_y = np.empty((1, targets.shape[1]))
 
-        params = {"l1_neurons": [20, 40],
-                  "h_neuron_var": [0.6, 0.8],  # 0.4, 0.6,
+        fc = chs.ActiveFeatures.feature_count()
+        tc = len(ct.TARGETS)
+        assert tc == 3
+        params = {"l1_neurons": [max(3*tc, int(0.6*fc)), max(3*tc, int(0.9*fc))],
+                  "l2_neurons": [max(2*tc, int(0.4*fc)), max(2*tc, int(0.6*fc))],
                   "epochs": [50],
-                  "use_l3": [False],  # True
+                  "use_l3": [False, True],  #
+                  "l3_neurons": [max(1*tc, int(0.2*fc)), max(1*tc, int(0.4*fc))],
                   "kernel_initializer": ["he_uniform"],
-                  "dropout": [0, 0.2, 0.45],  # 0.6,
+                  "dropout": [0.2, 0.45],  # 0.6,
                   "optimizer": ["Adam"],
                   "losses": ["categorical_crossentropy"],
                   "activation": ["relu"],

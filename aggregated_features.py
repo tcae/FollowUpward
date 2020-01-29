@@ -60,7 +60,15 @@ class AggregatedFeatures(TargetsFeatures):
         super().__init__(base, minute_dataframe, path)
         self.feature_type = "Faggregated1"
 
-    def history(self):
+    @staticmethod
+    def feature_count():
+        """ returns the number of features for one sample
+            D, H, T, B, V, DV * 10 *1 (for target-key) + D * 10 * 5 (for the other aggregations) = 110
+        """
+        return 110  # without close and target column
+
+    @staticmethod
+    def history():
         "history_minutes_without_features"
         hmwf = max([agg*TIME_AGGS[agg] for agg in TIME_AGGS])
         return hmwf

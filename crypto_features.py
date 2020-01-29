@@ -102,8 +102,14 @@ class TargetsFeatures:
             except env.MissingHistoryData:
                 raise
 
-    def history(self):
+    @staticmethod
+    def history():
         "history_minutes_without_features"
+        return 0
+
+    @staticmethod
+    def feature_count():
+        "returns the number of features for one sample"
         return 0
 
     def calc_features(self, minute_data):
@@ -174,7 +180,9 @@ class TargetsFeatures:
                 len(self.vec), self.vec.index[0].strftime(Env.dt_format),
                 self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
             if self.index_ok():
-                self.minute_data.loc[self.vec.index, "target"] = self.vec.loc[:, "target"]
+                assert "target" in self.vec
+                assert len(self.vec) > 0
+                self.minute_data = pd.concat([self.minute_data, self.vec.target], axis=1, sort=False)
             else:
                 self.vec = None
         except IOError:
@@ -196,6 +204,18 @@ class TargetsFeatures:
             self.vec.to_hdf(fname, sym, mode="w")
         else:
             print(f"feature cache save of {self.base} failed due to index check")
+
+    def enforce_target_recalculation(self):
+        """ repair action to use new target algorithm
+        """
+        if "target" in self.vec:
+            self.vec = self.vec.drop(columns="target")
+        if "target" in self.minute_data:
+            self.minute_data = self.minute_data.drop(columns="target")
+            print("enforce_target_recalculation")
+            self.crypto_targets()  # recalculate all targets from scratch
+            smd = self.minute_data.loc[self.minute_data.index >= self.vec.index[0]]
+            self.vec["target"] = smd["target"]
 
     def calc_features_and_targets(self):
         """Assigns minute_dataframe to attribute *minute_data*.
@@ -226,6 +246,8 @@ class TargetsFeatures:
                     print(f"ERROR: feature calculation failed")
         # if self.minute_data is not None:  # disabled to not loose history data
         #     self.minute_data = self.minute_data[self.minute_data.index >= self.vec.index[0]]
+
+        # self.enforce_target_recalculation()  # ! temporary repair action
         return self.vec
 
     def __append_minute_df_with_targets(self, minute_df):

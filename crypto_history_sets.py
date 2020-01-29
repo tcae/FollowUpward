@@ -10,6 +10,7 @@ from env_config import Env
 import crypto_targets as ct
 import crypto_features as cf
 import condensed_features as cof
+import aggregated_features as agf
 
 MANDATORY_STEPS = 2  # number of steps for the smallest class (in general BUY)
 NA = "not assigned"
@@ -17,7 +18,10 @@ TRAIN = "training"
 VAL = "validation"
 TEST = "test"
 LBL = {NA: 0, TRAIN: -1, VAL: -2, TEST: -3}
-ActiveFeatures = cof.CondensedFeatures
+if False:
+    ActiveFeatures = cof.CondensedFeatures
+else:
+    ActiveFeatures = agf.AggregatedFeatures
 
 
 class CryptoHistorySets:

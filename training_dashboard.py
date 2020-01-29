@@ -394,7 +394,7 @@ def update_halfyear_by_click(click_data, bases, regression_base, indicators):
      dash.dependencies.Input('crossfilter-indicator-select', 'value')])
 def update_ten_day_by_click(click_data, bases, regression_base, indicators):
     aggregation = "T"
-    timerange = pd.Timedelta(Env.minimum_minute_df_len, "T")
+    timerange = pd.Timedelta(ActiveFeatures.history(), "T")
     return close_timeline_graph(timerange, aggregation, click_data, bases, regression_base, indicators)
 
 
@@ -415,9 +415,10 @@ def target_list(base, start, end, bmd):
     # print(len(labels1), labels1)
     # return labels1, None
     target_dict = dict()
-    # fstart = start - pd.Timedelta(Env.minimum_minute_df_len, "m")
-    fdf = bmd.loc[(bmd.index >= start) & (bmd.index <= end)]
+    # fstart = start - pd.Timedelta(ActiveFeatures.history(), "m")
+    fdf = bmd.loc[(bmd.index >= (start-ActiveFeatures.history())) & (bmd.index <= end)]
     tf = ActiveFeatures(base, minute_dataframe=fdf)
+    tf.crypto_targets()
     bmd = tf.minute_data.loc[(tf.minute_data.index >= start) & (tf.minute_data.index <= end)]
 
     # targets = [t for t in bmd["target_thresholds"]]
@@ -447,7 +448,7 @@ def target_heatmap(base, start, end, bmd, target_dict):
         z=[target_dict[t]["targets"] for t in target_dict], zmin=-1, zmax=1,
         yaxis='y3', name='labels',
         text=[target_dict[t]["labels"] for t in target_dict],
-        colorscale='RdYlGn',
+        colorscale='RdYlGn',  # ! TODO fix colorscale due to number change of targets
         reversescale=False,
         hoverinfo="x+y+z+text+name",
         showscale=False,

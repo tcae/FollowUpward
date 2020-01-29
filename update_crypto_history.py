@@ -189,7 +189,7 @@ def repair_stored_ohlcv():
 
 if __name__ == "__main__":
     if True:
-        load_assets(Env.bases, pd.Timestamp.utcnow(), [cof.CondensedFeatures, agf.AggregatedFeatures])
+        load_assets(Env.bases, None, [cof.CondensedFeatures, agf.AggregatedFeatures])
     else:
         env.test_mode()
         base = "xrp"
