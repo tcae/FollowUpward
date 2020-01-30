@@ -53,7 +53,10 @@ def to_scikitlearn(df, np_data=None, descr=None):
     """
 
     fn_list = list(df.keys())
-    fn_list.remove("target")
+    if "target" in fn_list:
+        fn_list.remove("target")
+    if "close" in fn_list:
+        fn_list.remove("close")
     if np_data is None:
         # data = df[fn_list].to_numpy(dtype=float) # incompatible with pandas 0.19.2
         data = df[fn_list].values

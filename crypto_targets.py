@@ -138,13 +138,17 @@ def __trade_signals(close):
         subnotes["target"][subnotes["flag"]] = TARGETS[SELL]
 
         subnotes["flag"] = (
+            (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
+            (subnotes["target"] == UNDETERMINED))
+        subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
+
+        subnotes["flag"] = (
             (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
             (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[BUY]
 
         subnotes["flag"] = (
-            (((subnotes["fardelta"] < 0.) & (subnotes["nowdelta"] > 0.)) |
-             ((subnotes["fardelta"] > 0.) & (subnotes["nowdelta"] < 0.))) &
+            (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
             (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
 

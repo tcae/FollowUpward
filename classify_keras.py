@@ -23,8 +23,10 @@ from sklearn import preprocessing
 # from sklearn.neural_network import MLPClassifier
 
 import tensorflow as tf
-import keras
-import keras.metrics as km
+import tensorflow.keras as keras
+import tensorflow.keras.metrics as km
+# import keras
+# import keras.metrics as km
 # import tensorflow.compat.v1 as tf1
 import talos as ta
 
@@ -573,12 +575,12 @@ class Cpc:
             model.add(keras.layers.Dense(
                 params["l1_neurons"], input_dim=samples.shape[1],
                 kernel_initializer=params["kernel_initializer"], activation=params["activation"]))
-            model.add(keras.layers.Dropout(params["dropout"]))
+            # model.add(keras.layers.Dropout(params["dropout"]))
             model.add(keras.layers.Dense(
                 int(params["l2_neurons"]),
                 kernel_initializer=params["kernel_initializer"], activation=params["activation"]))
             if params["use_l3"]:
-                model.add(keras.layers.Dropout(params["dropout"]))
+                # model.add(keras.layers.Dropout(params["dropout"]))
                 model.add(keras.layers.Dense(
                     int(params["l3_neurons"]),
                     kernel_initializer=params["kernel_initializer"],
@@ -645,13 +647,13 @@ class Cpc:
         fc = chs.ActiveFeatures.feature_count()
         tc = len(ct.TARGETS)
         assert tc == 3
-        params = {"l1_neurons": [max(3*tc, int(0.6*fc)), max(3*tc, int(0.9*fc))],
-                  "l2_neurons": [max(2*tc, int(0.4*fc)), max(2*tc, int(0.6*fc))],
+        params = {"l1_neurons": [60],  # [max(3*tc, int(0.7*fc)), max(3*tc, int(0.9*fc))],
+                  "l2_neurons": [48],  # 48 = 60 * 0.8   [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
                   "epochs": [50],
-                  "use_l3": [False, True],  #
-                  "l3_neurons": [max(1*tc, int(0.2*fc)), max(1*tc, int(0.4*fc))],
+                  "use_l3": [False],  # True
+                  "l3_neurons": [38],  # 38 = 60 * 0.8 * 0.8   [max(1*tc, int(0.3*fc))],
                   "kernel_initializer": ["he_uniform"],
-                  "dropout": [0.2, 0.45],  # 0.6,
+                  "dropout": [0.2],  # , 0.45, switched off anyhow 0.6,
                   "optimizer": ["Adam"],
                   "losses": ["categorical_crossentropy"],
                   "activation": ["relu"],
@@ -810,11 +812,11 @@ def plot_confusion_matrix(cm, class_names):
 if __name__ == "__main__":
     # env.test_mode()
     tee = env.Tee()
-    load_classifier = None  # "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
+    load_classifier = "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
     save_classifier = None
     #     load_classifier = str("{}{}".format(BASE, target_key))
     cpc = Cpc(load_classifier, save_classifier)
-    if True:
+    if False:
         cpc.adapt_keras()
     else:
         # cpc.save()
