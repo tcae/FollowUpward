@@ -358,6 +358,7 @@ class Xch():
             assert df is not None, "failed to create ohlcv df for {}-{} = {} minutes".format(
                 start.strftime(Env.dt_format), when.strftime(Env.dt_format), minutes)
         else:
+            df = ccd.only_ohlcv(df)
             remaining = int((when - df.index[-1]) / pd.Timedelta(1, unit='T'))
         return df, remaining
 
@@ -369,17 +370,21 @@ class Xch():
             tic = pd.Timestamp(datetime.utcfromtimestamp(ohlcv[0]/1000), tz='UTC')
             if int((tic - prev_tic)/pd.Timedelta(1, unit='T')) > 1:
                 print(f"ohlcv time gap for {base} between {prev_tic} and {tic}")
-                if prev_tic < fromdate:  # repair first tics
-                    # ! TODO comparison shall check whether df[prev_tic] is present
-                    print(f"no repair of missing history data for {base} before first record")
-                    return None
-                else:
-                    prev_tic += pd.Timedelta(1, unit='T')
-                    while (prev_tic < tic):  # fills time gaps with lastrecord before gap
-                        df.loc[prev_tic] = df.loc[last_tic]
+                if prev_tic < fromdate:
+                    if df.index.isin([prev_tic]).any():  # repair first tics
+                        last_tic = prev_tic
+                    else:
+                        # no history: then repair backwards
+                        last_tic = fromdate
+                        df.loc[last_tic] = ohlcv[1:6]
                         count += 1
                         prev_tic += pd.Timedelta(1, unit='T')
-                    prev_tic -= pd.Timedelta(1, unit='T')  # correct last increment
+                prev_tic += pd.Timedelta(1, unit='T')
+                while (prev_tic < tic):  # fills time gaps with lastrecord before gap
+                    df.loc[prev_tic] = df.loc[last_tic]
+                    count += 1
+                    prev_tic += pd.Timedelta(1, unit='T')
+                prev_tic -= pd.Timedelta(1, unit='T')  # correct last increment
             last_tic = tic
             df.loc[last_tic] = ohlcv[1:6]
             count += 1

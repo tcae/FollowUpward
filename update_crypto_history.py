@@ -50,23 +50,6 @@ def OBSOLETE_merge_asset_dataframe(path, base):
     return basemerged
 
 
-def check_df(df):
-    # print(df.head())
-    diff = pd.Timedelta(value=1, unit="T")
-    last = this = df.index[0]
-    ok = True
-    ix = 0
-    for tix in df.index:
-        if this != tix:
-            print(f"ix: {ix} last: {last} tix: {tix} this: {this}")
-            ok = False
-            this = tix
-        last = tix
-        this += diff
-        ix += 1
-    return ok
-
-
 def check_labels_of_df(df):
     # hdf = df[df.target == ct.TARGETS[ct.HOLD]]
     # hdf_pred = hdf.index[((hdf.index[1:] - hdf.index.shift(periods=1, freq="T")[1:]) != pd.Timedelta(1, unit='T'))]
@@ -128,7 +111,7 @@ def calc_targets_features_and_concat(stored_tf, downloaded_df, fclass):
         subset_tf.minute_data = subset_tf.minute_data.loc[subset_tf.minute_data.index >= subset_tf.vec.index[0]]
         # attention "target" of downloaded_df missing --> concat again with subset minute data including "target"
         new_minute_data = pd.concat([stored_tf.minute_data, subset_tf.minute_data], sort=False)
-        ok2save = check_df(new_minute_data)
+        ok2save = env.check_df(new_minute_data)
         if not ok2save:
             print(f"merged df.minute_data checked: {ok2save} - dataframe not saved")
             return None, None
@@ -169,7 +152,7 @@ def load_assets(bases, lastdatetime, feature_classes):
             if (new_minute_data is None) or (new_df_vec is None):
                 print("no new data to store")
                 continue
-            ok2save = check_df(new_df_vec)
+            ok2save = env.check_df(new_df_vec)
             if ok2save:
                 stored_tf.vec = new_df_vec  # dirty trick: use stored_tf to save_cache of vec
                 stored_tf.minute_data = new_minute_data
@@ -189,7 +172,8 @@ def repair_stored_ohlcv():
 
 if __name__ == "__main__":
     if True:
-        load_assets(Env.bases, None, [cof.CondensedFeatures, agf.AggregatedFeatures])
+        load_assets(Env.bases, pd.Timestamp.utcnow(), [cof.CondensedFeatures, agf.AggregatedFeatures])
+        # load_assets(Env.bases, None, [cof.CondensedFeatures, agf.AggregatedFeatures])
     else:
         env.test_mode()
         base = "xrp"

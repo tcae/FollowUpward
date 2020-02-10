@@ -55,6 +55,9 @@ def to_scikitlearn(df, np_data=None, descr=None):
     fn_list = list(df.keys())
     if "target" in fn_list:
         fn_list.remove("target")
+        target = df["target"].values
+    else:
+        target = None
     if "close" in fn_list:
         fn_list.remove("close")
     if np_data is None:
@@ -64,7 +67,6 @@ def to_scikitlearn(df, np_data=None, descr=None):
         data = np_data
         # target = df["target"].to_numpy(dtype=float) # incompatible with pandas 0.19.2
         # tics = df.index.to_numpy(dtype=np.datetime64) # incompatible with pandas 0.19.2
-    target = df["target"].values  # compatible with pandas 0.19.2
     tics = df.index.values  # compatible with pandas 0.19.2
     feature_names = np.array(fn_list)
     target_names = np.array(ct.TARGETS.keys())
@@ -140,9 +142,13 @@ class TargetsFeatures:
             raise env.MissingHistoryData("{}–{} symbol with empty minute data".format(
                                      self.base, self.quote))
         if "target" not in self.minute_data:
-            ct.crypto_trade_targets(self.minute_data)  # add aggregation targets
+            self.minute_data.loc[:, "target"] = ct.crypto_trade_targets(self.minute_data)  # add aggregation targets
 
     def index_ok(self):
+        """ Will check index start for consistency between minute_data and vec.
+            index is also considered ok when vec is shorter than minute_data.
+            vec supplementations have to be checked separately.
+        """
         assert self.minute_data is not None
         assert self.vec is not None
         ok = True
@@ -162,18 +168,60 @@ class TargetsFeatures:
             if vec_start != self.vec.index[0]:
                 print("vec start is {} but was expected {}".format(self.vec.index[0], vec_start))
                 ok = False
-            if len_vec != (len_md - hmwf):
-                print("len(vec {} != len(reduced minute data) {})".format(len_vec, len_md-hmwf))
-                ok = False
-            if self.minute_data.index[len_md-1] != self.vec.index[len_vec-1]:
-                print("unexpected last tic of minute data {} versus vec {}".format(
-                    self.minute_data.index[len_md-1], self.vec.index[len_vec-1]))
-                ok = False
         return ok
 
-    def load_cache_ok(self):
-        """ Will load cached base data if present.
+    def supplement_vec(self):
+        """ Will check index start for consistency between minute_data and vec.
+            index is also considered ok when vec is shorter than minute_data.
+            vec supplementations have to be checked separately.
+        """
+        assert self.minute_data is not None
+        assert self.vec is not None
+        if self.minute_data.index[-1] != self.vec.index[-1]:
+            # orignal minute data length including history that is not in vec
+            hmwf = self.history() + 1  # recalc last due to potentially reloaded ohlcv
+            ohlcv_start = self.vec.index[-1] - pd.Timedelta(hmwf, unit='T')
+            assert ohlcv_start >= self.minute_data.index[0]
+            ohlcv_df_rem = self.minute_data.loc[self.minute_data.index >= ohlcv_start]
+            vec_df_rem = self.calc_features(ohlcv_df_rem)
+            self.vec = self.vec.drop([self.vec.index[-1]])
+            vec_df_rem = vec_df_rem.loc[vec_df_rem.index > self.vec.index[-1]]
+            if "target" in self.minute_data:
+                assert (vec_df_rem.index[0] - self.vec.index[-1]) == pd.Timedelta(1, unit='T')
+                self.vec = pd.concat([self.vec, vec_df_rem], sort=False)
+                assert self.vec.index[-1] == self.minute_data.index[-1]
+                # copy target to vec
+                self.vec = self.vec.drop(columns="target")
+                target_md = self.minute_data.loc[self.minute_data.index >= self.vec.index[0]]
+                self.vec = pd.concat([self.vec, target_md.target.rename("target")], axis=1, sort=False)
+            else:
+                if "target" in self.vec:
+                    # supplement targets that are in vec but not in minute_data
+                    ohlcv_start = self.vec.index[-1] - pd.Timedelta(ct.trade_signal_history(), unit='T')
+                    assert ohlcv_start >= self.minute_data.index[0]
+                    ohlcv_df_rem = self.minute_data.loc[self.minute_data.index >= ohlcv_start]
+                    ohlcv_df_rem["target"] = ct.crypto_trade_targets(ohlcv_df_rem)
+                    ohlcv_df_rem = ohlcv_df_rem.loc[ohlcv_df_rem.index > self.vec.index[-1]]
+                    assert vec_df_rem.index[-1] == ohlcv_df_rem.index[-1]
+                    assert vec_df_rem.index[0] == ohlcv_df_rem.index[0]
+                    assert len(vec_df_rem.index) == len(ohlcv_df_rem.index)
+                    assert (ohlcv_df_rem.index[0] - self.vec.index[-1]) == pd.Timedelta(1, unit='T')
+                    vec_df_rem = pd.concat([vec_df_rem, ohlcv_df_rem.target.rename("target")], axis=1, sort=False)
+                    assert len(vec_df_rem.index) == len(ohlcv_df_rem.index)
 
+                    assert (vec_df_rem.index[0] - self.vec.index[-1]) == pd.Timedelta(1, unit='T')
+                    self.vec = pd.concat([self.vec, vec_df_rem], sort=False)
+                    assert self.vec.index[-1] == self.minute_data.index[-1]
+                else:
+                    # calculate all targets from scratch
+                    self.minute_data["target"] = ct.crypto_trade_targets(self.minute_data)
+                    if "target" in self.minute_data:
+                        smd = self.minute_data.loc[self.minute_data.index >= self.vec.index[0]]
+                        self.vec["target"] = smd["target"]
+            # env.check_df(self.vec)
+
+    def load_cache_ok(self):
+        """ Will load cached base data if present
             Returns True if cache can be loaded and False if not.
         """
         if self.path is None:
@@ -187,6 +235,7 @@ class TargetsFeatures:
                 len(self.vec), self.vec.index[0].strftime(Env.dt_format),
                 self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
             if self.index_ok():
+                self.supplement_vec()
                 assert "target" in self.vec
                 assert len(self.vec) > 0
                 self.minute_data = pd.concat([self.minute_data, self.vec.target], axis=1, sort=False)

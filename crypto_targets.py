@@ -17,6 +17,10 @@ TARGET_CLASS_COUNT = len(TARGETS)
 TARGET_NAMES = {0: HOLD, 1: BUY, 2: SELL}  # dict with int encoding of targets
 
 
+def trade_signal_history():
+    return 8*60  # max look back: 8 hours
+
+
 def __trade_signals_with_close_gap(close):
     """ Receives a numpy array of close prices starting with the oldest.
         Returns a numpy array of signals.
@@ -31,7 +35,7 @@ def __trade_signals_with_close_gap(close):
     """
     if close.ndim > 1:
         print("unexpected close array dimension {close.ndim}")
-    maxdistance = min(close.size, 8*60)
+    maxdistance = min(close.size, trade_signal_history())
     dt = np.dtype([("target", "i4"), ("nowdelta", "f8"), ("fardelta", "f8"),
                    ("flag", "bool"), ("back", "i4"), ("forward", "i4")])
     notes = np.zeros(close.size, dt)
@@ -164,13 +168,11 @@ def crypto_trade_targets(df):
     """ df is a pandas DataFrame with at least a 'close' column that
         represents the close price.
 
-        Adds target columns that signal the ideal trade classes (SELL, BUY, HOLD).
-
-        The modified DataFrame is returned.
+        The trade_targets numpy array is returned.
     """
     trade_targets = __trade_signals(df.close.values)
-    df.loc[:, "target"] = trade_targets
-    return df
+    # df.loc[:, "target"] = trade_targets
+    return trade_targets
 
 
 def trade_target_performance(target_df):

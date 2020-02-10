@@ -185,6 +185,39 @@ def test_mode():
         Env(Ubuntu(), Test())
 
 
+def check_df(df):
+    # print(df.head())
+    diff = pd.Timedelta(value=1, unit="T")
+    last = this = df.index[0]
+    ok = True
+    ix = 0
+    for tix in df.index:
+        if this != tix:
+            print(f"ix: {ix} last: {last} tix: {tix} this: {this}")
+            ok = False
+            this = tix
+        last = tix
+        this += diff
+        ix += 1
+    return ok
+
+
+# TODO the following is a Stackoverflow monkey patch to catch warnings. to be beatified
+old_f = sys.stderr
+
+
+class F:
+    def write(self, x):
+        if "A value is trying to be set on a copy of a slice from a DataFrame." in x:
+            print("To be investigated")
+        old_f.write(x)
+
+    def flush(self):
+        old_f.flush()
+
+
+sys.stderr = F()
+
 if platform.node() == "iMac.local":
     Env(Osx(), Production())
 elif platform.node() == "tor-XPS-13-9380":

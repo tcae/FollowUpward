@@ -220,18 +220,13 @@ class CondensedFeatures(TargetsFeatures):
         return cal_features(minute_data)
 
 
-
-
 if __name__ == "__main__":
-    print(CondensedFeatures.feature_str())
-
-# if __name__ == "__main__":
-#     for base in Env.usage.bases:
-#         tf = CondensedFeatures(base, path=Env.data_path)
-#         tfv = tf.calc_features_and_targets()
-#         cf.report_setsize(f"{base} tf.minute_data", tf.minute_data)
-#         cf.report_setsize(f"tf.vec {base} tf.vec", tf.vec)
-#         cf.report_setsize(f"tfv {base} tf.vec", tfv)
+    for base in Env.usage.bases:
+        tf = CondensedFeatures(base, path=Env.data_path)
+        tfv = tf.calc_features_and_targets()
+        cf.report_setsize(f"{base} tf.minute_data", tf.minute_data)
+        cf.report_setsize(f"tf.vec {base} tf.vec", tf.vec)
+        cf.report_setsize(f"tfv {base} tf.vec", tfv)
 """
     if True:
         cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=HMWF+10)

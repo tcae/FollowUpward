@@ -6,6 +6,8 @@ from env_config import Env
 import env_config as env
 import cached_crypto_data as ccd
 from local_xch import Xch
+import crypto_history_sets as chs
+
 
 # logging.basicConfig(level=logging.DEBUG)
 RETRIES = 5  # number of ccxt retry attempts before proceeding without success
@@ -113,7 +115,8 @@ class Bk():
             adf = None
             if base not in Bk.black_bases:
                 try:  # load cached candlestick data
-                    adf = ccd.load_asset_dataframe(base.lower(), path=Env.cache_path, limit=Env.minimum_minute_df_len)
+                    adf = ccd.load_asset_dataframe(
+                        base.lower(), path=Env.cache_path, limit=chs.ActiveFeatures.history())
                 except env.MissingHistoryData:
                     pass
                 if adf is not None:

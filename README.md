@@ -327,3 +327,9 @@ pip is a python package manager that is specific to python but can integrated in
 ipython is an interactive interpreter environment above python. It provides magical single line % and cell %% commands. Jupyter notebooks is a spin-off of ipython.
 
 Jupyter notebooks support interactive computing environment for different programming languages (although created initially for python)
+
+## To do
+
+- ActiveFeatures class shall be bound to the classifier and loaded with it
+- Use trading from interactive dashboard
+- limit bookkeeping safe_cache to 2* chs.ActiveFeatures.history() to avoid unnecessary large files

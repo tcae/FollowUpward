@@ -318,7 +318,7 @@ class Cpc:
         self.pmlist = list()
         self.step = 0
         self.epoch = 0
-        self.hs = None  # only hs_name is saved not the whole hs object
+        self.hs = None  # hs is not saved
         self.hs_name = None
         self.talos_iter = 0
         if load_classifier is not None:
@@ -339,7 +339,7 @@ class Cpc:
                 columns=["base", "timestamp", "target", "buy_prob", "sell_prob", "hold_prob"])
             self.class_log_fname = f"{env.timestr()}_Results_{classifier_name}"
 
-    def __log_predict_results(self, tfv, base, pred):
+    def _log_predict_results(self, tfv, base, pred):
         return
         df = pd.DataFrame(
             columns=["hold_prob", "buy_prob", "sell_prob"],
@@ -382,9 +382,6 @@ class Cpc:
                 print(f"classifier loaded from {fname}")
         except IOError:
             print(f"IO-error when loading classifier from {fname}")
-
-        # if self.hs_name is not None:
-        #     self.hs = chs.CryptoHistorySets(self.hs_name)
 
     def save(self):
         """Saves the Cpc object without hs. The classifier is stored in a seperate file
@@ -434,7 +431,7 @@ class Cpc:
         if self.scaler is not None:
             sample.data = self.scaler.transform(sample.data)
         pred = self.classifier.predict_on_batch(sample.data)
-        self.__log_predict_results(tfv, base, pred)
+        self._log_predict_results(tfv, base, pred)
         return pred
 
     def class_of_features(self, tfv, buy_trshld, sell_trshld, base):
@@ -481,7 +478,7 @@ class Cpc:
             if self.scaler is not None:
                 samples.data = self.scaler.transform(samples.data)
             pred = self.classifier.predict_on_batch(samples.data)
-            self.__log_predict_results(tfv, base, pred)
+            self._log_predict_results(tfv, base, pred)
             pm.assess_prediction(pred, df.close, samples.target, samples.tics, samples.descr)
             self.hs.register_probabilties(base, set_type, pred, df)
         self.pmlist.append(pm)
@@ -800,7 +797,8 @@ def plot_confusion_matrix(cm, class_names):
 if __name__ == "__main__":
     # env.test_mode()
     tee = env.Tee()
-    load_classifier = None  # "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
+    load_classifier = "MLP_l1-77_do-0.2_h-55_l3-False_opt33_Adam_5"  # aggregated features
+    # "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
     save_classifier = None
     #     load_classifier = str("{}{}".format(BASE, target_key))
     cpc = Cpc(load_classifier, save_classifier)

@@ -9,13 +9,17 @@ import timeit
 # import logging
 import time
 import env_config as env
-from env_config import Env
+# from env_config import Env
 import crypto_targets as ct
 # import crypto_features as cf
 import classify_keras as ck
 from classify_keras import PerfMatrix, EvalPerf  # required for pickle  # noqa
 from local_xch import Xch
 from bookkeeping import Bk
+import crypto_history_sets as chs
+import condensed_features as cof
+import aggregated_features as agf
+
 
 MAX_MINBELOW = 5  # max minutes below buy price before emergency sell
 ORDER_TIMEOUT = 45  # in seconds
@@ -112,7 +116,7 @@ class Trading():
                             if is_sell:
                                 self.sell_order(base, ratio=1)
 
-    def __deduct_blocked_sell_amount(self, base, base_amount):
+    def _deduct_blocked_sell_amount(self, base, base_amount):
         base = base.upper()
         if base in BLOCKED_SELL_ASSET_AMOUNT:
             base_amount -= BLOCKED_SELL_ASSET_AMOUNT[base]
@@ -130,7 +134,7 @@ class Trading():
                 return
             Bk.update_balance(tickers)
             base_amount = Bk.book.loc[base, "free"]
-            base_amount = self.__deduct_blocked_sell_amount(base, base_amount)
+            base_amount = self._deduct_blocked_sell_amount(base, base_amount)
             base_amount *= ratio
             price = tickers[sym]["bid"]  # TODO order spread strategy
             print(f"{env.nowstr()} SELL {base_amount} {base} x {price} {sym}")
@@ -187,7 +191,7 @@ class Trading():
         else:
             print(f"unsupported base {base}")
 
-    def __force_sell_check(self, base, last_close, trade_signal):
+    def _force_sell_check(self, base, last_close, trade_signal):
         """ Changes trade_signal into a forced sell if the classifier fails
             and the close price is below the buy price for more
             than a configurable number of minutes MAX_MINBELOW
@@ -210,25 +214,26 @@ class Trading():
                     Bk.book.loc[base, "minbelow"] = 0  # minutes below buy price
         return trade_signal
 
-    def __get_signal(self, cpc, buy_trshld, sell_trshld, base, date_time):
+    def _get_signal(self, cpc, buy_trshld, sell_trshld, base, date_time):
         """ Encapsulates all handling to get the trade signal of a base at a
             given python datetime
         """
         if base in Bk.black_bases:  # USDT is in Bk.book
             return None, 0
-        ohlcv_df = Bk.get_ohlcv(base, env.Env.minimum_minute_df_len, date_time)
+        ohlcv_df = Bk.get_ohlcv(base, chs.ActiveFeatures.history(), date_time)
         if ohlcv_df is None:
             print(f"{env.nowstr()} skipping {base} due to missing ohlcv")
             return None, 0
-        ttf = Env.ActiveFeatures(base, minute_dataframe=ohlcv_df)
-        ttf.calc_features_and_targets()
+        ttf = chs.ActiveFeatures(base, minute_dataframe=ohlcv_df)
+        ttf.vec = ttf.calc_features(ttf.minute_data)
+        # ttf.calc_features_and_targets()  --> don't calc targets
         tfv = ttf.vec.iloc[[len(ttf.vec)-1]]
         trade_signal = cpc.class_of_features(tfv, buy_trshld, sell_trshld, base)
         # trade_signal will be HOLD if insufficient data history is available
         last_close = ohlcv_df.loc[ohlcv_df.index[len(ohlcv_df.index)-1], "close"]
         return trade_signal, last_close
 
-    def __distribute_buy_amount(self, buylist):
+    def _distribute_buy_amount(self, buylist):
         """ distributes the available buy amount among collected buy orders candidates
         """
         if len(buylist) > 0:
@@ -249,12 +254,12 @@ class Trading():
                 # TOD: check order progress
                 ts1 = pd.Timestamp.utcnow()
                 for base in Bk.book.index:
-                    trade_signal, last_close = self.__get_signal(
+                    trade_signal, last_close = self._get_signal(
                         cpc, buy_trshld, sell_trshld, base, ts1)
                     if trade_signal is None:
                         continue
 
-                    trade_signal = self.__force_sell_check(base, last_close, trade_signal)
+                    trade_signal = self._force_sell_check(base, last_close, trade_signal)
                     if trade_signal != ct.TARGETS[ct.HOLD]:
                         print(f"{env.nowstr()} {base} {ct.TARGET_NAMES[trade_signal]}")
                     if trade_signal == ct.TARGETS[ct.SELL]:
@@ -262,7 +267,7 @@ class Trading():
                     if trade_signal == ct.TARGETS[ct.BUY]:
                         buylist.append(base)  # amount to be determined by __distribute_buy_amount
 
-                self.__distribute_buy_amount(buylist)
+                self._distribute_buy_amount(buylist)
                 ts2 = pd.Timestamp.utcnow()
                 tsdiff = 59 - int((ts2 - ts1) / pd.Timedelta(1, unit='S'))  # 1 seconds order progress
                 if tsdiff > 1:
@@ -279,13 +284,17 @@ def trading_main():
     # env.set_environment(env.Usage.test, env.Calc.ubuntu)
     tee = env.Tee()
     trading = Trading()
-    load_classifier = "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
+    if True:
+        chs.ActiveFeatures = agf.AggregatedFeatures
+    else:
+        chs.ActiveFeatures = cof.CondensedFeatures
+    load_classifier = "MLP_l1-77_do-0.2_h-55_l3-False_opt33_Adam_5"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
     save_classifier = None
     cpc = ck.Cpc(load_classifier, save_classifier)
 
     start_time = timeit.default_timer()
     buy_trshld = 0.7
-    sell_trshld = 0.7
+    sell_trshld = 0.8
 
     # trd.buy_order("ETH", ratio=22/trd.book.loc[Env.quote, "free"])
     # trd.sell_order("ETH", ratio=1)

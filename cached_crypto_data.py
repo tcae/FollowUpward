@@ -22,6 +22,13 @@ def dfdescribe(desc, df):
     print(df.tail())
 
 
+def only_ohlcv(df):
+    """ Drops all columns but the ohlcv columns and returns the resulting DataFrame
+    """
+    ohlcv = df.loc[:, data_keys]
+    return ohlcv
+
+
 def save_asset_dataframe(df, base, path="missing path"):
     """ saves the base/quote data
     """

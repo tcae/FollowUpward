@@ -14,9 +14,9 @@ import crypto_targets as ct
 import condensed_features as cof
 import cached_crypto_data as ccd
 import indicators as ind
+import crypto_history_sets as chs
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-ActiveFeatures = cof.CondensedFeatures
 
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -394,7 +394,7 @@ def update_halfyear_by_click(click_data, bases, regression_base, indicators):
      dash.dependencies.Input('crossfilter-indicator-select', 'value')])
 def update_ten_day_by_click(click_data, bases, regression_base, indicators):
     aggregation = "T"
-    timerange = pd.Timedelta(ActiveFeatures.history(), "T")
+    timerange = pd.Timedelta(chs.ActiveFeatures.history(), "T")
     return close_timeline_graph(timerange, aggregation, click_data, bases, regression_base, indicators)
 
 
@@ -414,10 +414,12 @@ def target_list(base, start, end, bmd):
     # labels1 = [i for i in range(241)]
     # print(len(labels1), labels1)
     # return labels1, None
+    colormap = {ct.TARGETS[ct.HOLD]: 0, ct.TARGETS[ct.BUY]: 1, ct.TARGETS[ct.SELL]: -1}
+
     target_dict = dict()
-    # fstart = start - pd.Timedelta(ActiveFeatures.history(), "m")
-    fdf = bmd.loc[(bmd.index >= (start-ActiveFeatures.history())) & (bmd.index <= end)]
-    tf = ActiveFeatures(base, minute_dataframe=fdf)
+    fstart = start - pd.Timedelta(chs.ActiveFeatures.history(), "T")
+    fdf = bmd.loc[(bmd.index >= fstart) & (bmd.index <= end)]
+    tf = chs.ActiveFeatures(base, minute_dataframe=fdf)
     tf.crypto_targets()
     bmd = tf.minute_data.loc[(tf.minute_data.index >= start) & (tf.minute_data.index <= end)]
 
@@ -429,8 +431,8 @@ def target_list(base, start, end, bmd):
     # labels = [ct.TARGET_NAMES[t] for t in targets]
     # target_dict["newtargets"] = {"targets": targets, "labels": labels}
 
-    targets = [t for t in bmd["target"]]
-    labels = [ct.TARGET_NAMES[t] for t in targets]
+    targets = [colormap[t] for t in bmd["target"]]
+    labels = [ct.TARGET_NAMES[t] for t in bmd["target"]]
     target_dict["target1"] = {"targets": targets, "labels": labels}
 
     # labels2 = [ct.TARGET_NAMES[t] for t in bmd["target2"]]
@@ -448,7 +450,7 @@ def target_heatmap(base, start, end, bmd, target_dict):
         z=[target_dict[t]["targets"] for t in target_dict], zmin=-1, zmax=1,
         yaxis='y3', name='labels',
         text=[target_dict[t]["labels"] for t in target_dict],
-        colorscale='RdYlGn',  # ! TODO fix colorscale due to number change of targets
+        colorscale='RdYlGn',
         reversescale=False,
         hoverinfo="x+y+z+text+name",
         showscale=False,
