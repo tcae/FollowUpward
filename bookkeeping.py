@@ -37,7 +37,7 @@ class Bk():
         - lot_size_min: minimum sie of single/part offer for base
 
     """
-    black_bases = ["USDT"]
+    black_bases = ["USDT", "BUSD", "TUSD"]
     actions = pd.DataFrame(columns=["ccxt", "timestamp"])  # action_id is the index nbr
     ats = None
     aid = None

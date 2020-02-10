@@ -25,7 +25,7 @@ class Xch():
 
 
     """
-    min_daily_avg_usdt = 1500*60*24  # minimum average daily volume in USDT to be considered
+    min_daily_avg_usdt = 10000*60*24  # minimum average daily volume in USDT to be considered
     auth = None
     ohlcv = dict()
     lxch = None  # local xch
