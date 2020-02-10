@@ -16,7 +16,6 @@ import itertools
 # import math
 import pickle
 # import h5py
-import threading
 
 # Import datasets, classifiers and performance metrics
 from sklearn import preprocessing
@@ -40,44 +39,13 @@ from env_config import Env
 import crypto_targets as ct
 import crypto_features as cf
 import crypto_history_sets as chs
+import condensed_features as cof
+import aggregated_features as agf
 
 
 print(f"Tensorflow version: {tf.version.VERSION}")
 print(f"Keras version: {keras.__version__}")
 print(__doc__)
-TLOCK = threading.Lock()
-TLOCAL = threading.local()
-
-
-'''
-    A generic iterator and generator that takes any iterator and wrap it to make it thread safe.
-    This method was introducted by Anand Chitipothu in http://anandology.com/blog/using-iterators-and-generators/
-    but was not compatible with python 3. This modified version is now compatible and works both in python 2.8 and 3.0
-'''
-
-
-class threadsafe_iter:
-    """Takes an iterator/generator and makes it thread-safe by
-    serializing call to the `next` method of given iterator/generator.
-    """
-    def __init__(self, it):
-        self.it = it
-        self.lock = threading.Lock()
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        with self.lock:
-            return self.it.__next__()
-
-
-def threadsafe_generator(f):
-    """A decorator that takes a generator function and makes it thread-safe.
-    """
-    def g(*a, **kw):
-        return threadsafe_iter(f(*a, **kw))
-    return g
 
 
 class EvalPerf:
@@ -520,50 +488,48 @@ class Cpc:
         pm.report_assessment()
         return pm.best()
 
-    # @threadsafe_generator
     def iteration_generator(self, hs, epochs):
-        """ Generate one batch of data. Must be threadsafe if keras worker > 1.
+        """ Generate one batch of data.
+            This generator is not thread safe and can only be used with workers = 1.
         """
-        for TLOCAL.ig_e in range(epochs):  # due to prefetch of max_queue_size
-            for TLOCAL.ig_base in hs.bases:
-                # bix = list(hs.bases.keys()).index(TLOCAL.ig_base)
-                for TLOCAL.ig_bstep in range(hs.max_steps[TLOCAL.ig_base]["max"]):
-                    with TLOCK:
-                        df = hs.trainset_step(TLOCAL.ig_base, TLOCAL.ig_bstep)
-                        tfv = hs.features_from_targets(df)
-                        descr = "{} iteration_gen {} {} set step {} (of {}): {}".format(
-                            env.timestr(), TLOCAL.ig_base, chs.TRAIN, TLOCAL.ig_bstep,
-                            hs.max_steps[TLOCAL.ig_base]["max"], cf.str_setsize(tfv))
-                        print(descr)
-                        TLOCAL.samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
-                        if TLOCAL.samples is None:
-                            return None, None
-                        if self.scaler is not None:
-                            TLOCAL.samples.data = self.scaler.transform(TLOCAL.samples.data)
-                        TLOCAL.samples.target = keras.utils.to_categorical(
-                            TLOCAL.samples.target, num_classes=ct.TARGET_CLASS_COUNT)
-                    yield TLOCAL.samples.data, TLOCAL.samples.target
-
-    # @threadsafe_generator
-    def base_generator(self, hs, set_type, epochs):
-        """ Generate one batch of data per base. Must be threadsafe if keras worker > 1.
-        """
-        for TLOCAL.bg_e in range(epochs):
-            for TLOCAL.bg_base in hs.bases:
-                with TLOCK:
-                    df = hs.set_of_type(TLOCAL.bg_base, set_type)
+        for ig_e in range(epochs):  # due to prefetch of max_queue_size
+            for ig_base in hs.bases:
+                # bix = list(hs.bases.keys()).index(ig_base)
+                for ig_bstep in range(hs.max_steps[ig_base]["max"]):
+                    df = hs.trainset_step(ig_base, ig_bstep)
                     tfv = hs.features_from_targets(df)
-                    descr = "{} base_gen {} {} set, {}".format(
-                        env.timestr(), TLOCAL.bg_base, set_type, cf.str_setsize(tfv))
+                    descr = "{} iteration_gen {} {} set step {} (of {}): {}".format(
+                        env.timestr(), ig_base, chs.TRAIN, ig_bstep,
+                        hs.max_steps[ig_base]["max"], cf.str_setsize(tfv))
                     print(descr)
-                    TLOCAL.samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
-                    if TLOCAL.samples is None:
+                    samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
+                    if samples is None:
                         return None, None
                     if self.scaler is not None:
-                        TLOCAL.samples.data = self.scaler.transform(TLOCAL.samples.data)
-                    TLOCAL.samples.target = keras.utils.to_categorical(
-                        TLOCAL.samples.target, num_classes=ct.TARGET_CLASS_COUNT)
-                yield TLOCAL.samples.data, TLOCAL.samples.target
+                        samples.data = self.scaler.transform(samples.data)
+                    samples.target = keras.utils.to_categorical(
+                        samples.target, num_classes=ct.TARGET_CLASS_COUNT)
+                    yield samples.data, samples.target
+
+    def base_generator(self, hs, set_type, epochs):
+        """ Generate one batch of data per base.
+            This generator is not thread safe and can only be used with workers = 1.
+        """
+        for bg_e in range(epochs):
+            for bg_base in hs.bases:
+                df = hs.set_of_type(bg_base, set_type)
+                tfv = hs.features_from_targets(df)
+                descr = "{} base_gen {} {} set, {}".format(
+                    env.timestr(), bg_base, set_type, cf.str_setsize(tfv))
+                print(descr)
+                samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
+                if samples is None:
+                    return None, None
+                if self.scaler is not None:
+                    samples.data = self.scaler.transform(samples.data)
+                samples.target = keras.utils.to_categorical(
+                    samples.target, num_classes=ct.TARGET_CLASS_COUNT)
+                yield samples.data, samples.target
 
     def adapt_keras(self):
 
@@ -591,9 +557,14 @@ class Cpc:
                           loss="categorical_crossentropy",
                           metrics=["accuracy", km.Precision()])
             self.classifier = model
-            self.save_classifier = "MLP_l1-{}_do-{}_h-{}_l3-{}_opt{}".format(
-                params["l1_neurons"], params["dropout"], params["l2_neurons"],
-                params["use_l3"], params["l3_neurons"], params["optimizer"])
+            if params["use_l3"]:
+                self.save_classifier = "MLP_l1-{}_do-{}_h-{}_l3-{}_opt{}_{}".format(
+                    params["l1_neurons"], params["dropout"], params["l2_neurons"],
+                    params["l3_neurons"], params["optimizer"], chs.ActiveFeatures.feature_str())
+            else:
+                self.save_classifier = "MLP_l1-{}_do-{}_h-{}_no-l3_opt{}_{}".format(
+                    params["l1_neurons"], params["dropout"], params["l2_neurons"],
+                    params["optimizer"], chs.ActiveFeatures.feature_str())
             self.__prep_classifier_log(self.save_classifier)
 
             tensorboardpath = Env.tensorboardpath()
@@ -622,7 +593,7 @@ class Cpc:
                     max_queue_size=10,
                     workers=1,
                     use_multiprocessing=False,
-                    shuffle=False,
+                    shuffle=True,
                     initial_epoch=0)
             assert out is not None
 
@@ -647,17 +618,32 @@ class Cpc:
         fc = chs.ActiveFeatures.feature_count()
         tc = len(ct.TARGETS)
         assert tc == 3
-        params = {"l1_neurons": [60],  # [max(3*tc, int(0.7*fc)), max(3*tc, int(0.9*fc))],
-                  "l2_neurons": [48],  # 48 = 60 * 0.8   [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
-                  "epochs": [50],
-                  "use_l3": [False],  # True
-                  "l3_neurons": [38],  # 38 = 60 * 0.8 * 0.8   [max(1*tc, int(0.3*fc))],
-                  "kernel_initializer": ["he_uniform"],
-                  "dropout": [0.2],  # , 0.45, switched off anyhow 0.6,
-                  "optimizer": ["Adam"],
-                  "losses": ["categorical_crossentropy"],
-                  "activation": ["relu"],
-                  "last_activation": ["softmax"]}
+        if False:
+            params = {
+                "l1_neurons": [60],  # [max(3*tc, int(0.7*fc)), max(3*tc, int(0.9*fc))],
+                "l2_neurons": [48],  # 48 = 60 * 0.8   [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
+                "epochs": [50],
+                "use_l3": [False],  # True
+                "l3_neurons": [38],  # 38 = 60 * 0.8 * 0.8   [max(1*tc, int(0.3*fc))],
+                "kernel_initializer": ["he_uniform"],
+                "dropout": [0.2],  # , 0.45, switched off anyhow 0.6,
+                "optimizer": ["Adam"],
+                "losses": ["categorical_crossentropy"],
+                "activation": ["relu"],
+                "last_activation": ["softmax"]}
+        else:
+            params = {
+                "l1_neurons": [max(3*tc, int(0.7*fc)), max(3*tc, int(0.9*fc))],
+                "l2_neurons": [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
+                "epochs": [50],
+                "use_l3": [False, True],
+                "l3_neurons": [max(1*tc, int(0.3*fc))],
+                "kernel_initializer": ["he_uniform"],
+                "dropout": [0.2],  # , 0.45, switched off anyhow 0.6,
+                "optimizer": ["Adam"],
+                "losses": ["categorical_crossentropy"],
+                "activation": ["relu"],
+                "last_activation": ["softmax"]}
 
         ta.Scan(x=dummy_x,  # real data comes from generator
                 y=dummy_y,  # real data comes from generator
@@ -674,6 +660,8 @@ class Cpc:
 
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
+
+        self.hs = None
 
     def classify_batch(self):
         start_time = timeit.default_timer()
@@ -812,12 +800,17 @@ def plot_confusion_matrix(cm, class_names):
 if __name__ == "__main__":
     # env.test_mode()
     tee = env.Tee()
-    load_classifier = "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
+    load_classifier = None  # "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
     save_classifier = None
     #     load_classifier = str("{}{}".format(BASE, target_key))
     cpc = Cpc(load_classifier, save_classifier)
-    if False:
-        cpc.adapt_keras()
+    if True:
+        if False:
+            chs.ActiveFeatures = agf.AggregatedFeatures
+            cpc.adapt_keras()
+        else:
+            chs.ActiveFeatures = cof.CondensedFeatures
+            cpc.adapt_keras()
     else:
         # cpc.save()
         cpc.use_keras()

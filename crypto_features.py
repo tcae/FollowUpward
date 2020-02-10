@@ -96,7 +96,6 @@ class TargetsFeatures:
         self.vec = None
         self.base = base
         self.quote = Env.quote
-        self.feature_type = "AbstractTargetsFeatures"
         self.path = path
         self.minute_data = minute_dataframe  # is DataFrame with ohlvc and target columns
         if (self.minute_data is None) and (path is not None):
@@ -114,6 +113,11 @@ class TargetsFeatures:
     def feature_count():
         "returns the number of features for one sample"
         return 0
+
+    @staticmethod
+    def feature_str():
+        "returns a string that represent the features class as mnemonic"
+        return "AbstractTargetsFeatures"
 
     def calc_features(self, minute_data):
         print("ERROR: no features implemented")
@@ -175,11 +179,11 @@ class TargetsFeatures:
         if self.path is None:
             return False
         sym = env.sym_of_base(self.base)
-        fname = self.path + sym + "_" + self.feature_type + "_DataFrame.h5"
+        fname = self.path + sym + "_" + self.feature_str() + "_DataFrame.h5"
         try:
             self.vec = pd.read_hdf(fname, sym)  # targets and features
             print("{}: loaded {}({}) {} tics ({} - {})".format(
-                datetime.now().strftime(Env.dt_format), self.feature_type, env.sym_of_base(self.base),
+                datetime.now().strftime(Env.dt_format), self.feature_str(), env.sym_of_base(self.base),
                 len(self.vec), self.vec.index[0].strftime(Env.dt_format),
                 self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
             if self.index_ok():
@@ -199,11 +203,11 @@ class TargetsFeatures:
             return
         if self.index_ok():
             print("{}: writing {}({}) {} tics ({} - {})".format(
-                datetime.now().strftime(Env.dt_format), self.feature_type, env.sym_of_base(self.base),
+                datetime.now().strftime(Env.dt_format), self.feature_str(), env.sym_of_base(self.base),
                 len(self.vec), self.vec.index[0].strftime(Env.dt_format),
                 self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
             sym = env.sym_of_base(self.base)
-            fname = self.path + sym + "_" + self.feature_type + "_DataFrame.h5"
+            fname = self.path + sym + "_" + self.feature_str() + "_DataFrame.h5"
             self.vec.to_hdf(fname, sym, mode="w")
         else:
             print(f"feature cache save of {self.base} failed due to index check")

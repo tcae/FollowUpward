@@ -31,7 +31,7 @@ from sklearn.linear_model import LinearRegression
 REGRESSION_KPI = [(1, 0, 5, "5m_0"), (1, 5, 5, "5m_5"),
                   (0, 0, 30, "30m"), (0, 0, 4*60, "4h"),
                   (0, 0, 12*60, "12h"), (1, 0, 10*24*60, "10d")]
-FEATURE_COUNT = 3 * 3 + 3 * 5  # 14 features per sample
+FEATURE_COUNT = 3 * 3 + 3 * 5  # 24 features per sample
 HMWF = max([offset+minutes for (regr_only, offset, minutes, ext) in REGRESSION_KPI]) - 1
 # HMWF == history minutes required without features
 # VOL_KPI = [(5, 60, "5m1h")]
@@ -188,7 +188,11 @@ class CondensedFeatures(TargetsFeatures):
 
     def __init__(self, base, minute_dataframe=None, path=None):
         super().__init__(base, minute_dataframe, path)
-        self.feature_type = "Fcondensed1"
+
+    @staticmethod
+    def feature_str():
+        "returns a string that represent the features class as mnemonic"
+        return "F2cond{}".format(CondensedFeatures.feature_count())
 
     @staticmethod
     def feature_count():
@@ -216,13 +220,18 @@ class CondensedFeatures(TargetsFeatures):
         return cal_features(minute_data)
 
 
+
+
 if __name__ == "__main__":
-    for base in Env.usage.bases:
-        tf = CondensedFeatures(base, path=Env.data_path)
-        tfv = tf.calc_features_and_targets()
-        cf.report_setsize(f"{base} tf.minute_data", tf.minute_data)
-        cf.report_setsize(f"tf.vec {base} tf.vec", tf.vec)
-        cf.report_setsize(f"tfv {base} tf.vec", tfv)
+    print(CondensedFeatures.feature_str())
+
+# if __name__ == "__main__":
+#     for base in Env.usage.bases:
+#         tf = CondensedFeatures(base, path=Env.data_path)
+#         tfv = tf.calc_features_and_targets()
+#         cf.report_setsize(f"{base} tf.minute_data", tf.minute_data)
+#         cf.report_setsize(f"tf.vec {base} tf.vec", tf.vec)
+#         cf.report_setsize(f"tfv {base} tf.vec", tfv)
 """
     if True:
         cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=HMWF+10)

@@ -95,7 +95,7 @@ def check_labels(tf):
     target_str = check_labels_of_df(rmd)
     print("{} {} {} {}".format(env.timestr(), tf.base, "ohlcv", target_str))
     target_str = check_labels_of_df(tf.vec)
-    print("{} {} {} {}".format(env.timestr(), tf.base, tf.feature_type, target_str))
+    print("{} {} {} {}".format(env.timestr(), tf.base, tf.feature_str(), target_str))
 
 
 def calc_targets_features_and_concat(stored_tf, downloaded_df, fclass):

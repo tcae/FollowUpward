@@ -58,7 +58,11 @@ class AggregatedFeatures(TargetsFeatures):
 
     def __init__(self, base, minute_dataframe=None, path=None):
         super().__init__(base, minute_dataframe, path)
-        self.feature_type = "Faggregated1"
+
+    @staticmethod
+    def feature_str():
+        "returns a string that represent the features class as mnemonic"
+        return "F1agg{}".format(AggregatedFeatures.feature_count())
 
     @staticmethod
     def feature_count():
@@ -176,3 +180,7 @@ def expand_feature_vectors(tf_aggs, target_key):
     if df.empty:
         raise env.MissingHistoryData("empty dataframe from expand_feature_vectors")
     return df
+
+
+if __name__ == "__main__":
+    print(AggregatedFeatures.feature_str())
