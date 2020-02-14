@@ -228,7 +228,7 @@ class PerfMatrix:
         self.end_ts = timeit.default_timer()
         tdiff = (self.end_ts - self.start_ts) / 60
         print("")
-        print(f"{env.timestr()} {self.set_type} performace assessment time: {tdiff:.1f}min")
+        print(f"{env.timestr()} {self.set_type} performance assessment time: {tdiff:.1f}min")
 
         def pt(bp, sp): return (self.pix(bp, sp).performance, self.pix(bp, sp).transactions)
 
@@ -615,7 +615,7 @@ class Cpc:
         fc = chs.ActiveFeatures.feature_count()
         tc = len(ct.TARGETS)
         assert tc == 3
-        if False:
+        if True:
             params = {
                 "l1_neurons": [60],  # [max(3*tc, int(0.7*fc)), max(3*tc, int(0.9*fc))],
                 "l2_neurons": [48],  # 48 = 60 * 0.8   [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
@@ -630,10 +630,10 @@ class Cpc:
                 "last_activation": ["softmax"]}
         else:
             params = {
-                "l1_neurons": [max(3*tc, int(0.7*fc)), max(3*tc, int(0.9*fc))],
+                "l1_neurons": [max(3*tc, int(0.7*fc)), max(3*tc, int(1.2*fc))],
                 "l2_neurons": [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
                 "epochs": [50],
-                "use_l3": [False, True],
+                "use_l3": [False],
                 "l3_neurons": [max(1*tc, int(0.3*fc))],
                 "kernel_initializer": ["he_uniform"],
                 "dropout": [0.2],  # , 0.45, switched off anyhow 0.6,
@@ -797,13 +797,13 @@ def plot_confusion_matrix(cm, class_names):
 if __name__ == "__main__":
     # env.test_mode()
     tee = env.Tee()
-    load_classifier = "MLP_l1-77_do-0.2_h-55_l3-False_opt33_Adam_5"  # aggregated features
+    load_classifier = None  # "MLP_l1-77_do-0.2_h-55_l3-False_opt33_Adam_5"  # aggregated features
     # "MLP-ti1-l160-h0.8-l3False-optAdam_9"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21-v2"
     save_classifier = None
     #     load_classifier = str("{}{}".format(BASE, target_key))
-    cpc = Cpc(load_classifier, save_classifier)
-    if True:
-        if False:
+    if False:
+        cpc = Cpc(load_classifier, save_classifier)
+        if True:
             chs.ActiveFeatures = agf.AggregatedFeatures
             cpc.adapt_keras()
         else:
@@ -811,5 +811,7 @@ if __name__ == "__main__":
             cpc.adapt_keras()
     else:
         # cpc.save()
+        load_classifier = "MLP_l1-77_do-0.2_h-55_l3-False_opt33_Adam_5"  # aggregated features
+        cpc = Cpc(load_classifier, save_classifier)
         cpc.use_keras()
     tee.close()

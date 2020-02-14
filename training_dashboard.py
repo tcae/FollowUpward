@@ -237,14 +237,6 @@ def normalize_ohlc(bmd, start, end, aggregation):
     return bmd
 
 
-def regression_graph(start, end, bmd, aggregation):
-    reduced_bmd = bmd.loc[(bmd.index >= start) & (bmd.index <= end)]
-    delta, Y_pred = ind.time_linear_regression(reduced_bmd["close"])
-    aggmin = (end - start) / pd.Timedelta(1, aggregation)
-    legendname = "{:4.0f} {} = delta/h: {:4.3f}".format(aggmin, aggregation, delta)
-    return dict(x=reduced_bmd.index[[0, -1]], y=Y_pred, mode='lines', name=legendname, yaxis='y')
-
-
 def volume_graph(start, end, bmd):
     bmd = bmd.loc[(bmd.index >= start) & (bmd.index <= end)]
     INCREASING_COLOR = '#17BECF'
@@ -328,6 +320,14 @@ def show_condensed_features(start, time, bmd):
     return None
 
 
+def regression_graph(start, end, bmd, aggregation):
+    reduced_bmd = bmd.loc[(bmd.index >= start) & (bmd.index <= end)]
+    delta, Y_pred = ind.time_linear_regression(reduced_bmd["close"])
+    aggmin = (end - start) / pd.Timedelta(1, aggregation)
+    legendname = "{:4.0f} {} = delta/h: {:4.3f}".format(aggmin, aggregation, delta)
+    return dict(x=reduced_bmd.index[[0, -1]], y=Y_pred, mode='lines', name=legendname, yaxis='y')
+
+
 def close_timeline_graph(timerange, aggregation, click_data, bases, regression_base, indicators):
     """ Displays a line chart of close prices
         and a one dimensional close prices regression line both on the same Datetimeindex.
@@ -341,20 +341,22 @@ def close_timeline_graph(timerange, aggregation, click_data, bases, regression_b
             end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
     start = end - timerange
 
-    if indicators is None:
-        indicators = []
-    else:
-        if "regression 1D" in indicators:
-            if regression_base is not None:
-                reduced_bmd = normalize_close(cmd[regression_base], start, end, aggregation)
-                graph_bases.append(regression_graph(start, end, reduced_bmd, aggregation))
-
     if bases is None:
         bases = []
     for base in bases:
+        reduced_bmd = normalize_close(cmd[base], start, end, aggregation)
+        regr = regression_graph(start, end, reduced_bmd, aggregation)
+        if indicators is None:
+            indicators = []
+        else:
+            if "regression 1D" in indicators:
+                if regression_base is not None:
+                    graph_bases.append(regr)
+
         # df_check(cmd[base], timerange)
         bmd = normalize_close(cmd[base], start, end, aggregation)
-        graph_bases.append(dict(x=bmd.index, y=bmd["close"],  mode='lines', name=base))
+        legendname = base + " " + regr["name"]
+        graph_bases.append(dict(x=bmd.index, y=bmd["close"],  mode='lines', name=legendname))
 
     timeinfo = aggregation + ": " + start.strftime(Env.dt_format) + " - " + end.strftime(Env.dt_format)
     return {
