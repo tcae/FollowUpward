@@ -82,6 +82,21 @@ def load_asset_dataframe(base, path="missing path", limit=None):
         save_asset_dataframe(df, base, path)
     return df
 
+"""
+CryptoData as root class to do most of the pandas handling
+Features class wiath
+new_data to generate data of timerange last/minutes - this is the heart of all new features and targets but also for prediction data
+supplement_data to load cache and add data up to last with help of new data
+get_data gets last?minutes data which is either loaded or generated
+menmonic for fname construction
+fname for same save/load fname
+save_data saves all data
+load data loads all data
+get_set_type to get labelled configed data
+history to denote number of history samples used for new_data
+keys == data columns
+target_dict = target categories if Target subclass
+"""
 
 if __name__ == "__main__":
     print("chached crypto data with no actions in __main__")
