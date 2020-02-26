@@ -15,9 +15,9 @@ import aggregated_features as agf
 
 class TrainingData:
 
-    def __init__(self, target_class: ct.Targets, feature_class: cf.Features):
-        self.tcls = target_class
-        self.fcls = feature_class
+    def __init__(self, targets: ct.Targets, features: cf.Features):
+        self.targets = targets
+        self.features = features
 
     def training_batch_size(self):
         """ Return the number of training samples for one batch.
@@ -25,7 +25,7 @@ class TrainingData:
         return 32
 
     def _collect_counter(self, base, df):
-        td = self.tcls.target_dict()
+        td = self.targets.target_dict()
         counter = {td[key]: len(df.loc[df[("targets", "target")] == td[key]]) for key in td}
         counter["unknown"] = len(df) - sum(counter.values())
         counter["total"] = len(df)
@@ -46,8 +46,8 @@ class TrainingData:
         all = list()
         counter_list = list()
         for base in Env.bases:
-            fbdf = self.fcls.training_data(base)
-            tbdf = self.tcls.training_data(base)
+            fbdf = self.features.set_type_data(base, "training")
+            tbdf = self.targets.set_type_data(base, "training")
             bdf = pd.concat([fbdf, tbdf], axis=1, join="inner", keys=["features", "targets"])
             counter_list.append(self._collect_counter(base, bdf))  # collect list of dicts
             all.append(bdf)
@@ -70,7 +70,8 @@ class TrainingData:
         return (data_df, counter_df)
 
     def fname(self):
-        fname = ccd.CryptoData.path + self.tcls.data_mnemonic() + "_" + self.fcls.data_mnemonic() + "_training.h5"
+        fname = ccd.CryptoData.path + self.targets.data_mnemonic() + "_" \
+                + self.features.data_mnemonic() + "_training.h5"
         return fname
 
     def load_data(self, batch_ix):
@@ -106,7 +107,7 @@ class TrainingData:
         batches = int(math.ceil(len(data_df) / bs))
         meta_df = pd.Series(
             {"batch_size": bs, "batches": batches, "samples": len(data_df),
-                "features": self.fcls.data_mnemonic(), "targets": self.tcls.data_mnemonic()})
+                "features": self.features.data_mnemonic(), "targets": self.targets.data_mnemonic()})
         print("{}: writing {} for {} samples as {} batches".format(
             datetime.now().strftime(Env.dt_format), fname, len(data_df), batches))
         meta_df.to_hdf(fname, "meta", mode="w")
@@ -116,11 +117,11 @@ class TrainingData:
             sdf.to_hdf(fname, batch_ix, mode="w")
 
 
-def prepare4keras(scaler, feature_df, target_df, target_class):
+def prepare4keras(scaler, feature_df, target_df, targets):
     samples = Bunch(
         data=feature_df.values,
         target=target_df.values,
-        target_names=np.array(target_class.target_dict().keys()),
+        target_names=np.array(targets.target_dict().keys()),
         feature_names=np.array(feature_df.keys()))
     if scaler is not None:
         samples.data = scaler.transform(samples.data)
@@ -131,15 +132,15 @@ def prepare4keras(scaler, feature_df, target_df, target_class):
 
 class TrainingGenerator(keras.utils.Sequence):
     "Generates training data for Keras"
-    def __init__(self, scaler, target_class: ct.Targets, feature_class: cf.Feature, shuffle=False):
+    def __init__(self, scaler, targets: ct.Targets, features: cf.Feature, shuffle=False):
         self.scaler = scaler
         self.shuffle = shuffle
-        self.training = TrainingData(target_class, feature_class)
+        self.training = TrainingData(targets, features)
         (counter_df, meta_df) = self.training.load_counter_metadata()
         print(counter_df)
 
-        self.fcls = feature_class
-        self.tcls = target_class
+        self.features = features
+        self.targets = targets
         self.batches = meta_df["batches"]
         self.batch_size = meta_df["batch_size"]
         self.samples = meta_df["samples"]
@@ -156,7 +157,7 @@ class TrainingGenerator(keras.utils.Sequence):
         batch_df = self.training.load_data(index)
         fdf = batch_df["features"]
         tdf = batch_df["targets"]
-        return prepare4keras(self.scaler, fdf, tdf, self.tcls)
+        return prepare4keras(self.scaler, fdf, tdf, self.targets)
 
     def on_epoch_end(self):
         'Updates indexes after each epoch'
@@ -167,12 +168,12 @@ class TrainingGenerator(keras.utils.Sequence):
 
 class ValidationGenerator(keras.utils.Sequence):
     'Generates validation data for Keras'
-    def __init__(self, set_type, scaler, target_class: ct.Targets, feature_class: cf.Feature, shuffle=False):
+    def __init__(self, set_type, scaler, targets: ct.Targets, features: cf.Feature, shuffle=False):
         self.set_type = set_type
         self.scaler = scaler
         self.shuffle = shuffle
-        self.fcls = feature_class
-        self.tcls = target_class
+        self.features = features
+        self.targets = targets
         print(f"BaseGenerator: {Env.bases}")
 
     def __len__(self):
@@ -185,8 +186,8 @@ class ValidationGenerator(keras.utils.Sequence):
             print(f"BaseGenerator: index {index} > len {len(Env.bases)}")
             index %= len(Env.bases)
         base = Env.bases[index]
-        fdf = self.fcls.set_type_data(self.set_type, base)
-        tdf = self.tcls.set_type_data(self.set_type, base)
+        fdf = self.features.set_type_data(base, self.set_type)
+        tdf = self.targets.set_type_data(base, self.set_type)
         return prepare4keras(self.scaler, fdf, tdf, self.tcls)
 
 

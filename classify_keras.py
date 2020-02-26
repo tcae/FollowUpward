@@ -9,10 +9,10 @@ to classify crypto sell/buy actions.
 
 """
 import os
-import pandas as pd
+# import pandas as pd
 import numpy as np
 import timeit
-import itertools
+# import itertools
 # import math
 import pickle
 # import h5py
@@ -323,31 +323,6 @@ class Cpc:
         self.talos_iter = 0
         if load_classifier is not None:
             self.load()
-        self.__prep_classifier_log(load_classifier)
-
-    # def __del__(self):
-    #     if (self.class_log is not None) and (self.class_log_fname is not None):
-    #         fname = f"{Env.model_path}{self.class_log_fname}.h5"
-    #         self.class_log.to_hdf(fname, self.class_log_fname, mode="w")
-
-    def __prep_classifier_log(self, classifier_name):
-        return
-        if classifier_name is None:
-            self.class_log = self.class_log_fname = None
-        else:
-            self.class_log = pd.DataFrame(
-                columns=["base", "timestamp", "target", "buy_prob", "sell_prob", "hold_prob"])
-            self.class_log_fname = f"{env.timestr()}_Results_{classifier_name}"
-
-    def _log_predict_results(self, tfv, base, pred):
-        return
-        df = pd.DataFrame(
-            columns=["hold_prob", "buy_prob", "sell_prob"],
-            data=pred[:, [ct.TARGETS[ct.HOLD], ct.TARGETS[ct.BUY], ct.TARGETS[ct.SELL]]])
-        df["timestamp"] = tfv.index
-        df["target"] = tfv["target"]
-        df["base"] = base
-        self.class_log = pd.concat([self.class_log, df], ignore_index=True)
 
     def load(self):
         load_clname = self.load_classifier
@@ -431,7 +406,6 @@ class Cpc:
         if self.scaler is not None:
             sample.data = self.scaler.transform(sample.data)
         pred = self.classifier.predict_on_batch(sample.data)
-        self._log_predict_results(tfv, base, pred)
         return pred
 
     def class_of_features(self, tfv, buy_trshld, sell_trshld, base):
@@ -478,7 +452,6 @@ class Cpc:
             if self.scaler is not None:
                 samples.data = self.scaler.transform(samples.data)
             pred = self.classifier.predict_on_batch(samples.data)
-            self._log_predict_results(tfv, base, pred)
             pm.assess_prediction(pred, df.close, samples.target, samples.tics, samples.descr)
             self.hs.register_probabilties(base, set_type, pred, df)
         self.pmlist.append(pm)
@@ -691,107 +664,8 @@ class Cpc:
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"{env.timestr()} MLP performance assessment bulk split time: {tdiff:.0f} min")
 
-    # def classify_per_sample(self):
-    #     start_time = timeit.default_timer()
-    #     # pm = PerfMatrix(0, chs.VAL)
-    #     perf = 0
-    #     buy_cl = 0
-    #     last_fvec = None
-    #     for bix, base in enumerate(self.hs.bases):
-    #         df = self.hs.set_of_type(base, chs.VAL)
-    #         tfv = self.hs.get_targets_features_of_base(base)
-    #         subset_df = cf.targets_to_features(tfv, df)
-    #         subset_len = len(subset_df.index)
-    #         for ix in range(subset_len):
-    #             fvec = subset_df.iloc[[ix]]  # just row ix
-    #             force_sell = False
-    #             if (ix > 0) and (buy_cl > 0):
-    #                 ts1 = last_fvec.index[0].to_pydatetime()
-    #                 ts2 = fvec.index[0].to_pydatetime()
-    #                 if (ts2 - ts1) != np.timedelta64(1, "m"):
-    #                     if buy_cl > 0:  # forced sell of last_vec but fvec may already be a buy
-    #                         close = last_fvec.at[last_fvec.index[0], "close"]
-    #                         perf += (close * (1 - ct.FEE) - buy_cl) / buy_cl
-    #                         buy_cl = 0
-    #                         print(f"forced step sell {base} on {fvec.index[0]} at {close}")
-    #                     print("force_sell: diff({} - {}) {} min > 1 min".format(
-    #                             ts2.strftime(Env.dt_format),
-    #                             ts1.strftime(Env.dt_format),
-    #                             (ts2 - ts1)))
-    #                 if ix == (subset_len - 1):
-    #                     print(f"force_sell: due to end of {base} samples")
-    #                     force_sell = True  # of fvec
-
-    #             close = fvec.at[fvec.index[0], "close"]
-    #             cl = self.class_of_features(fvec, 0.7, 0.7, base)
-    #             if (cl != ct.TARGETS[ct.HOLD]) or force_sell:
-    #                 if buy_cl > 0:
-    #                     if (cl == ct.TARGETS[ct.SELL]) or force_sell:
-    #                         perf += (close * (1 - ct.FEE) - buy_cl) / buy_cl
-    #                         buy_cl = 0
-    #                         print(f"step sell {base} on {fvec.index[0]} at {close}")
-    #                 else:
-    #                     if cl == ct.TARGETS[ct.BUY]:
-    #                         buy_cl = close * (1 + ct.FEE)
-    #                         print(f"step buy {base} on {fvec.index[0]} at {close}")
-    #             last_fvec = fvec
-
-#                pm.assess_sample_prediction(pred2, sample.close, sample.target, sample.tics,
-#                                            sample.descr)
-#        pm.report_assessment()
-        # print(f"performance: {perf:6.0%}")
-        # tdiff = (timeit.default_timer() - start_time) / 60
-        # print(f"{env.timestr()} MLP performance assessment samplewise time: {tdiff:.0f} min")
-
     def use_keras(self):
         self.classify_batch()
-        # self.classify_per_sample()
-
-
-def plot_confusion_matrix(cm, class_names):
-    """
-    Returns a matplotlib figure containing the plotted confusion matrix.
-
-    Args:
-        cm (array, shape = [n, n]): a confusion matrix of integer classes
-        class_names (array, shape = [n]): String names of the integer classes
-    """
-    figure = plt.figure(figsize=(8, 8))
-    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-    plt.title("Confusion matrix")
-    plt.colorbar()
-    tick_marks = np.arange(len(class_names))
-    plt.xticks(tick_marks, class_names, rotation=45)
-    plt.yticks(tick_marks, class_names)
-
-    # Normalize the confusion matrix.
-    cm = np.around(cm.astype('float') / cm.sum(axis=1)[:, np.newaxis], decimals=2)
-
-    # Use white text if squares are dark; otherwise black.
-    threshold = cm.max() / 2.
-    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-        color = "white" if cm[i, j] > threshold else "black"
-        plt.text(j, i, cm[i, j], horizontalalignment="center", color=color)
-
-    plt.tight_layout()
-    plt.ylabel('True label')
-    plt.xlabel('Predicted label')
-    return figure
-
-# def log_confusion_matrix(epoch, logs):
-#  # Use the model to predict the values from the validation dataset.
-#  test_pred_raw = model.predict(test_images)
-#  test_pred = np.argmax(test_pred_raw, axis=1)
-#
-#  # Calculate the confusion matrix.
-#  cm = sklearn.metrics.confusion_matrix(test_labels, test_pred)
-#  # Log the confusion matrix as an image summary.
-#  figure = plot_confusion_matrix(cm, class_names=class_names)
-#  cm_image = plot_to_image(figure)
-#
-#  # Log the confusion matrix as an image summary.
-#  with file_writer_cm.as_default():
-#    tf.summary.image("Confusion Matrix", cm_image, step=epoch)
 
 
 if __name__ == "__main__":
@@ -802,16 +676,16 @@ if __name__ == "__main__":
     save_classifier = None
     #     load_classifier = str("{}{}".format(BASE, target_key))
     if False:
+        chs.ActiveFeatures = agf.AggregatedFeatures
+    else:
+        chs.ActiveFeatures = cof.CondensedFeatures
+    if False:
         cpc = Cpc(load_classifier, save_classifier)
-        if True:
-            chs.ActiveFeatures = agf.AggregatedFeatures
-            cpc.adapt_keras()
-        else:
-            chs.ActiveFeatures = cof.CondensedFeatures
-            cpc.adapt_keras()
+        cpc.adapt_keras()
     else:
         # cpc.save()
-        load_classifier = "MLP_l1-77_do-0.2_h-55_l3-False_opt33_Adam_5"  # aggregated features
+        # load_classifier = "MLP_l1-77_do-0.2_h-55_l3-False_opt33_Adam_5"  # aggregated features
+        load_classifier = "MLP_l1-16_do-0.2_h-19_no-l3_optAdam_F2cond24_0"
         cpc = Cpc(load_classifier, save_classifier)
         cpc.use_keras()
     tee.close()

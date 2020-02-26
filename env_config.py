@@ -88,6 +88,7 @@ class Production(Usage):
     data_path_suffix = "Features/"
     bases = ["btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
     conf_fname = "target_5_sets_split.config"
+    set_split_fname = "adapt_sets_split.csv"
     test_mode = False
 
 
@@ -96,6 +97,7 @@ class Test(Usage):
     bases = ["xrp"]
     # conf_fname = "target_5_sets_split_unit-test.config"
     conf_fname = "target_5_sets_split.config"
+    set_split_fname = "adapt_sets_split.csv"
     test_mode = True
 
 
@@ -105,6 +107,11 @@ def config_ok():
 
 def sets_config_fname():
     cfname = Env.data_path + Env.conf_fname
+    return cfname
+
+
+def sets_split_fname():
+    cfname = Env.data_path + Env.usage.set_split_fname
     return cfname
 
 

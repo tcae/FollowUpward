@@ -4,7 +4,7 @@ import math
 # import indicators as ind
 import env_config as env
 from env_config import Env
-# import cached_crypto_data as ccd
+import cached_crypto_data as ccd
 import crypto_features as cf
 from crypto_features import TargetsFeatures
 from sklearn.linear_model import LinearRegression
@@ -218,6 +218,37 @@ class CondensedFeatures(TargetsFeatures):
         if not check_input_consistency(minute_data):
             return None
         return cal_features(minute_data)
+
+
+class F2cond24(ccd.Features):
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        self.ohlcv = ohlcv
+
+    def history(self):
+        """ Returns the number of history sample minutes
+            excluding the minute under consideration required to calculate a new sample data.
+        """
+        return HMWF
+
+    def keys(self):
+        "returns the list of element keys"
+        cols = [
+            COL_PREFIX[ix] + ext
+            for regr_only, offset, minutes, ext in REGRESSION_KPI
+            for ix in range(4) if ((ix < 2) or (not regr_only))]
+        cols = cols + [COL_PREFIX[4] + ext for (svol, lvol, ext) in VOL_KPI]
+        return cols
+
+    def mnemonic(self, base: str):
+        "returns a string that represents this class/base as mnemonic, e.g. to use it in file names"
+        return "F2cond{}".format(FEATURE_COUNT)
+
+    def new_data(self, base: str, last: pd.Timestamp, minutes: int):
+        """ Downloads or calculates new data for 'minutes' samples up to and including last.
+        """
+        df = self.ohlcv.new_data(base, last, minutes + self.history())
+        return cal_features(df)
 
 
 if __name__ == "__main__":

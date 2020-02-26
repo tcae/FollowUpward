@@ -1,4 +1,4 @@
-# import pandas as pd
+import pandas as pd
 import numpy as np
 from env_config import Env
 import cached_crypto_data as ccd
@@ -18,92 +18,7 @@ TARGET_NAMES = {0: HOLD, 1: BUY, 2: SELL}  # dict with int encoding of targets
 
 
 def trade_signal_history():
-    return 8*60  # max look back: 8 hours
-
-
-def __trade_signals_with_close_gap(close):
-    """ Receives a numpy array of close prices starting with the oldest.
-        Returns a numpy array of signals.
-
-        algorithm:
-
-        - SELL if fardelta < sell threshold within max distance reach and minute delta negative.
-        - BUY if fardelta > buy threshold within max distance reach and minute delta positive.
-        - HOLD if fardelta and minute delta have different leading sign.
-        - close gaps between equal signals.
-        - else HOLD.
-    """
-    if close.ndim > 1:
-        print("unexpected close array dimension {close.ndim}")
-    maxdistance = min(close.size, trade_signal_history())
-    dt = np.dtype([("target", "i4"), ("nowdelta", "f8"), ("fardelta", "f8"),
-                   ("flag", "bool"), ("back", "i4"), ("forward", "i4")])
-    notes = np.zeros(close.size, dt)
-    notes["target"] = UNDETERMINED
-    notes["back"] = UNDETERMINED
-    notes["forward"] = UNDETERMINED
-    notes["nowdelta"][0] = 0.
-    subnotes = notes[1:]
-    subnotes["nowdelta"] = (close[1:] - close[:-1]) / close[:-1]
-    notes[-1]["fardelta"] = notes[-1]["nowdelta"]
-    notes["target"][0] = TARGETS[HOLD]
-    notes["back"][-1] = TARGETS[HOLD]  # cannot be overwritten due to missing future prices
-    notes["forward"][0] = TARGETS[HOLD]  # may be overwritten by SELL or BUY
-
-    for bix in range(1, maxdistance):
-        eix = close.size - bix  # bix = begin index,  eix = end index
-        # slicing requires eix+1 because end of slice is excluded
-        subnotes = notes[1:eix+1]
-        subnotes["fardelta"] = (close[bix:] - close[:eix]) / close[:eix]
-
-        subnotes["flag"] = (
-            (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
-            (subnotes["target"] == UNDETERMINED))
-        subnotes["target"][subnotes["flag"]] = TARGETS[SELL]
-        subnotes["back"][subnotes["flag"]] = TARGETS[SELL]
-        subnotes["forward"][subnotes["flag"]] = TARGETS[SELL]
-
-        subnotes["flag"] = (
-            (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
-            (subnotes["target"] == UNDETERMINED))
-        subnotes["target"][subnotes["flag"]] = TARGETS[BUY]
-        subnotes["back"][subnotes["flag"]] = TARGETS[BUY]
-        subnotes["forward"][subnotes["flag"]] = TARGETS[BUY]
-
-        subnotes["flag"] = (
-            (((subnotes["fardelta"] < 0.) & (subnotes["nowdelta"] > 0.)) |
-             ((subnotes["fardelta"] > 0.) & (subnotes["nowdelta"] < 0.))) &
-            (subnotes["target"] == UNDETERMINED))
-        subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
-
-    # overwrite all UNDETERMINED back elements with its successor until a distance of maxdistance
-    for eix in range(close.size - 1, close.size - 1 - maxdistance, -1):
-        subnotes = notes[1:eix+1]
-        one_earlier = notes[:eix]
-        subnotes["flag"] = (one_earlier["back"] == UNDETERMINED)
-        if ~np.any(subnotes["flag"]):
-            break
-        one_earlier["back"][subnotes["flag"]] = subnotes["back"][subnotes["flag"]]
-
-    # overwrite all UNDETERMINED forward elements with its successor until a distance of maxdistance
-    for bix in range(1, maxdistance):
-        subnotes = notes[bix:]
-        one_earlier = notes[bix-1:-1]
-        subnotes["flag"] = (subnotes["forward"] == UNDETERMINED)
-        if ~np.any(subnotes["flag"]):
-            break
-        subnotes["forward"][subnotes["flag"]] = one_earlier["forward"][subnotes["flag"]]
-
-    # assign all UNDETERMINED targets either with HOLD or if between 2 sell/buy signals then with such signal
-    notes["flag"] = (notes["target"] == UNDETERMINED)
-    notes["target"][notes["flag"]] = TARGETS[HOLD]
-
-    notes["flag"] = (notes["back"] == notes["forward"]) & \
-                    (notes["target"] == TARGETS[HOLD]) & \
-                    (notes["back"] != UNDETERMINED)
-    notes["target"][notes["flag"]] = notes["back"][notes["flag"]]
-    assert ~(notes["target"] == UNDETERMINED).any()
-    return notes["target"]
+    return 30  # max look back: 8 hours
 
 
 def __trade_signals(close):
@@ -205,6 +120,51 @@ def trade_target_performance(target_df):
             perf -= FEE  # assuming that the sell will take place in the coming minute
             ta_holding = False
     return perf
+
+
+class Targets(ccd.CryptoData):
+
+    def target_dict(self):
+        """ Shall return a dict of target categories that can be used as columns for prediction data.
+            The dict values are the corresponding target values.
+        """
+        pass
+
+
+class T10up5low30min(Targets):
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        self.ohlcv = ohlcv
+
+    def target_dict(self):
+        return TARGETS
+
+    def history(self):
+        """ Returns the number of history sample minutes
+            excluding the minute under consideration required to calculate a new sample data.
+        """
+        return trade_signal_history()
+
+    def keys(self):
+        "returns the list of element keys"
+        return ["target"]
+
+    def mnemonic(self, base: str):
+        "returns a string that represents this class/base as mnemonic, e.g. to use it in file names"
+        return "T10up5low30min"
+
+    def new_data(self, base: str, last: pd.Timestamp, minutes: int):
+        """ Downloads or calculates new data for 'minutes' samples up to and including last.
+            This is the core method to be implemented by subclasses.
+        """
+        df = self.ohlcv.new_data(base, last, minutes + self.history())
+        trade_targets = __trade_signals(df["close"].values)
+        tdf = df.iloc[-minutes:]
+        tdf["target"] = trade_targets
+        # ! trade_targets is shorter due to history. Are targets assigned to the end or the begin?
+        print(tdf.head(5))
+        print(tdf.tail(5))
+        return tdf
 
 
 if __name__ == "__main__":

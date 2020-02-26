@@ -1,6 +1,8 @@
 import pandas as pd
 import env_config as env
 # from env_config import Env
+import cached_crypto_data as ccd
+# import crypto_features as cf
 from crypto_features import TargetsFeatures
 
 VOL_BASE_PERIOD = "1D"
@@ -180,6 +182,47 @@ def expand_feature_vectors(tf_aggs, target_key):
     if df.empty:
         raise env.MissingHistoryData("empty dataframe from expand_feature_vectors")
     return df
+
+
+class F1agg110(ccd.Features):
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        self.ohlcv = ohlcv
+
+    def history(self):
+        """ Returns the number of history sample minutes
+            excluding the minute under consideration required to calculate a new sample data.
+        """
+        hmwf = max([agg*TIME_AGGS[agg] for agg in TIME_AGGS])
+        return hmwf
+
+    def keys(self):
+        "returns the list of element keys"
+        klist = list()
+        skey = __smallest_dict_key(TIME_AGGS)
+        for ta in TIME_AGGS:
+            for tics in range(TIME_AGGS[ta]):
+                ctitle = str(ta) + "T_" + str(tics) + "_"
+                klist.append(ctitle + "D")
+                if ta == skey:  # full set only for smallest aggregation (minute data)
+                    klist.append(ctitle + "H")
+                    klist.append(ctitle + "T")
+                    klist.append(ctitle + "B")
+                    klist.append(ctitle + "V")
+                    klist.append(ctitle + "DV")
+        return klist
+
+    def mnemonic(self, base: str):
+        "returns a string that represents this class/base as mnemonic, e.g. to use it in file names"
+        return "F1agg110"
+
+    def new_data(self, base: str, last: pd.Timestamp, minutes: int):
+        """ Downloads or calculates new data for 'minutes' samples up to and including last.
+        """
+        df = self.ohlcv.new_data(base, last, minutes + self.history())
+        tf_aggs = calc_aggregation(df, TIME_AGGS)
+        vec = expand_feature_vectors(tf_aggs, TARGET_KEY)
+        return vec
 
 
 if __name__ == "__main__":

@@ -9,7 +9,6 @@ from datetime import datetime
 from env_config import nowstr
 from env_config import Env
 import env_config as env
-import cached_crypto_data as ccd
 
 # logging.basicConfig(level=logging.DEBUG)
 RETRIES = 5  # number of ccxt retry attempts before proceeding without success
@@ -25,6 +24,7 @@ class Xch():
 
 
     """
+    data_keys = ["open", "high", "low", "close", "volume"]  # sequence is important, don't make it a set!
     min_daily_avg_usdt = 10000*60*24  # minimum average daily volume in USDT to be considered
     auth = None
     ohlcv = dict()
@@ -354,11 +354,11 @@ class Xch():
         if df is None:
             remaining = minutes
             df = pd.DataFrame(index=pd.DatetimeIndex(pd.date_range(freq="T", start=start, periods=0, tz="UTC")),
-                              dtype=np.float64, columns=ccd.data_keys)
+                              dtype=np.float64, columns=Xch.data_keys)
             assert df is not None, "failed to create ohlcv df for {}-{} = {} minutes".format(
                 start.strftime(Env.dt_format), when.strftime(Env.dt_format), minutes)
         else:
-            df = ccd.only_ohlcv(df)
+            df = df[Xch.data_keys]
             remaining = int((when - df.index[-1]) / pd.Timedelta(1, unit='T'))
         return df, remaining
 
@@ -475,93 +475,6 @@ class Xch():
                     print(f)
 
 
-def OBSOLETE_merge_asset_dataframe(path, base):
-    """ extends the time range of availble usdt data into the past by mapping base_btc * btc_usdt
-
-        ! obsolete now because this was only needed to build up an extended data set when base/USDT was not
-        available but base/BTC was
-    """
-    # "loads the object via msgpack"
-    fname = path + "btc_usdt" + "_DataFrame.msg"
-    btcusdt = ccd.load_asset_dataframe("btc", path=Env.data_path)
-    if base != "btc":
-        fname = path + base + "_btc" + "_DataFrame.msg"
-        basebtc = ccd.load_asset_dataframefile(fname)
-        ccd.dfdescribe(f"{base}-btc", basebtc)
-        fname = path + base + "_usdt" + "_DataFrame.msg"
-        baseusdt = ccd.load_asset_dataframefile(fname)
-        ccd.dfdescribe(f"{base}-usdt", baseusdt)
-        if (baseusdt.index[0] <= basebtc.index[0]) or (baseusdt.index[0] <= btcusdt.index[0]):
-            basemerged = baseusdt
-        else:
-            basebtc = basebtc[basebtc.index.isin(btcusdt.index)]
-            basemerged = pd.DataFrame(btcusdt)
-            basemerged = basemerged[basemerged.index.isin(basebtc.index)]
-            for key in ccd.data_keys:
-                if key != "volume":
-                    basemerged[key] = basebtc[key] * btcusdt[key]
-            basemerged["volume"] = basebtc.volume
-            ccd.dfdescribe(f"{base}-btc-usdt", basemerged)
-
-            baseusdt = baseusdt[baseusdt.index.isin(basemerged.index)]  # ! why limit to basebtc range?
-            assert not baseusdt.empty
-            basemerged.loc[baseusdt.index] = baseusdt[:]  # take values of cusdt where available
-    else:
-        basemerged = btcusdt
-    ccd.dfdescribe(f"{base}-merged", basemerged)
-
-    ccd.save_asset_dataframe(basemerged, base, Env.data_path)
-
-    return basemerged
-
-
-def check_df(df):
-    # print(df.head())
-    diff = pd.Timedelta(value=1, unit="T")
-    last = this = df.index[0]
-    ok = True
-    ix = 0
-    for tix in df.index:
-        if this != tix:
-            print(f"ix: {ix} last: {last} tix: {tix} this: {this}")
-            ok = False
-            this = tix
-        last = tix
-        this += diff
-        ix += 1
-    return ok
-
-
-def load_asset(bases):
-    """ Loads the cached history data as well as live data from the xch
-    """
-
-    print(bases)  # Env.usage.bases)
-    for base in bases:
-        print(f"supplementing {base}")
-        hdf = ccd.load_asset_dataframe(base, path=Env.data_path)
-        # hdf.index.tz_localize(tz='UTC')
-
-        last = (hdf.index[len(hdf)-1])
-        # last = (hdf.index[len(hdf)-1]).tz_localize(tz='UTC')
-        now = pd.Timestamp.utcnow()
-        diffmin = int((now - last)/pd.Timedelta(1, unit='T'))
-        ohlcv_df = Xch.get_ohlcv(base, diffmin, now)
-        if ohlcv_df is None:
-            print("skipping {}".format(base))
-            continue
-        tix = hdf.index[len(hdf)-1]
-        if tix == ohlcv_df.index[0]:
-            hdf = hdf.drop([tix])  # the last saved sample is incomple and needs to be updated
-            # print("updated last sample of saved cache")
-        hdf = pd.concat([hdf, ohlcv_df], sort=False)
-        ok2save = check_df(hdf)
-        if ok2save:
-            ccd.save_asset_dataframe(hdf, base, path=Env.data_path)
-        else:
-            print(f"merged df checked: {ok2save} - dataframe not saved")
-
-
 if __name__ == "__main__":
     # env.test_mode()
-    load_asset(Env.usage.bases)
+    pass
