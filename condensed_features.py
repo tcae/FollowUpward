@@ -26,12 +26,12 @@ from sklearn.linear_model import LinearRegression
 """
 # REGRESSION_KPI = [(0, 0, 5, "5m_0"), (1, 5, 5, "5m_5")]
 # (regression_only, offset, regression_minutes, label)
-# regression_only == TRUE: 3 features = slope, last point y, relative volume
-# regression_only == FALSE: 5 features = slope, last point y, risk, chance, relative volume
+# regression_only == TRUE: 3 features = slope, last point y
+# regression_only == FALSE: 5 features = slope, last point y, risk, chance
 REGRESSION_KPI = [(1, 0, 5, "5m_0"), (1, 5, 5, "5m_5"),
                   (0, 0, 30, "30m"), (0, 0, 4*60, "4h"),
                   (0, 0, 12*60, "12h"), (1, 0, 10*24*60, "10d")]
-FEATURE_COUNT = 3 * 3 + 3 * 5  # 24 features per sample
+FEATURE_COUNT = 3 * 2 + 3 * 4  # 18 + 2 vol (see below) = 20 features per sample
 HMWF = max([offset+minutes for (regr_only, offset, minutes, ext) in REGRESSION_KPI]) - 1
 # HMWF == history minutes required without features
 # VOL_KPI = [(5, 60, "5m1h")]
@@ -224,6 +224,7 @@ class F2cond24(ccd.Features):
 
     def __init__(self, ohlcv: ccd.Ohlcv):
         self.ohlcv = ohlcv
+        super().__init__()
 
     def history(self):
         """ Returns the number of history sample minutes
@@ -247,7 +248,7 @@ class F2cond24(ccd.Features):
     def new_data(self, base: str, last: pd.Timestamp, minutes: int):
         """ Downloads or calculates new data for 'minutes' samples up to and including last.
         """
-        df = self.ohlcv.new_data(base, last, minutes + self.history())
+        df = self.ohlcv.get_data(base, last, minutes + self.history())
         return cal_features(df)
 
 

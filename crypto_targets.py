@@ -21,7 +21,7 @@ def trade_signal_history():
     return 30  # max look back: 8 hours
 
 
-def __trade_signals(close):
+def trade_signals(close):
     """ Receives a numpy array of close prices starting with the oldest.
         Returns a numpy array of signals.
 
@@ -85,7 +85,7 @@ def crypto_trade_targets(df):
 
         The trade_targets numpy array is returned.
     """
-    trade_targets = __trade_signals(df.close.values)
+    trade_targets = trade_signals(df.close.values)
     # df.loc[:, "target"] = trade_targets
     return trade_targets
 
@@ -135,6 +135,7 @@ class T10up5low30min(Targets):
 
     def __init__(self, ohlcv: ccd.Ohlcv):
         self.ohlcv = ohlcv
+        super().__init__()
 
     def target_dict(self):
         return TARGETS
@@ -157,13 +158,11 @@ class T10up5low30min(Targets):
         """ Downloads or calculates new data for 'minutes' samples up to and including last.
             This is the core method to be implemented by subclasses.
         """
-        df = self.ohlcv.new_data(base, last, minutes + self.history())
-        trade_targets = __trade_signals(df["close"].values)
+        df = self.ohlcv.get_data(base, last, minutes + self.history())
+        trade_targets = trade_signals(df["close"].values)
+        df["target"] = trade_targets
         tdf = df.iloc[-minutes:]
-        tdf["target"] = trade_targets
-        # ! trade_targets is shorter due to history. Are targets assigned to the end or the begin?
-        print(tdf.head(5))
-        print(tdf.tail(5))
+        tdf = tdf.loc[:, self.keys()]
         return tdf
 
 
@@ -171,11 +170,11 @@ if __name__ == "__main__":
     if True:
         close = np.array([1., 1.02, 1.015, 1.016, 1.03, 1.024, 1.025, 1.026, 1.025, 1.024,
                           1.023, 1.022, 1.021, 1.02, 1.016, 1.014, 1.012, 1.022], np.dtype(np.float))
-        trade_targets = __trade_signals(close)
+        trade_targets = trade_signals(close)
         print(trade_targets)
     else:
         cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=100)
-        trade_targets = __trade_signals(cdf["close"].values)
+        trade_targets = trade_signals(cdf["close"].values)
         cdf["target"] = trade_targets
         print(cdf.head(5))
         print(cdf.tail(5))

@@ -142,11 +142,19 @@ class CryptoData:
         """
         df = self.load_data(base)
         first = last - pd.Timedelta(minutes, unit="T")
-        if (df is None) or (last > df.index[-1]):
-            diffmin = int((last - df.index[-1]) / pd.Timedelta(1, unit="T"))
-            ndf = self.new_data(base, last, diffmin)
-            df = pd.concat([df, ndf], join="outer", axis=0, keys=Env.bases)
+        if (df is None):
+            df = self.new_data(base, last, minutes)
+        elif (last > df.index[-1]):
+            if first > df.index[-1]:
+                df = self.new_data(base, last, minutes)
+            else:
+                diffmin = int((last - df.index[-1]) / pd.Timedelta(1, unit="T"))
+                ndf = self.new_data(base, last, diffmin)
+                df = df.loc[df.index < ndf.index[0]]
+                # thereby cutting any time overlaps, e.g. +1 minute from ohlcv due to incomplete last minute effect
+                df = pd.concat([df, ndf], join="outer", axis=0)
         df = df.loc[(df.index > first) & (df.index <= last), self.keys()]
+        assert self.no_index_gaps(df)
         return df
 
     def load_data(self, base: str):
@@ -156,9 +164,17 @@ class CryptoData:
             df = pd.read_hdf(self.fname(base), self.mnemonic(base))
             return df[Xch.data_keys]
         except IOError:
-            print(f"{env.timestr()} ERROR: cannot load {self.fname(base)}")
+            print(f"{env.timestr()} WARNING: cannot load {self.fname(base)}")
             df = None
         return df
+
+    def no_index_gaps(self, df: pd.DataFrame):
+        ix_check = df.index.to_series(keep_tz=True).diff().dt.seconds
+        ix_gaps = ix_check.loc[ix_check > 60]  # reduce time differences to those > 60 sec
+        if not ix_gaps.empty:
+            print(ix_gaps)
+        # print(f"index check len: {len(ix_check)}, index check empty: {ix_check.empty}")
+        return ix_gaps.empty
 
     def save_data(self, base: str, df: pd.DataFrame):
         """ Saves complete data that is expected to be in 'df' and overwrites all previous content.
@@ -171,12 +187,11 @@ class CryptoData:
             print(f"{env.timestr()} ERROR: cannot save {self.fname(base)}")
 
     def set_type_data(self, base: str, set_type: str):
+        # print(self.sets_split)
         df = self.load_data(base)
-        split_df = self.sets_split.loc[self.sets_split.set_type == set_type]
-        all = [df.loc[(df.index >= split_df[ix, "start"]) & (df.index <= split_df[ix, "end"])] for ix in len(split_df)]
+        sdf = self.sets_split.loc[self.sets_split.set_type == set_type]
+        all = [df.loc[(df.index >= sdf.loc[ix, "start"]) & (df.index <= sdf.loc[ix, "end"])] for ix in sdf.index]
         set_type_df = pd.concat(all, join="outer", axis=0)
-        print(self.sets_split)
-        print(split_df)
         return set_type_df
 
 

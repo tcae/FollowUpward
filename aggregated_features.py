@@ -85,7 +85,7 @@ class AggregatedFeatures(TargetsFeatures):
         return vec
 
 
-def __smallest_dict_key(thisdict):
+def smallest_dict_key(thisdict):
     smallest_key = 5000
     for k in thisdict:
         if isinstance(k, int):
@@ -164,7 +164,7 @@ def expand_feature_vectors(tf_aggs, target_key):
         as column prefix.
     """
     df = pd.DataFrame(tf_aggs[target_key], columns=["close"])
-    skey = __smallest_dict_key(tf_aggs)
+    skey = smallest_dict_key(tf_aggs)
     for ta in tf_aggs:
         for tics in range(TIME_AGGS[ta]):
             ctitle = str(ta) + "T_" + str(tics) + "_"
@@ -188,6 +188,7 @@ class F1agg110(ccd.Features):
 
     def __init__(self, ohlcv: ccd.Ohlcv):
         self.ohlcv = ohlcv
+        super().__init__()
 
     def history(self):
         """ Returns the number of history sample minutes
@@ -199,7 +200,7 @@ class F1agg110(ccd.Features):
     def keys(self):
         "returns the list of element keys"
         klist = list()
-        skey = __smallest_dict_key(TIME_AGGS)
+        skey = smallest_dict_key(TIME_AGGS)
         for ta in TIME_AGGS:
             for tics in range(TIME_AGGS[ta]):
                 ctitle = str(ta) + "T_" + str(tics) + "_"
@@ -219,7 +220,7 @@ class F1agg110(ccd.Features):
     def new_data(self, base: str, last: pd.Timestamp, minutes: int):
         """ Downloads or calculates new data for 'minutes' samples up to and including last.
         """
-        df = self.ohlcv.new_data(base, last, minutes + self.history())
+        df = self.ohlcv.get_data(base, last, minutes + self.history())
         tf_aggs = calc_aggregation(df, TIME_AGGS)
         vec = expand_feature_vectors(tf_aggs, TARGET_KEY)
         return vec
