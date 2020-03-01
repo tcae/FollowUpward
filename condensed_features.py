@@ -31,7 +31,7 @@ from sklearn.linear_model import LinearRegression
 REGRESSION_KPI = [(1, 0, 5, "5m_0"), (1, 5, 5, "5m_5"),
                   (0, 0, 30, "30m"), (0, 0, 4*60, "4h"),
                   (0, 0, 12*60, "12h"), (1, 0, 10*24*60, "10d")]
-FEATURE_COUNT = 3 * 2 + 3 * 4  # 18 + 2 vol (see below) = 20 features per sample
+FEATURE_COUNT = 3 * 2 + 3 * 4 + 2  # 18 + 2 vol (see below) = 20 features per sample
 HMWF = max([offset+minutes for (regr_only, offset, minutes, ext) in REGRESSION_KPI]) - 1
 # HMWF == history minutes required without features
 # VOL_KPI = [(5, 60, "5m1h")]
@@ -192,7 +192,7 @@ class CondensedFeatures(TargetsFeatures):
     @staticmethod
     def feature_str():
         "returns a string that represent the features class as mnemonic"
-        return "F2cond{}".format(CondensedFeatures.feature_count())
+        return "F2cond24"
 
     @staticmethod
     def feature_count():
@@ -220,7 +220,7 @@ class CondensedFeatures(TargetsFeatures):
         return cal_features(minute_data)
 
 
-class F2cond24(ccd.Features):
+class F2cond20(ccd.Features):
 
     def __init__(self, ohlcv: ccd.Ohlcv):
         self.ohlcv = ohlcv
@@ -241,8 +241,8 @@ class F2cond24(ccd.Features):
         cols = cols + [COL_PREFIX[4] + ext for (svol, lvol, ext) in VOL_KPI]
         return cols
 
-    def mnemonic(self, base: str):
-        "returns a string that represents this class/base as mnemonic, e.g. to use it in file names"
+    def mnemonic(self):
+        "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "F2cond{}".format(FEATURE_COUNT)
 
     def new_data(self, base: str, last: pd.Timestamp, minutes: int):

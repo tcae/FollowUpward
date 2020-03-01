@@ -15,9 +15,21 @@ from local_xch import Xch
 
 def dfdescribe(desc, df):
     print(desc)
-    print(df.describe())
-    print(df.head())
-    print(df.tail())
+    # print(df.describe(percentiles=[], include='all'))
+    # print(df.head(2))
+    # print(df.tail(2))
+    if no_index_gaps(df):
+        print("no index gaps")
+
+
+def no_index_gaps(df: pd.DataFrame):
+    ix_check = df.index.to_series(keep_tz=True).diff().dt.seconds / 60
+    ix_gaps = ix_check.loc[ix_check > 1]  # reduce time differences to those > 60 sec
+    if not ix_gaps.empty:
+        print("WARNING: found index gaps")
+        print(ix_gaps)
+    # print(f"index check len: {len(ix_check)}, index check empty: {ix_check.empty}")
+    return ix_gaps.empty
 
 
 def only_ohlcv(df):
@@ -105,10 +117,7 @@ class CryptoData:
 
     def __init__(self):
         self.path = Env.data_path
-        try:
-            self.sets_split = pd.read_csv(env.sets_split_fname(), skipinitialspace=True, sep="\t")
-        except IOError:
-            print(f"pd.read_csv({env.sets_split_fname()}) IO error")
+        self.sets_split = None
 
     def history(self):
         """ Returns the number of history sample minutes
@@ -120,8 +129,8 @@ class CryptoData:
         "returns the list of element keys"
         return ["missing subclass implementation"]
 
-    def mnemonic(self, base: str):
-        "returns a string that represents this class/base as mnemonic, e.g. to use it in file names"
+    def mnemonic(self):
+        "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "missing subclass implementation"
 
     def new_data(self, base: str, last: pd.Timestamp, minutes: int):
@@ -132,15 +141,18 @@ class CryptoData:
 
     def fname(self, base: str):
         "returns a file name to load or store data in h5 format"
-        fname = self.path + self.mnemonic(base) + "_df.h5"
+        fname = self.path + base + "_" + self.mnemonic() + "_df.h5"
         return fname
 
-    def get_data(self, base: str, last: pd.Timestamp, minutes: int):
+    def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
             If minutes == 0 then all saved data is returned and supplemented up to last.
             If minutes == 0 and there is no saved data then None is returned.
         """
-        df = self.load_data(base)
+        if use_cache:
+            df = self.load_data(base)
+        else:
+            df = None
         first = last - pd.Timedelta(minutes, unit="T")
         if (df is None):
             df = self.new_data(base, last, minutes)
@@ -154,45 +166,59 @@ class CryptoData:
                 # thereby cutting any time overlaps, e.g. +1 minute from ohlcv due to incomplete last minute effect
                 df = pd.concat([df, ndf], join="outer", axis=0)
         df = df.loc[(df.index > first) & (df.index <= last), self.keys()]
-        assert self.no_index_gaps(df)
+        assert no_index_gaps(df)
         return df
 
     def load_data(self, base: str):
         """ Loads all saved data and returns it as a data frame.
         """
         try:
-            df = pd.read_hdf(self.fname(base), self.mnemonic(base))
-            return df[Xch.data_keys]
+            df = pd.read_hdf(self.fname(base), base + "_" + self.mnemonic())
+            if isinstance(df, pd.Series):
+                df = df.to_frame()
+            df = df.loc[:, self.keys()]
         except IOError:
             print(f"{env.timestr()} WARNING: cannot load {self.fname(base)}")
             df = None
         return df
-
-    def no_index_gaps(self, df: pd.DataFrame):
-        ix_check = df.index.to_series(keep_tz=True).diff().dt.seconds
-        ix_gaps = ix_check.loc[ix_check > 60]  # reduce time differences to those > 60 sec
-        if not ix_gaps.empty:
-            print(ix_gaps)
-        # print(f"index check len: {len(ix_check)}, index check empty: {ix_check.empty}")
-        return ix_gaps.empty
 
     def save_data(self, base: str, df: pd.DataFrame):
         """ Saves complete data that is expected to be in 'df' and overwrites all previous content.
         """
         try:
             fname = self.fname(base)
-            df.to_hdf(self.fname(base), self.mnemonic(base), mode="w")
+            if isinstance(df, pd.Series):
+                df = df.to_frame()
+            df.to_hdf(self.fname(base), base + "_" + self.mnemonic(), mode="w")
             print(f"saved {fname} {len(df)} samples from {df.index[0]} until {df.index[-1]}")
         except IOError:
             print(f"{env.timestr()} ERROR: cannot save {self.fname(base)}")
 
     def set_type_data(self, base: str, set_type: str):
-        # print(self.sets_split)
+        if self.sets_split is None:
+            try:
+                self.sets_split = pd.read_csv(env.sets_split_fname(), skipinitialspace=True, sep="\t")
+            except IOError:
+                print(f"pd.read_csv({env.sets_split_fname()}) IO error")
+                return None
+            # print(self.sets_split)
+
         df = self.load_data(base)
         sdf = self.sets_split.loc[self.sets_split.set_type == set_type]
         all = [df.loc[(df.index >= sdf.loc[ix, "start"]) & (df.index <= sdf.loc[ix, "end"])] for ix in sdf.index]
         set_type_df = pd.concat(all, join="outer", axis=0)
         return set_type_df
+
+    def check_report(self, base):
+        """ request data that crosses the boundry of to be downloaded and cached ohlcv data.
+            Reports check results.
+        """
+        df = self.get_data(base, pd.Timestamp("2019-02-28 01:00:00+00:00"), 1000)
+        print("{} {} history: {}, {} keys: {}, fname: {}".format(self.mnemonic(), base,
+              self.history(), len(self.keys()), self.keys(), self.fname(base)))
+        print(f"{self.mnemonic()} {base} got data: {len(df)} samples from {df.index[0]} until {df.index[-1]}")
+        no_index_gaps(df)
+        print("\n")
 
 
 class Features(CryptoData):
@@ -212,9 +238,9 @@ class Ohlcv(CryptoData):
         "returns the list of element keys"
         return Xch.data_keys
 
-    def mnemonic(self, base: str):
+    def mnemonic(self):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        return base + "_OHLCV"
+        return "OHLCV"
 
     def new_data(self, base: str, last: pd.Timestamp, minutes: int):
         """ Predicts all samples and returns the result.

@@ -150,8 +150,8 @@ class T10up5low30min(Targets):
         "returns the list of element keys"
         return ["target"]
 
-    def mnemonic(self, base: str):
-        "returns a string that represents this class/base as mnemonic, e.g. to use it in file names"
+    def mnemonic(self):
+        "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "T10up5low30min"
 
     def new_data(self, base: str, last: pd.Timestamp, minutes: int):

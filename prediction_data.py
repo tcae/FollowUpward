@@ -26,7 +26,7 @@ import tensorflow.keras as keras
 # import env_config as env
 # from env_config import Env
 import crypto_targets as ct
-import crypto_features as cf
+# import crypto_features as cf
 # import crypto_history_sets as chs
 import cached_crypto_data as ccd
 # import condensed_features as cof
@@ -42,7 +42,7 @@ print(__doc__)
 
 class Estimator:
 
-    def __init__(self, scaler, target_class: ct.Targets, feature_class: cf.Features):
+    def __init__(self, scaler, target_class: ct.Targets, feature_class: ccd.Features):
         self.tcls = target_class
         self.fcls = feature_class
         self.scaler = scaler
@@ -68,9 +68,9 @@ class PredictionData(ccd.CryptoData):
         "returns the list of element keys"
         return self.est.tcls.target_dict().keys()
 
-    def mnemonic(self):
+    def mnemonic(self, base: str):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        mem = self.est.mnemonic() + "_" + self.est.tcls.mnemonic() + "_" + self.est.fcls.mnemonic()
+        mem = base + "_" + self.est.mnemonic() + "_" + self.est.tcls.mnemonic() + "_" + self.est.fcls.mnemonic()
         return mem
 
     def new_data(self, base, lastdatetime, minutes):

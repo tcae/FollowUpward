@@ -213,8 +213,8 @@ class F1agg110(ccd.Features):
                     klist.append(ctitle + "DV")
         return klist
 
-    def mnemonic(self, base: str):
-        "returns a string that represents this class/base as mnemonic, e.g. to use it in file names"
+    def mnemonic(self):
+        "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "F1agg110"
 
     def new_data(self, base: str, last: pd.Timestamp, minutes: int):
