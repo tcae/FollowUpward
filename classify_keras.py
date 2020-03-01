@@ -41,8 +41,6 @@ import crypto_features as cf
 import crypto_history_sets as chs
 import condensed_features as cof
 import aggregated_features as agf
-import adaptation_data as ad
-import cached_crypto_data as ccd
 
 
 print(f"Tensorflow version: {tf.version.VERSION}")
@@ -446,7 +444,8 @@ class Cpc:
             df = self.hs.set_of_type(base, set_type)
             if (df is None) or (len(df) == 0):
                 continue
-            # tfv = self.hs.features_from_targets(df)
+            tfv = self.hs.features_from_targets(df)
+            cf.report_setsize(set_type, tfv)
             descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
                                                       bix, cf.str_setsize(tfv))
             # print(descr)
@@ -455,7 +454,9 @@ class Cpc:
                 samples.data = self.scaler.transform(samples.data)
             pred = self.classifier.predict_on_batch(samples.data)
             pm.assess_prediction(pred, df.close, samples.target, samples.tics, samples.descr)
+
             # self.hs.register_probabilties(base, set_type, pred, df)
+
         self.pmlist.append(pm)
         pm.report_assessment()
         return pm.best()
@@ -537,7 +538,7 @@ class Cpc:
                 self.save_classifier = "MLP_l1-{}_do-{}_h-{}_no-l3_opt{}_{}".format(
                     params["l1_neurons"], params["dropout"], params["l2_neurons"],
                     params["optimizer"], chs.ActiveFeatures.feature_str())
-            self.__prep_classifier_log(self.save_classifier)
+            # self.__prep_classifier_log(self.save_classifier)
 
             tensorboardpath = Env.tensorboardpath()
             tensorfile = "{}epoch{}.hdf5".format(tensorboardpath, "{epoch}")
@@ -548,27 +549,19 @@ class Cpc:
                 # keras.callbacks.ModelCheckpoint(tensorfile, verbose=1),
                 keras.callbacks.TensorBoard(log_dir=tensorfile)]
 
-            # steps_per_epoch = self.hs.label_steps()
+            steps_per_epoch = self.hs.label_steps()
             epochs = params["epochs"]
-            # gen_epochs = epochs * 2  # due to max_queue_size more step data is requested than needed
+            gen_epochs = epochs * 2  # due to max_queue_size more step data is requested than needed
 
             # print(model.summary())
-            ohlcv = ccd.Ohlcv()
-            features = cof.F2cond20(ohlcv)
-            targets = ct.T10up5low30min(ohlcv)
-            training_gen = ad.TrainingGenerator(self.scaler, targets, features, shuffle=False)
-            validation_gen = ad.ValidationGenerator(chs.VAL, self.scaler, targets, features, shuffle=False)
             out = self.classifier.fit_generator(
-                    # self.iteration_generator(self.hs, gen_epochs),
-                    training_gen,
-                    steps_per_epoch=len(training_gen),
+                    self.iteration_generator(self.hs, gen_epochs),
+                    steps_per_epoch=steps_per_epoch,
                     epochs=epochs,
                     callbacks=callbacks,
                     verbose=2,
-                    # validation_data=self.base_generator(self.hs, chs.VAL, gen_epochs),
-                    # validation_steps=len(self.hs.bases),
-                    validation_data=validation_gen,
-                    validation_steps=len(validation_gen),
+                    validation_data=self.base_generator(self.hs, chs.VAL, gen_epochs),
+                    validation_steps=len(self.hs.bases),
                     class_weight=None,
                     max_queue_size=10,
                     workers=1,
@@ -581,19 +574,12 @@ class Cpc:
 
         start_time = timeit.default_timer()
         print(f"{env.timestr()} loading history sets")
-        # self.hs = chs.CryptoHistorySets(env.sets_config_fname())
+        self.hs = chs.CryptoHistorySets(env.sets_config_fname())
         self.talos_iter = 0
-
-        ohlcv = ccd.Ohlcv()
-        features = cof.F2cond20(ohlcv)
-        targets = ct.T10up5low30min(ohlcv)
-        training_gen = ad.TrainingGenerator(self.scaler, targets, features, shuffle=False)
-        validation_gen = ad.ValidationGenerator(chs.TRAIN, self.scaler, targets, features, shuffle=False)
 
         print(f"{env.timestr()} adapting scaler")
         scaler = preprocessing.StandardScaler(copy=False)
-        # for (samples, targets) in self.base_generator(self.hs, chs.TRAIN, 1):
-        for samples, targets in validation_gen:
+        for (samples, targets) in self.base_generator(self.hs, chs.TRAIN, 1):
             # print("scaler fit")
             scaler.partial_fit(samples)
         self.scaler = scaler
@@ -660,27 +646,6 @@ class Cpc:
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"{env.timestr()} MLP performance assessment bulk time: {tdiff:.0f} min")
 
-        start_time = timeit.default_timer()
-        pm = PerfMatrix(0, chs.VAL)
-        for bix, base in enumerate(self.hs.bases):
-            df = self.hs.set_of_type(base, chs.VAL)
-            tfv = self.hs.features_from_targets(df)
-            samples = cf.to_scikitlearn(tfv, np_data=None, descr=f"{base}")
-            if (samples is None) or (samples.data is None) or (len(samples.data) == 0):
-                print(
-                    "skipping {} len(VAL): {} len(tfv): {} len(subset): {} len(samples)"
-                    .format(base, len(df), len(tfv), len(tfv), (len(samples.data))))
-                continue
-            if self.scaler is not None:
-                samples.data = self.scaler.transform(samples.data)
-            pred1 = self.classifier.predict_on_batch(samples.data)
-
-            pm.assess_prediction(pred1, df.close, samples.target, samples.tics, samples.descr)
-        pm.report_assessment()
-
-        tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"{env.timestr()} MLP performance assessment bulk split time: {tdiff:.0f} min")
-
     def use_keras(self):
         self.classify_batch()
 
@@ -696,7 +661,7 @@ if __name__ == "__main__":
         chs.ActiveFeatures = agf.AggregatedFeatures
     else:
         chs.ActiveFeatures = cof.CondensedFeatures
-    if True:
+    if False:
         cpc = Cpc(load_classifier, save_classifier)
         cpc.adapt_keras()
     else:

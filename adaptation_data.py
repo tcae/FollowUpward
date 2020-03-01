@@ -15,16 +15,22 @@ import condensed_features as cof
 import aggregated_features as agf
 
 
+NA = "not assigned"
+TRAIN = "training"
+VAL = "validation"
+TEST = "test"
+
+
 class TrainingData:
 
-    def __init__(self, targets: ct.Targets, features: ccd.Features):
-        ohlcv = ccd.Ohlcv()
-        self.features = features(ohlcv)
-        self.targets = targets(ohlcv)
+    def __init__(self, features: ccd.Features, targets: ct.Targets):
+        self.features = features
+        self.targets = targets
         self.bgs = 100  # batch group size
         self.tbgdf = None
         self.fbgdf = None
         self.bgdf_ix = 0
+        self.hdf = None
 
     def training_batch_size(self):
         """ Return the number of training samples for one batch.
@@ -70,16 +76,19 @@ class TrainingData:
         return data_df
 
     def fname(self):
-        fname = self.targets.path + self.targets.mnemonic() + "_" \
-                + self.features.mnemonic() + "_training.h5"
+        fname = self.targets.path + self.features.mnemonic() + "_" \
+                + self.targets.mnemonic() + "_training.h5"
         return fname
 
     def load_index(self):
         """ Returns the complete shuffled index with the columns "base" and "timestamp"
         """
+        fname = self.fname()
+        if self.hdf is None:
+            self.hdf = pd.HDFStore(fname, "r")
         try:
-            fname = self.fname()
-            idf = pd.read_hdf(fname, "/index")
+            idf = self.hdf.get("/index")
+            # idf = pd.read_hdf(fname, "/index")
             return idf
         except IOError:
             print(f"{env.timestr()} load data frame file ERROR: cannot load (base, timestamp) 'index' from {fname}")
@@ -87,10 +96,12 @@ class TrainingData:
 
     def load_meta(self):
         "Returns the metadata batch_size, batches, samples as a dictionary"
+        fname = self.fname()
+        if self.hdf is None:
+            self.hdf = pd.HDFStore(fname, "r")
         try:
-            fname = self.fname()
-            print(fname)
-            mdf = pd.read_hdf(fname, "/meta")
+            mdf = self.hdf.get("/meta")
+            # mdf = pd.read_hdf(fname, "/meta")
             meta = {ix: mdf[ix] for ix in mdf.index}
             return meta
         except IOError:
@@ -101,16 +112,19 @@ class TrainingData:
         """ Returns a data frame for all saved training data independent of base.
             This provides the means to shuffle across bases and load it in batches as needed.
         """
+        if self.hdf is None:
+            self.hdf = pd.HDFStore(self.fname(), "r")
         try:
             fname = self.fname()
             bg_ix = int(batch_ix / self.bgs)
             if (self.tbgdf is None) or (self.bgdf_ix != bg_ix):
                 self.bgdf_ix = bg_ix
-                self.fbgdf = fdf = pd.read_hdf(fname, f"/features_{bg_ix}")
-                self.tbgdf = tdf = pd.read_hdf(fname, f"/targets_{bg_ix}")
-            else:
-                tdf = self.tbgdf
-                fdf = self.fbgdf
+                self.fbgdf = self.hdf.get(f"/features_{bg_ix}")
+                self.tbgdf = self.hdf.get(f"/targets_{bg_ix}")
+                # self.fbgdf = fdf = pd.read_hdf(fname, f"/features_{bg_ix}")
+                # self.tbgdf = tdf = pd.read_hdf(fname, f"/targets_{bg_ix}")
+            tdf = self.tbgdf
+            fdf = self.fbgdf
             bs = self.training_batch_size()
             ix = (batch_ix % self.bgs) * bs
             if ix + bs > len(fdf):
@@ -129,6 +143,8 @@ class TrainingData:
             This provides the means to shuffle across bases and load it in batches as needed.
         """
         fname = self.fname()
+        assert self.hdf is None
+
         hdf = pd.HDFStore(fname, "w")
         bs = self.training_batch_size()
         batches = int(math.ceil(len(data_df) / bs))
@@ -136,11 +152,11 @@ class TrainingData:
             {"batch_size": bs, "batches": batches, "samples": len(data_df)})
         print("{}: writing {} for {} samples as {} batches".format(
             env.timestr(), fname, len(data_df), batches))
-        hdf["/meta"] = meta_df
+        hdf.put("/meta", meta_df, "fixed")
         # meta_df.to_hdf(fname, "/meta", mode="w")
         idf = data_df.index.to_frame(name=["base", "timestamp"], index=False)
         idf.index.set_names("idx", inplace=True)
-        hdf["/index"] = idf
+        hdf.put("/index", idf, "fixed")
         # idf.to_hdf(fname, "/index", mode="a")
         data_df = data_df.reset_index(drop=True)
         data_df.index.set_names("idx", inplace=True)
@@ -152,16 +168,16 @@ class TrainingData:
         for bg in range(batch_groups - 1):
             sdf = data_df.iloc[bg * bgs: (bg + 1) * bgs]
             check += len(sdf)
-            hdf[f"/features_{bg}"] = sdf["features"]
+            hdf.put(f"/features_{bg}", sdf["features"], "fixed")
             # sdf["features"].to_hdf(fname, f"/features_{bg}", mode="a")
-            hdf[f"/targets_{bg}"] = sdf["targets"]
+            hdf.put(f"/targets_{bg}", sdf["targets"], "fixed")
             # sdf["targets"].to_hdf(fname, f"/targets_{bg}", mode="a")
         bg = batch_groups - 1
         sdf = data_df.iloc[bg * bgs:]
         check += len(sdf)
-        hdf[f"/features_{bg}"] = sdf["features"]
+        hdf.put(f"/features_{bg}", sdf["features"], "fixed")
         # sdf["features"].to_hdf(fname, f"/features_{bg}", mode="a")
-        hdf[f"/targets_{bg}"] = sdf["targets"]
+        hdf.put(f"/targets_{bg}", sdf["targets"], "fixed")
         # sdf["targets"].to_hdf(fname, f"/targets_{bg}", mode="a")
         hdf.close()
         assert check == len(data_df)
@@ -176,18 +192,17 @@ def prepare4keras(scaler, feature_df, target_df, targets):
     if scaler is not None:
         samples.data = scaler.transform(samples.data)
     samples.target = keras.utils.to_categorical(
-        samples.target, num_classes=samples.target_names.size())
+        samples.target, num_classes=len(targets.target_dict().keys()))
     return samples.data, samples.target
 
 
 class TrainingGenerator(keras.utils.Sequence):
     "Generates training data for Keras"
-    def __init__(self, scaler, targets: ct.Targets, features: ccd.Features, shuffle=False):
+    def __init__(self, scaler, features: ccd.Features, targets: ct.Targets, shuffle=False):
         self.scaler = scaler
         self.shuffle = shuffle
-        self.training = TrainingData(targets, features)
+        self.training = TrainingData(features, targets)
         meta = self.training.load_meta()
-        print(meta)
         self.features = features
         self.targets = targets
         self.batches = meta["batches"]
@@ -204,7 +219,6 @@ class TrainingGenerator(keras.utils.Sequence):
             print(f"TrainGenerator: index {index} > len {self.batches}")
             index %= self.batches
         fdf, tdf = self.training.load_data(index)
-        print(f"TrainingGenerator - batch_ix = {index} targets = {len(tdf)}, features = {len(fdf)}")
         return prepare4keras(self.scaler, fdf, tdf, self.targets)
 
     def on_epoch_end(self):
@@ -217,13 +231,11 @@ class TrainingGenerator(keras.utils.Sequence):
 
 class ValidationGenerator(keras.utils.Sequence):
     'Generates validation data for Keras'
-    def __init__(self, set_type, scaler, targets: ct.Targets, features: ccd.Features, shuffle=False):
+    def __init__(self, set_type, scaler, features: ccd.Features, targets: ct.Targets):
         self.set_type = set_type
         self.scaler = scaler
-        self.shuffle = shuffle
         self.features = features
         self.targets = targets
-        print(f"BaseGenerator: {Env.bases}")
 
     def __len__(self):
         'Denotes the number of batches per epoch'
@@ -237,15 +249,46 @@ class ValidationGenerator(keras.utils.Sequence):
         base = Env.bases[index]
         fdf = self.features.set_type_data(base, self.set_type)
         tdf = self.targets.set_type_data(base, self.set_type)
-        print(f"ValidationGenerator - {self.set_type} targets = {len(tdf)}, features = {len(fdf)}")
-        return prepare4keras(self.scaler, fdf, tdf, self.tcls)
+        [fdf, tdf] = ccd.common_timerange([fdf, tdf])
+        return prepare4keras(self.scaler, fdf, tdf, self.targets)
+
+
+class AssessmentGenerator(keras.utils.Sequence):
+    'Generates close, features, targets dataframes - use values attribute for Keras'
+    def __init__(self, set_type, scaler, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
+        self.set_type = set_type
+        self.scaler = scaler
+        self.ohlcv = ohlcv
+        self.features = features
+        self.targets = targets
+
+    def __len__(self):
+        'Denotes the number of batches per epoch'
+        return len(Env.bases)
+
+    def __getitem__(self, index):
+        'Generate one batch of data'
+        if index >= len(Env.bases):
+            print(f"BaseGenerator: index {index} > len {len(Env.bases)}")
+            index %= len(Env.bases)
+        base = Env.bases[index]
+        odf = self.ohlcv.set_type_data(base, self.set_type)
+        fdf = self.features.set_type_data(base, self.set_type)
+        tdf = self.targets.set_type_data(base, self.set_type)
+        [odf, fdf, tdf] = ccd.common_timerange([odf, fdf, tdf])
+        # features, targets =  prepare4keras(self.scaler, fdf, tdf, self.tcls)
+        return odf, fdf, tdf
 
 
 if __name__ == "__main__":
+    tee = env.Tee()
+    ohlcv = ccd.Ohlcv()
+    targets = ct.T10up5low30min(ohlcv)
     if True:
-        td = TrainingData(ct.T10up5low30min, cof.F2cond20)
+        features = cof.F2cond20(ohlcv)
     else:
-        td = TrainingData(ct.T10up5low30min, agf.F1agg110)
+        features = agf.F1agg110(ohlcv)
+    td = TrainingData(features, targets)
     if False:  # create training sets
         start_time = timeit.default_timer()
         print(f"{env.timestr()} creating training batches")
@@ -271,3 +314,4 @@ if __name__ == "__main__":
         print(f"{env.timestr()} training set retrieval time: {(tdiff):.0f} s = {tdiff/check:.0f}s/sample")
         # idf = td.load_index()
         # print(idf.describe(percentiles=[], include='all'))
+    tee.close()

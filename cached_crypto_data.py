@@ -22,6 +22,15 @@ def dfdescribe(desc, df):
         print("no index gaps")
 
 
+def common_timerange(df_list):
+    """ limits the datetimerange of the list of given data frames to the common range.
+        Returns a data frame list in the same sequence with limited ranges.
+    """
+    first = max([df.index[0] for df in df_list])
+    last = min([df.index[-1] for df in df_list])
+    return [df.loc[(df.index >= first) & (df.index <= last)] for df in df_list]
+
+
 def no_index_gaps(df: pd.DataFrame):
     ix_check = df.index.to_series(keep_tz=True).diff().dt.seconds / 60
     ix_gaps = ix_check.loc[ix_check > 1]  # reduce time differences to those > 60 sec
@@ -143,6 +152,15 @@ class CryptoData:
         "returns a file name to load or store data in h5 format"
         fname = self.path + base + "_" + self.mnemonic() + "_df.h5"
         return fname
+
+    def check_timerange(self, df: pd.DataFrame, last: pd.Timestamp, minutes: int):
+        """ Returns a data frame that is limited to the given timerange.
+            Issues a warning if the timerange is smaller than requested.
+        """
+        first = last - pd.Timedelta(minutes - 1, unit="T")
+        df = df.loc[(df.index >= first) & (df.index <= last)]
+        if (df.index[0] > first) or (df.index[-1] < last):
+            print(f"WARNING missing minutes: {df.index[0] - first} at start, {last - df.index[-1]} at end")
 
     def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
