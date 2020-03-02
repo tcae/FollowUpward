@@ -164,25 +164,25 @@ class CryptoData:
 
     def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
-            If minutes == 0 then all saved data is returned and supplemented up to last.
-            If minutes == 0 and there is no saved data then None is returned.
         """
+        assert minutes > 0
         if use_cache:
             df = self.load_data(base)
         else:
             df = None
         first = last - pd.Timedelta(minutes, unit="T")
-        if (df is None):
+        if (df is None) or df.empty:
             df = self.new_data(base, last, minutes)
         elif (last > df.index[-1]):
             if first > df.index[-1]:
                 df = self.new_data(base, last, minutes)
             else:
                 diffmin = int((last - df.index[-1]) / pd.Timedelta(1, unit="T"))
+                diffmin += 1  # +1 minute due to incomplete last minute effect
                 ndf = self.new_data(base, last, diffmin)
                 df = df.loc[df.index < ndf.index[0]]
-                # thereby cutting any time overlaps, e.g. +1 minute from ohlcv due to incomplete last minute effect
-                df = pd.concat([df, ndf], join="outer", axis=0)
+                # thereby cutting any time overlaps, e.g. +1 minute due to incomplete last minute effect
+                df = pd.concat([df, ndf], join="outer", axis=0, sort=True, verify_integrity=True)
         df = df.loc[(df.index > first) & (df.index <= last), self.keys()]
         assert no_index_gaps(df)
         return df

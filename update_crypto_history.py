@@ -170,11 +170,35 @@ def repair_stored_ohlcv():
     ccd.save_asset_dataframe(df, "xrp", Env.data_path)
 
 
+def update_history(bases: list, last: pd.Timestamp, data_objs: list):
+    """ updates saved data history up to and including 'last'
+    """
+    minutes = 0
+    minimum = max([do.history() + 1 for do in data_objs])
+    for base in bases:
+        for do in data_objs:
+            df = do.load_data(base)
+            if not df.empty:
+                minutes = int((last - df.index[0]) / pd.Timedelta(1, unit="T")) + 1
+            minutes = max(minutes, minimum)
+            df = do.get_data(base, last, minutes)
+            do.save_data(base, df)
+
+
 if __name__ == "__main__":
+    # env.test_mode()
+    # tee = env.Tee()
+    ohlcv = ccd.Ohlcv()
+    if True:  # base data repair
+        df = ccd.load_asset_dataframe("xrp", Env.data_path)
+        ohlcv.save_data("xrp", df)
+    data_objs = [ohlcv, cof.F2cond20(ohlcv), agf.F1agg110(ohlcv), ct.T10up5low30min(ohlcv)]
     if True:
-        load_assets(Env.bases, pd.Timestamp.utcnow(), [cof.CondensedFeatures, agf.AggregatedFeatures])
+        update_history(Env.bases, pd.Timestamp.utcnow(), data_objs)
+        # load_assets(Env.bases, pd.Timestamp.utcnow(), [cof.CondensedFeatures, agf.AggregatedFeatures])
         # load_assets(Env.bases, None, [cof.CondensedFeatures, agf.AggregatedFeatures])
     else:
         env.test_mode()
         base = "xrp"
-        load_assets([base], pd.Timestamp.utcnow(), [cof.CondensedFeatures, agf.AggregatedFeatures])
+        update_history([base], pd.Timestamp("2019-02-28 23:58:00+00:00"), data_objs)
+    # tee.close()

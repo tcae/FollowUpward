@@ -472,12 +472,12 @@ class Classifier(Estimator):
             model.add(keras.layers.Dense(
                 params["l1_neurons"], input_dim=samples.shape[1],
                 kernel_initializer=params["kernel_initializer"], activation=params["activation"]))
-            # model.add(keras.layers.Dropout(params["dropout"]))
+            model.add(keras.layers.Dropout(params["dropout"]))
             model.add(keras.layers.Dense(
                 int(params["l2_neurons"]),
                 kernel_initializer=params["kernel_initializer"], activation=params["activation"]))
             if params["use_l3"]:
-                # model.add(keras.layers.Dropout(params["dropout"]))
+                model.add(keras.layers.Dropout(params["dropout"]))
                 model.add(keras.layers.Dense(
                     int(params["l3_neurons"]),
                     kernel_initializer=params["kernel_initializer"],
@@ -543,7 +543,7 @@ class Classifier(Estimator):
         fc = len(self.features.keys())
         tc = len(self.targets.target_dict())
         assert tc == 3
-        if True:
+        if False:
             params = {
                 "l1_neurons": [60],  # [max(3*tc, int(0.7*fc)), max(3*tc, int(0.9*fc))],
                 "l2_neurons": [48],  # 48 = 60 * 0.8   [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
@@ -561,10 +561,10 @@ class Classifier(Estimator):
                 "l1_neurons": [max(3*tc, int(0.7*fc)), max(3*tc, int(1.2*fc))],
                 "l2_neurons": [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
                 "epochs": [50],
-                "use_l3": [False],
+                "use_l3": [False],  # [False, True]
                 "l3_neurons": [max(1*tc, int(0.3*fc))],
                 "kernel_initializer": ["he_uniform"],
-                "dropout": [0.2],  # , 0.45, switched off anyhow 0.6,
+                "dropout": [0.45, 0.8],  # [0.2, 0.45, 0.8]
                 "optimizer": ["Adam"],
                 "losses": ["categorical_crossentropy"],
                 "activation": ["relu"],
