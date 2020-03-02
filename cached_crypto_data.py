@@ -239,11 +239,6 @@ class CryptoData:
         print("\n")
 
 
-class Features(CryptoData):
-    " Abstract superclass of all feature subclasses."
-    pass
-
-
 class Ohlcv(CryptoData):
     """ Class for binance OHLCV samples handling
     """
@@ -277,6 +272,14 @@ class Ohlcv(CryptoData):
     #     """ Saves complete ohlcv data that is expected to be in 'df' and overwrites all previous content.
     #     """
     #     save_asset_dataframe(df, base, path=self.path)
+
+
+class Features(CryptoData):
+    " Abstract superclass of all feature subclasses."
+
+    def __init__(self, ohlcv: Ohlcv):
+        self.ohlcv = ohlcv
+        super().__init__()
 
 
 def check_df(df):

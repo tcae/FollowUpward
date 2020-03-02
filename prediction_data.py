@@ -76,7 +76,7 @@ class PredictionData(ccd.CryptoData):
 
     def mnemonic(self, base: str):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        mem = base + "_" + self.est.mnemonic() + "__"
+        mem = base + "_predictions_" + self.est.mnemonic() + "__"
         mem += self.est.features.mnemonic() + "__" + self.est.targets.mnemonic()
         return mem
 
@@ -86,18 +86,51 @@ class PredictionData(ccd.CryptoData):
         """
         fdf = self.est.features.get_data(base, lastdatetime, minutes)
         tdf = self.est.targets.get_data(base, lastdatetime, minutes)
-        df = pd.concat([fdf, tdf], axis=1, join="inner", keys=["features", "targets"])
-        for tk in self.est.targets.target_dict():
-            df[("pred", tk)] = 0.0  # prepare for predictioins with same index
-        fdf = df["features"]  # inner join ensures shared samples
-        tdf = df["targets"]
-        data, target = ad.prepare4keras(self.est.scaler, fdf, tdf, self.est.targets)
-        pred = self.est.predict_on_batch(data)
-        df["pred"] = pred
-        return self.check_timerange(df, lastdatetime, minutes)
+        [fdf, tdf] = ccd.common_timerange([fdf, tdf])
+        # odf = pd.Series(odf.close, name="close")
 
-        # df_ages["age_by_decade"] = pd.cut(x=df_ages["age"], bins=[20, 29, 39, 49], labels=["20s", "30s", "40s"])
-        # ! introduce quantiles in another code area beside pred
+        if self.scaler is not None:
+            fdf_scaled = self.scaler.transform(fdf.values)
+        pred = self.est.predict_on_batch(fdf_scaled)
+        pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
+        print("pdf", pdf.describe(percentiles=[], include='all'))
+        return self.check_timerange(pdf, lastdatetime, minutes)
+
+
+def performance(self, odf, tdf, pdf):
+    # odf = self.est.targets.ohlcv.get_data(base, pdf.index[-1], len(pdf))
+    # tdf = self.est.targets.get_data(base, pdf.index[-1], len(pdf))
+    # [odf, tdf] = ccd.common_timerange([odf, tdf])
+
+    startbuy = 2
+    buy = 1
+    sell = -1
+    buy_sell = -2
+    cdf = pd.concat([pdf, tdf.target, odf.close], axis=1, join="inner")  # combi df
+    print("combi_pdf", cdf.describe(percentiles=[], include='all'))
+    cdf["max_pred"] = cdf[pdf.columns].max(axis=1)
+    cdf["status"] = np.nan
+    cdf["performance"] = 0.0
+    status_ix = cdf.columns.get_loc("status")
+    for pred in pdf.columns:
+        cdf[cdf.max_pred > cdf[pred], cdf[pred]] = 0  # only use max values as signals
+    perf_df = pd.DataFrame(index=np.linspace(0.3, 0.9, num=7), columns=np.linspace(0.3, 0.9, num=7))
+    for bt in np.linspace(0.3, 0.9, num=7):  # bt = buy signal thresholds
+        for st in np.linspace(0.4, 0.9, num=6):  # st = sell signal thresholds
+            cdf.loc[cdf[ct.BUY] >= bt, ["status"]] = buy
+            cdf.loc[cdf[ct.SELL] >= st, ["status"]] = sell
+            cdf.at[-1, status_ix] = sell  # force sell at end of timeseries
+            if cdf.at[0, status_ix] != buy:
+                cdf.at[0, status_ix] = startbuy
+            sell_count = 1  # at least the last forced sell
+            gap = 1
+            while sell_count > 1:
+                cdf.loc[(cdf.status == sell) & (cdf.status.shift(gap) == buy), ["status", "performance"]] = \
+                    buy_sell, (cdf.close * (1 - ct.FEE) - cdf.close.shift(gap) * (1 + ct.FEE))
+                gap += 1
+                sell_count = cdf.loc[cdf.status == sell].count()
+            perf_df.loc[bt, st] = cdf.loc[cdf.status == buy_sell, "performance"].sum()
+    return perf_df
 
 
 class EvalPerf:

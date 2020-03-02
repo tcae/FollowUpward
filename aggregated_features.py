@@ -186,10 +186,6 @@ def expand_feature_vectors(tf_aggs, target_key):
 
 class F1agg110(ccd.Features):
 
-    def __init__(self, ohlcv: ccd.Ohlcv):
-        self.ohlcv = ohlcv
-        super().__init__()
-
     def history(self):
         """ Returns the number of history sample minutes
             excluding the minute under consideration required to calculate a new sample data.

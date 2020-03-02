@@ -222,10 +222,6 @@ class CondensedFeatures(TargetsFeatures):
 
 class F2cond20(ccd.Features):
 
-    def __init__(self, ohlcv: ccd.Ohlcv):
-        self.ohlcv = ohlcv
-        super().__init__()
-
     def history(self):
         """ Returns the number of history sample minutes
             excluding the minute under consideration required to calculate a new sample data.
