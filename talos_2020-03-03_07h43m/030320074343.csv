@@ -1,0 +1,5 @@
+round_epochs,loss,acc,precision,val_loss,val_acc,val_precision,activation,dropout,epochs,kernel_initializer,l1_neurons,l2_neurons,l3_neurons,last_activation,losses,optimizer,use_l3
+18,1.0233002030213223,0.50232,0.51437145,1.0135160014033318,0.5159388,0.52647084,relu,0.45,50,he_uniform,14,10,6,softmax,categorical_crossentropy,Adam,False
+19,1.0264450163859995,0.49417868,0.5174385,1.0501467883586884,0.4651624,0.5385833,relu,0.45,50,he_uniform,14,16,6,softmax,categorical_crossentropy,Adam,False
+20,1.0105091221609959,0.4955596,0.5472309,1.0058008432388306,0.49766475,0.5476712,relu,0.45,50,he_uniform,24,10,6,softmax,categorical_crossentropy,Adam,False
+21,1.019387570916261,0.5033123,0.51708966,1.05393785238266,0.50394773,0.5373326,relu,0.45,50,he_uniform,24,16,6,softmax,categorical_crossentropy,Adam,False

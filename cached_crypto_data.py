@@ -142,9 +142,10 @@ class CryptoData:
         "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "missing subclass implementation"
 
-    def new_data(self, base: str, last: pd.Timestamp, minutes: int):
+    def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Downloads or calculates new data for 'minutes' samples up to and including last.
             This is the core method to be implemented by subclasses.
+            If use_cache == False then no saved data is used.
         """
         return None
 
@@ -164,6 +165,7 @@ class CryptoData:
 
     def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
+            If use_cache == False then no saved data is used.
         """
         assert minutes > 0
         if use_cache:
@@ -255,9 +257,10 @@ class Ohlcv(CryptoData):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
         return "OHLCV"
 
-    def new_data(self, base: str, last: pd.Timestamp, minutes: int):
+    def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
+            If use_cache == False then no saved data is used.
         """
         df = Xch.get_ohlcv(base, minutes, last)
         return df[Xch.data_keys]

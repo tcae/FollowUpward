@@ -65,6 +65,7 @@ class PredictionData(ccd.CryptoData):
 
     def __init__(self, estimator_obj: Estimator):
         self.est = estimator_obj
+        super().__init__()
 
     def history(self):
         "no history minutes are requires to calculate prediction data"
@@ -80,12 +81,12 @@ class PredictionData(ccd.CryptoData):
         mem += self.est.features.mnemonic() + "__" + self.est.targets.mnemonic()
         return mem
 
-    def new_data(self, base, lastdatetime, minutes):
+    def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
-        fdf = self.est.features.get_data(base, lastdatetime, minutes)
-        tdf = self.est.targets.get_data(base, lastdatetime, minutes)
+        fdf = self.est.features.get_data(base, last, minutes)
+        tdf = self.est.targets.get_data(base, last, minutes)
         [fdf, tdf] = ccd.common_timerange([fdf, tdf])
         # odf = pd.Series(odf.close, name="close")
 
@@ -94,29 +95,61 @@ class PredictionData(ccd.CryptoData):
         pred = self.est.predict_on_batch(fdf_scaled)
         pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
         print("pdf", pdf.describe(percentiles=[], include='all'))
-        return self.check_timerange(pdf, lastdatetime, minutes)
+        return self.check_timerange(pdf, last, minutes)
 
 
-def performance(self, odf, tdf, pdf):
-    # odf = self.est.targets.ohlcv.get_data(base, pdf.index[-1], len(pdf))
-    # tdf = self.est.targets.get_data(base, pdf.index[-1], len(pdf))
-    # [odf, tdf] = ccd.common_timerange([odf, tdf])
+class PerformanceData(ccd.CryptoData):
 
-    startbuy = 2
-    buy = 1
-    sell = -1
-    buy_sell = -2
-    cdf = pd.concat([pdf, tdf.target, odf.close], axis=1, join="inner")  # combi df
-    print("combi_pdf", cdf.describe(percentiles=[], include='all'))
-    cdf["max_pred"] = cdf[pdf.columns].max(axis=1)
-    cdf["status"] = np.nan
-    cdf["performance"] = 0.0
-    status_ix = cdf.columns.get_loc("status")
-    for pred in pdf.columns:
-        cdf[cdf.max_pred > cdf[pred], cdf[pred]] = 0  # only use max values as signals
-    perf_df = pd.DataFrame(index=np.linspace(0.3, 0.9, num=7), columns=np.linspace(0.3, 0.9, num=7))
-    for bt in np.linspace(0.3, 0.9, num=7):  # bt = buy signal thresholds
-        for st in np.linspace(0.4, 0.9, num=6):  # st = sell signal thresholds
+    def __init__(self, prediction_obj: PredictionData):
+        self.pred = prediction_obj
+        super().__init__()
+
+    def history(self):
+        "no history minutes are requires to calculate prediction data"
+        return 0
+
+    def keyiter(self):
+        for bt in np.linspace(0.3, 0.9, num=7):  # bt = lower bound buy signal bucket
+            for st in np.linspace(0.4, 1, num=7):  # st = lower bound sell signal bucket
+                yield (f"bt{bt:1.1f}/st{st:1.1f}", (round(bt, 1), round(st, 1)))
+
+    def keys(self):
+        "returns the list of element keys"
+        keyl = list()
+        [keyl.append(lbl) for (lbl, _) in self.keyiter()]
+        return keyl
+
+    def index(self):
+        "returns the list of element keys"
+        ixl = list()
+        [ixl.append(ix) for (_, ix) in self.keyiter()]
+        return ixl
+
+    def mnemonic(self, base: str):
+        "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
+        mem = base + "_performance_" + self.pred.est.mnemonic() + "__"
+        mem += self.pred.est.features.mnemonic() + "__" + self.pred.est.targets.mnemonic()
+        return mem
+
+    def performance(self, odf: ccd.Ohlcv, tdf: ct.Targets, pdf: PredictionData):
+        # odf = self.est.targets.ohlcv.get_data(base, pdf.index[-1], len(pdf))
+        # tdf = self.est.targets.get_data(base, pdf.index[-1], len(pdf))
+        # [odf, tdf] = ccd.common_timerange([odf, tdf])
+
+        startbuy = 2
+        buy = 1
+        sell = -1
+        buy_sell = -2
+        cdf = pd.concat([pdf, tdf.target, odf.close], axis=1, join="inner")  # combi df
+        print("combi_pdf", cdf.describe(percentiles=[], include='all'))
+        cdf["max_pred"] = cdf[pdf.columns].max(axis=1)
+        cdf["status"] = np.nan
+        cdf["performance"] = 0.0
+        status_ix = cdf.columns.get_loc("status")
+        for pred in pdf.columns:
+            cdf[cdf.max_pred > cdf[pred], cdf[pred]] = 0  # only use max values as signals
+        perf_df = pd.DataFrame(index=np.linspace(0.3, 0.9, num=7), columns=np.linspace(0.3, 0.9, num=7))
+        for (_, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
             cdf.loc[cdf[ct.BUY] >= bt, ["status"]] = buy
             cdf.loc[cdf[ct.SELL] >= st, ["status"]] = sell
             cdf.at[-1, status_ix] = sell  # force sell at end of timeseries
@@ -130,7 +163,19 @@ def performance(self, odf, tdf, pdf):
                 gap += 1
                 sell_count = cdf.loc[cdf.status == sell].count()
             perf_df.loc[bt, st] = cdf.loc[cdf.status == buy_sell, "performance"].sum()
-    return perf_df
+        return perf_df
+
+    def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+        """ Predicts all samples and returns the result.
+            set_type specific evaluations can be done using the saved prediction data.
+        """
+        odf = self.pred.est.ohlcv.get_data(base, last, minutes)
+        tdf = self.pred.est.targets.get_data(base, last, minutes)
+        pdf = self.pred.get_data(base, last, minutes, use_cache)  # enforce recalculation
+        [odf, tdf, pdf] = ccd.common_timerange([odf, tdf, pdf])
+        perf_df = self.performance(odf, tdf, pdf)
+        print("perf_df", perf_df.describe(percentiles=[], include='all'))
+        return self.check_timerange(perf_df, last, minutes)
 
 
 class EvalPerf:
@@ -445,11 +490,30 @@ class Classifier(Estimator):
         else:
             print(f"{env.timestr()} WARNING: missing classifier - cannot save it")
 
+    def performance_assessment2(self, bases: list, set_type, epoch=0):
+        """Evaluates the performance on the given set and prints the confusion and
+        performance matrix.
+
+        Returns a tuple of (best-performance, at-buy-probability-threshold,
+        at-sell-probability-threshold, with-number-of-transactions)
+        """
+        perf = PerformanceData(PredictionData(self))
+        df_list = list()
+        for base in bases:
+            perf_df = perf.set_type_data(base, set_type)
+            df_list.append(perf_df)
+        set_type_df = pd.concat(all, join="outer", axis=0, keys=bases)
+        total = set_type_df.sum(numeric_only=True)
+        ixl = perf.index()
+        max_ix = total.values.argmax()
+        ix = ixl[max_ix]
+        return (total.iat[max_ix], *ix, set_type_df.iloc[:, max_ix].count())
+
     def performance_assessment(self, set_type, epoch=0):
         """Evaluates the performance on the given set and prints the confusion and
         performance matrix.
 
-        Returns a tuple of (best-performance-factor, at-buy-probability-threshold,
+        Returns a tuple of (best-performance, at-buy-probability-threshold,
         at-sell-probability-threshold, with-number-of-transactions)
         """
         pm = PerfMatrix(epoch, set_type)

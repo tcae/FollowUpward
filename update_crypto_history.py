@@ -10,46 +10,6 @@ import condensed_features as cof
 import aggregated_features as agf
 
 
-def OBSOLETE_merge_asset_dataframe(path, base):
-    """ extends the time range of availble usdt data into the past by mapping base_btc * btc_usdt
-
-        ! obsolete now because this was only needed to build up an extended data set when base/USDT was not
-        available but base/BTC was
-    """
-    # "loads the object via msgpack"
-    fname = path + "btc_usdt" + "_DataFrame.msg"
-    btcusdt = ccd.load_asset_dataframe("btc", path=Env.data_path)
-    if base != "btc":
-        fname = path + base + "_btc" + "_DataFrame.msg"
-        basebtc = ccd.load_asset_dataframefile(fname)
-        ccd.dfdescribe(f"{base}-btc", basebtc)
-        fname = path + base + "_usdt" + "_DataFrame.msg"
-        baseusdt = ccd.load_asset_dataframefile(fname)
-        ccd.dfdescribe(f"{base}-usdt", baseusdt)
-        if (baseusdt.index[0] <= basebtc.index[0]) or (baseusdt.index[0] <= btcusdt.index[0]):
-            basemerged = baseusdt
-        else:
-            basebtc = basebtc[basebtc.index.isin(btcusdt.index)]
-            basemerged = pd.DataFrame(btcusdt)
-            basemerged = basemerged[basemerged.index.isin(basebtc.index)]
-            for key in ccd.data_keys:
-                if key != "volume":
-                    basemerged[key] = basebtc[key] * btcusdt[key]
-            basemerged["volume"] = basebtc.volume
-            ccd.dfdescribe(f"{base}-btc-usdt", basemerged)
-
-            baseusdt = baseusdt[baseusdt.index.isin(basemerged.index)]  # ! why limit to basebtc range?
-            assert not baseusdt.empty
-            basemerged.loc[baseusdt.index] = baseusdt[:]  # take values of cusdt where available
-    else:
-        basemerged = btcusdt
-    ccd.dfdescribe(f"{base}-merged", basemerged)
-
-    ccd.save_asset_dataframe(basemerged, base, Env.data_path)
-
-    return basemerged
-
-
 def check_labels_of_df(df):
     # hdf = df[df.target == ct.TARGETS[ct.HOLD]]
     # hdf_pred = hdf.index[((hdf.index[1:] - hdf.index.shift(periods=1, freq="T")[1:]) != pd.Timedelta(1, unit='T'))]
@@ -189,7 +149,7 @@ if __name__ == "__main__":
     # env.test_mode()
     # tee = env.Tee()
     ohlcv = ccd.Ohlcv()
-    if True:  # base data repair
+    if False:  # base data repair
         df = ccd.load_asset_dataframe("xrp", Env.data_path)
         ohlcv.save_data("xrp", df)
     data_objs = [ohlcv, cof.F2cond20(ohlcv), agf.F1agg110(ohlcv), ct.T10up5low30min(ohlcv)]
