@@ -162,6 +162,7 @@ class CryptoData:
         df = df.loc[(df.index >= first) & (df.index <= last)]
         if (df.index[0] > first) or (df.index[-1] < last):
             print(f"WARNING missing minutes: {df.index[0] - first} at start, {last - df.index[-1]} at end")
+        return df
 
     def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
@@ -175,6 +176,8 @@ class CryptoData:
         first = last - pd.Timedelta(minutes, unit="T")
         if (df is None) or df.empty:
             df = self.new_data(base, last, minutes)
+            if (df is None) or df.empty:
+                return None
         elif (last > df.index[-1]):
             if first > df.index[-1]:
                 df = self.new_data(base, last, minutes)
@@ -223,9 +226,14 @@ class CryptoData:
                 return None
             # print(self.sets_split)
 
-        df = self.load_data(base)
         sdf = self.sets_split.loc[self.sets_split.set_type == set_type]
-        all = [df.loc[(df.index >= sdf.loc[ix, "start"]) & (df.index <= sdf.loc[ix, "end"])] for ix in sdf.index]
+        all = list()
+        for ix in sdf.index:
+            last = pd.Timestamp(sdf.loc[ix, "end"])
+            first = pd.Timestamp(sdf.loc[ix, "start"])
+            minutes = int((last - first) / pd.Timedelta(1, unit="T")) + 1
+            df = self.get_data(base, last, minutes, use_cache=True)
+            all.append(df)
         set_type_df = pd.concat(all, join="outer", axis=0)
         return set_type_df
 

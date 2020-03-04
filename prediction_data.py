@@ -75,9 +75,9 @@ class PredictionData(ccd.CryptoData):
         "returns the list of element keys"
         return self.est.targets.target_dict().keys()
 
-    def mnemonic(self, base: str):
+    def mnemonic(self):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        mem = base + "_predictions_" + self.est.mnemonic() + "__"
+        mem = "predictions_" + self.est.mnemonic() + "__"
         mem += self.est.features.mnemonic() + "__" + self.est.targets.mnemonic()
         return mem
 
@@ -87,12 +87,14 @@ class PredictionData(ccd.CryptoData):
         """
         fdf = self.est.features.get_data(base, last, minutes)
         tdf = self.est.targets.get_data(base, last, minutes)
+        if (fdf is None) or fdf.empty or (tdf is None) or tdf.empty:
+            return None
         [fdf, tdf] = ccd.common_timerange([fdf, tdf])
         # odf = pd.Series(odf.close, name="close")
 
-        if self.scaler is not None:
-            fdf_scaled = self.scaler.transform(fdf.values)
-        pred = self.est.predict_on_batch(fdf_scaled)
+        if self.est.scaler is not None:
+            fdf_scaled = self.est.scaler.transform(fdf.values)
+        pred = self.est.classifier.predict_on_batch(fdf_scaled)
         pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
         print("pdf", pdf.describe(percentiles=[], include='all'))
         return self.check_timerange(pdf, last, minutes)
@@ -119,15 +121,15 @@ class PerformanceData(ccd.CryptoData):
         [keyl.append(lbl) for (lbl, _) in self.keyiter()]
         return keyl
 
-    def index(self):
+    def indexlist(self):
         "returns the list of element keys"
         ixl = list()
         [ixl.append(ix) for (_, ix) in self.keyiter()]
         return ixl
 
-    def mnemonic(self, base: str):
+    def mnemonic(self):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        mem = base + "_performance_" + self.pred.est.mnemonic() + "__"
+        mem = "performance_" + self.pred.est.mnemonic() + "__"
         mem += self.pred.est.features.mnemonic() + "__" + self.pred.est.targets.mnemonic()
         return mem
 
@@ -147,22 +149,25 @@ class PerformanceData(ccd.CryptoData):
         cdf["performance"] = 0.0
         status_ix = cdf.columns.get_loc("status")
         for pred in pdf.columns:
-            cdf[cdf.max_pred > cdf[pred], cdf[pred]] = 0  # only use max values as signals
-        perf_df = pd.DataFrame(index=np.linspace(0.3, 0.9, num=7), columns=np.linspace(0.3, 0.9, num=7))
-        for (_, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
-            cdf.loc[cdf[ct.BUY] >= bt, ["status"]] = buy
-            cdf.loc[cdf[ct.SELL] >= st, ["status"]] = sell
-            cdf.at[-1, status_ix] = sell  # force sell at end of timeseries
-            if cdf.at[0, status_ix] != buy:
-                cdf.at[0, status_ix] = startbuy
+            cdf.loc[cdf.max_pred > cdf[pred], pred] = 0  # only use max values as signals
+        perf_df = pd.DataFrame(index=cdf.index, columns=self.keys())
+        for (lbl, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
+            cdf.loc[cdf[ct.BUY] >= bt, "status"] = buy
+            cdf.loc[cdf[ct.SELL] >= st, "status"] = sell
+            cdf.iat[-1, status_ix] = sell  # force sell at end of timeseries
+            if cdf.iat[0, status_ix] != buy:
+                cdf.iat[0, status_ix] = startbuy
             sell_count = 1  # at least the last forced sell
             gap = 1
-            while sell_count > 1:
+            lencdf = len(cdf)
+            while (sell_count > 0 and (gap < lencdf)):
                 cdf.loc[(cdf.status == sell) & (cdf.status.shift(gap) == buy), ["status", "performance"]] = \
                     buy_sell, (cdf.close * (1 - ct.FEE) - cdf.close.shift(gap) * (1 + ct.FEE))
                 gap += 1
-                sell_count = cdf.loc[cdf.status == sell].count()
-            perf_df.loc[bt, st] = cdf.loc[cdf.status == buy_sell, "performance"].sum()
+                if (gap % 1000) == 0:  # ! this double loop is very slowly
+                    print(gap)
+                sell_count = (cdf.status.values == sell).sum()
+            perf_df.loc[:, lbl] = cdf.loc[cdf.status == buy_sell, "performance"]
         return perf_df
 
     def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
@@ -172,6 +177,8 @@ class PerformanceData(ccd.CryptoData):
         odf = self.pred.est.ohlcv.get_data(base, last, minutes)
         tdf = self.pred.est.targets.get_data(base, last, minutes)
         pdf = self.pred.get_data(base, last, minutes, use_cache)  # enforce recalculation
+        if (odf is None) or odf.empty or (tdf is None) or tdf.empty or (pdf is None) or pdf.empty:
+            return None
         [odf, tdf, pdf] = ccd.common_timerange([odf, tdf, pdf])
         perf_df = self.performance(odf, tdf, pdf)
         print("perf_df", perf_df.describe(percentiles=[], include='all'))
@@ -503,11 +510,14 @@ class Classifier(Estimator):
             perf_df = perf.set_type_data(base, set_type)
             df_list.append(perf_df)
         set_type_df = pd.concat(all, join="outer", axis=0, keys=bases)
+        print(set_type_df.describe())
         total = set_type_df.sum(numeric_only=True)
+        print(total)
         ixl = perf.index()
         max_ix = total.values.argmax()
         ix = ixl[max_ix]
-        return (total.iat[max_ix], *ix, set_type_df.iloc[:, max_ix].count())
+        res = (total.iat[max_ix], *ix, set_type_df.iloc[:, max_ix].count())
+        return res
 
     def performance_assessment(self, set_type, epoch=0):
         """Evaluates the performance on the given set and prints the confusion and
@@ -676,11 +686,13 @@ if __name__ == "__main__":
     else:
         features = agf.AggregatedFeatures(ohlcv)
     classifier = Classifier(ohlcv, features, targets)
-    if True:
+    if False:
         classifier.adapt_keras()
     else:
         # convert_cpc_classifier()
         classifier.load("MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
-        classifier.performance_assessment(ad.VAL)
+        # print("return: ", classifier.performance_assessment(ad.VAL))
+        # print("return new: ", classifier.performance_assessment2(Env.bases, ad.VAL))
+        print("return new: ", classifier.performance_assessment2(["xrp"], ad.VAL))
         # classifier.performance_assessment(ad.TEST)
     tee.close()
