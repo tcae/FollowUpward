@@ -13,9 +13,19 @@ from local_xch import Xch
 """
 
 
+def show_verbose(df, verbose=True, lines=5):
+    print(f"{datetime.now().strftime(Env.dt_format)}: entries: {len(df)}")
+    if verbose:
+        if len(df) <= (2*lines):
+            print(df, "\n")
+        else:
+            print(df.head(lines), "\n", df.tail(lines), "\n")
+
+
 def dfdescribe(desc, df):
     print(desc)
-    # print(df.describe(percentiles=[], include='all'))
+    print(df.describe(percentiles=[], include='all'))
+    show_verbose(verbose=True, lines=2)
     # print(df.head(2))
     # print(df.tail(2))
     if no_index_gaps(df):
@@ -175,16 +185,16 @@ class CryptoData:
             df = None
         first = last - pd.Timedelta(minutes, unit="T")
         if (df is None) or df.empty:
-            df = self.new_data(base, last, minutes)
+            df = self.new_data(base, last, minutes, use_cache)
             if (df is None) or df.empty:
                 return None
         elif (last > df.index[-1]):
             if first > df.index[-1]:
-                df = self.new_data(base, last, minutes)
+                df = self.new_data(base, last, minutes, use_cache)
             else:
                 diffmin = int((last - df.index[-1]) / pd.Timedelta(1, unit="T"))
                 diffmin += 1  # +1 minute due to incomplete last minute effect
-                ndf = self.new_data(base, last, diffmin)
+                ndf = self.new_data(base, last, diffmin, use_cache)
                 df = df.loc[df.index < ndf.index[0]]
                 # thereby cutting any time overlaps, e.g. +1 minute due to incomplete last minute effect
                 df = pd.concat([df, ndf], join="outer", axis=0, sort=True, verify_integrity=True)
@@ -273,6 +283,12 @@ class Ohlcv(CryptoData):
         df = Xch.get_ohlcv(base, minutes, last)
         return df[Xch.data_keys]
 
+    def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+        """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
+            For Ohlcv enforce to use_cache.
+        """
+        return super().get_data(base, last, minutes, use_cache=True)
+
     # def load_data(self, base: str):
     #     """ Loads all saved ohlcv data and returns it as a data frame.
     #     """
@@ -291,6 +307,12 @@ class Features(CryptoData):
     def __init__(self, ohlcv: Ohlcv):
         self.ohlcv = ohlcv
         super().__init__()
+
+    def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+        """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
+            For Features enforce to use_cache.
+        """
+        return super().get_data(base, last, minutes, use_cache=True)
 
 
 def check_df(df):

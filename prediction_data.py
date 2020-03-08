@@ -133,54 +133,58 @@ class PerformanceData(ccd.CryptoData):
         mem += self.pred.est.features.mnemonic() + "__" + self.pred.est.targets.mnemonic()
         return mem
 
-    def performance(self, odf: ccd.Ohlcv, tdf: ct.Targets, pdf: PredictionData):
-        # odf = self.est.targets.ohlcv.get_data(base, pdf.index[-1], len(pdf))
-        # tdf = self.est.targets.get_data(base, pdf.index[-1], len(pdf))
-        # [odf, tdf] = ccd.common_timerange([odf, tdf])
+    def performance_calculation(self, in_df, bt: float, st: float, fee_factor: float, verbose=False):
+        """ Expect a DataFrame with columns 'close', 'buy', 'sell' and a Timerange index.
+            Returns a DataFrame with a % performance column 'perf%', buy_tic and sell_tic.
+            The returned DataFrame has an int range index not compatible with in_df.
+        """
 
-        startbuy = 2
-        buy = 1
-        sell = -1
-        buy_sell = -2
-        cdf = pd.concat([pdf, tdf.target, odf.close], axis=1, join="inner")  # combi df
-        print("combi_pdf", cdf.describe(percentiles=[], include='all'))
-        cdf["max_pred"] = cdf[pdf.columns].max(axis=1)
-        cdf["status"] = np.nan
-        cdf["performance"] = 0.0
-        status_ix = cdf.columns.get_loc("status")
-        for pred in pdf.columns:
-            cdf.loc[cdf.max_pred > cdf[pred], pred] = 0  # only use max values as signals
-        perf_df = pd.DataFrame(index=cdf.index, columns=self.keys())
-        for (lbl, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
-            cdf.loc[cdf[ct.BUY] >= bt, "status"] = buy
-            cdf.loc[cdf[ct.SELL] >= st, "status"] = sell
-            cdf.iat[-1, status_ix] = sell  # force sell at end of timeseries
-            if cdf.iat[0, status_ix] != buy:
-                cdf.iat[0, status_ix] = startbuy
-            sell_count = 1  # at least the last forced sell
-            gap = 1
-            lencdf = len(cdf)
-            while (sell_count > 0 and (gap < lencdf)):
-                cdf.loc[(cdf.status == sell) & (cdf.status.shift(gap) == buy), ["status", "performance"]] = \
-                    buy_sell, (cdf.close * (1 - ct.FEE) - cdf.close.shift(gap) * (1 + ct.FEE))
-                gap += 1
-                if (gap % 1000) == 0:  # ! this double loop is very slowly
-                    print(gap)
-                sell_count = (cdf.status.values == sell).sum()
-            perf_df.loc[:, lbl] = cdf.loc[cdf.status == buy_sell, "performance"]
-        return perf_df
+        in_df.index.rename("tic", inplace=True)  # debug candy
+        df = in_df.reset_index().copy()  # preserve tics as data but use one numbers as index
+        df.index.rename("ix", inplace=True)
+        df.at[df.index[-1], "buy"] = 0  # no buy at last tic
+        df.at[df.index[-1], "sell"] = 1  # forced sell at last tic
+        df = df.loc[(df.buy >= bt) | (df.sell >= st)]
+        if len(df) > 1:
+            ccd.show_verbose(in_df, verbose)
+            df = df.reset_index()  # preserve ix line numbers as unique reference of sell lines
+            ccd.show_verbose(df, verbose)
+            df.loc[(df.sell >= st), "sell_price"] = df.close
+            df.loc[(df.sell >= st), "sell_ix"] = df["ix"]
+            df.loc[(df.sell < st), "sell"] = np.nan  # debug candy
+            df.loc[(df.sell >= st), "sell_tic"] = df["tic"]  # debug candy
+            df.loc[:, "sell_ix"] = df.sell_ix.fillna(method='backfill')
+            df.loc[:, "sell_price"] = df.sell_price.fillna(method='backfill')
+            df.loc[:, "sell"] = df.sell.fillna(method='backfill')  # debug candy
+            df.loc[:, "sell_tic"] = df.sell.fillna(method='backfill')  # debug candy
+            df = df.rename(columns={"close": "buy_price", "tic": "buy_tic", "ix": "buy_ix"})
+            df = df.loc[(df.buy >= bt)]
+            ccd.show_verbose(df, verbose)
+            df = df.drop_duplicates("sell_ix", keep="first")
+            df["perf%"] = df.sell_price * (1 - fee_factor) - df.buy_price * (1 + fee_factor)
+            ccd.show_verbose(df, verbose)
+        else:
+            df = df.drop(df.index[-1])
+        return df
 
     def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
         odf = self.pred.est.ohlcv.get_data(base, last, minutes)
-        tdf = self.pred.est.targets.get_data(base, last, minutes)
-        pdf = self.pred.get_data(base, last, minutes, use_cache)  # enforce recalculation
-        if (odf is None) or odf.empty or (tdf is None) or tdf.empty or (pdf is None) or pdf.empty:
+        # tdf = self.pred.est.targets.get_data(base, last, minutes)
+        pred_df = self.pred.get_data(base, last, minutes, use_cache)  # enforce recalculation
+        if (odf is None) or odf.empty or (pred_df is None) or pred_df.empty:
             return None
-        [odf, tdf, pdf] = ccd.common_timerange([odf, tdf, pdf])
-        perf_df = self.performance(odf, tdf, pdf)
+        pred_df = pred_df[["buy", "sell"]]
+        cdf = pd.concat([odf.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
+        # print("combi_pdf", cdf.describe(percentiles=[], include='all'))
+        perf_df = pd.DataFrame(columns=self.keys(), index=cdf.index)
+        for (lbl, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
+            rdf = self.performance_calculation(cdf, bt, st, ct.FEE, verbose=True)
+            perf_df.loc[:, lbl] = 0
+            if not rdf.empty:
+                perf_df.loc[rdf.sell_tic, lbl] = rdf["perf%"]
         print("perf_df", perf_df.describe(percentiles=[], include='all'))
         return self.check_timerange(perf_df, last, minutes)
 
@@ -509,11 +513,11 @@ class Classifier(Estimator):
         for base in bases:
             perf_df = perf.set_type_data(base, set_type)
             df_list.append(perf_df)
-        set_type_df = pd.concat(all, join="outer", axis=0, keys=bases)
+        set_type_df = pd.concat(df_list, join="outer", axis=0, keys=bases)
         print(set_type_df.describe())
         total = set_type_df.sum(numeric_only=True)
         print(total)
-        ixl = perf.index()
+        ixl = set_type_df.index()
         max_ix = total.values.argmax()
         ix = ixl[max_ix]
         res = (total.iat[max_ix], *ix, set_type_df.iloc[:, max_ix].count())

@@ -241,7 +241,7 @@ class F2cond20(ccd.Features):
         "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "F2cond{}".format(FEATURE_COUNT)
 
-    def new_data(self, base: str, last: pd.Timestamp, minutes: int):
+    def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Downloads or calculates new data for 'minutes' samples up to and including last.
         """
         df = self.ohlcv.get_data(base, last, minutes + self.history())

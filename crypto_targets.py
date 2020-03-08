@@ -130,6 +130,12 @@ class Targets(ccd.CryptoData):
         """
         pass
 
+    def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+        """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
+            For Targets enforce to use_cache.
+        """
+        return super().get_data(base, last, minutes, use_cache=True)
+
 
 class T10up5low30min(Targets):
 
@@ -154,7 +160,7 @@ class T10up5low30min(Targets):
         "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "T10up5low30min"
 
-    def new_data(self, base: str, last: pd.Timestamp, minutes: int):
+    def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Downloads or calculates new data for 'minutes' samples up to and including last.
             This is the core method to be implemented by subclasses.
         """

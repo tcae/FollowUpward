@@ -350,7 +350,7 @@ def close_timeline_graph(timerange, aggregation, click_data, bases, regression_b
             indicators = []
         else:
             if "regression 1D" in indicators:
-                if regression_base is not None:
+                if regression_base == base:
                     graph_bases.append(regr)
 
         # df_check(cmd[base], timerange)
