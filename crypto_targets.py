@@ -130,12 +130,6 @@ class Targets(ccd.CryptoData):
         """
         pass
 
-    def get_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
-            For Targets enforce to use_cache.
-        """
-        return super().get_data_old(base, last, minutes, use_cache=True)
-
     def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Loads and downloads/calculates new data from 'first' sample up to and including 'last'.
             For Targets enforce to use_cache.
@@ -165,17 +159,6 @@ class T10up5low30min(Targets):
     def mnemonic(self):
         "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "T10up5low30min"
-
-    def new_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        """ Downloads or calculates new data for 'minutes' samples up to and including last.
-            This is the core method to be implemented by subclasses.
-        """
-        df = self.ohlcv.get_data_old(base, last, minutes + self.history())
-        trade_targets = trade_signals(df["close"].values)
-        df["target"] = trade_targets
-        tdf = df.iloc[-minutes:]
-        tdf = tdf.loc[:, self.keys()]
-        return tdf
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Downloads or calculates new data from 'first' sample up to and including 'last'.

@@ -213,14 +213,6 @@ class F1agg110(ccd.Features):
         "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "F1agg110"
 
-    def new_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        """ Downloads or calculates new data for 'minutes' samples up to and including last.
-        """
-        df = self.ohlcv.get_data_old(base, last, minutes + self.history())
-        tf_aggs = calc_aggregation(df, TIME_AGGS)
-        vec = expand_feature_vectors(tf_aggs, TARGET_KEY)
-        return vec
-
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Downloads or calculates new data from 'first' sample up to and including 'last'.
         """

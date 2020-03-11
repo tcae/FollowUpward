@@ -153,13 +153,6 @@ class CryptoData:
         "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "missing subclass implementation"
 
-    def new_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        """ Downloads or calculates new data for 'minutes' samples up to and including last.
-            This is the core method to be implemented by subclasses.
-            If use_cache == False then no saved data is used.
-        """
-        return None
-
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Downloads or calculates new data from 'first' sample up to and including 'last'.
             This is the core method to be implemented by subclasses.
@@ -172,16 +165,6 @@ class CryptoData:
         fname = self.path + base + "_" + self.mnemonic() + "_df.h5"
         return fname
 
-    def check_timerange_old(self, df: pd.DataFrame, last: pd.Timestamp, minutes: int):
-        """ Returns a data frame that is limited to the given timerange.
-            Issues a warning if the timerange is smaller than requested.
-        """
-        first = last - pd.Timedelta(minutes - 1, unit="T")
-        df = df.loc[(df.index >= first) & (df.index <= last)]
-        if (df.index[0] > first) or (df.index[-1] < last):
-            print(f"WARNING missing minutes: {df.index[0] - first} at start, {last - df.index[-1]} at end")
-        return df
-
     def check_timerange(self, df: pd.DataFrame, first: pd.Timestamp, last: pd.Timestamp):
         """ Returns a data frame that is limited to the given timerange.
             Issues a warning if the timerange is smaller than requested.
@@ -192,34 +175,6 @@ class CryptoData:
         df = df.loc[(df.index >= first) & (df.index <= last)]
         if (df.index[0] > first) or (df.index[-1] < last):
             print(f"WARNING index time gap of: {df.index[0] - first} at start, {last - df.index[-1]} at end")
-        return df
-
-    def get_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
-            If use_cache == False then no saved data is used.
-        """
-        assert minutes > 0
-        if use_cache:
-            df = self.load_data(base)
-        else:
-            df = None
-        first = last - pd.Timedelta(minutes, unit="T")
-        if (df is None) or df.empty:
-            df = self.new_data(base, last, minutes, use_cache)
-            if (df is None) or df.empty:
-                return None
-        elif (last > df.index[-1]):
-            if first > df.index[-1]:
-                df = self.new_data(base, last, minutes, use_cache)
-            else:
-                diffmin = int((last - df.index[-1]) / pd.Timedelta(1, unit="T"))
-                diffmin += 1  # +1 minute due to incomplete last minute effect
-                ndf = self.new_data(base, last, diffmin, use_cache)
-                df = df.loc[df.index < ndf.index[0]]
-                # thereby cutting any time overlaps, e.g. +1 minute due to incomplete last minute effect
-                df = pd.concat([df, ndf], join="outer", axis=0, sort=True, verify_integrity=True)
-        df = df.loc[(df.index >= first) & (df.index <= last), self.keys()]
-        assert no_index_gaps(df)
         return df
 
     def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
@@ -323,20 +278,6 @@ class Ohlcv(CryptoData):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
         return "OHLCV"
 
-    def new_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        """ Predicts all samples and returns the result.
-            set_type specific evaluations can be done using the saved prediction data.
-            If use_cache == False then no saved data is used.
-        """
-        df = Xch.get_ohlcv(base, minutes, last)
-        return df[Xch.data_keys]
-
-    def get_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
-            For Ohlcv enforce to use_cache.
-        """
-        return super().get_data_old(base, last, minutes, use_cache=True)
-
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
@@ -358,17 +299,6 @@ class Ohlcv(CryptoData):
         """
         return super().get_data(base, first, last, use_cache=True)
 
-    # def load_data(self, base: str):
-    #     """ Loads all saved ohlcv data and returns it as a data frame.
-    #     """
-    #     df = load_asset_dataframe(base, path=self.path)
-    #     return df[Xch.data_keys]
-
-    # def save_data(self, base: str, df):
-    #     """ Saves complete ohlcv data that is expected to be in 'df' and overwrites all previous content.
-    #     """
-    #     save_asset_dataframe(df, base, path=self.path)
-
 
 class Features(CryptoData):
     " Abstract superclass of all feature subclasses."
@@ -376,12 +306,6 @@ class Features(CryptoData):
     def __init__(self, ohlcv: Ohlcv):
         self.ohlcv = ohlcv
         super().__init__()
-
-    def get_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
-            For Features enforce to use_cache.
-        """
-        return super().get_data_old(base, last, minutes, use_cache=True)
 
     def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Loads and downloads/calculates new data from 'first' sample up to and including 'last'.

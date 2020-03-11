@@ -82,23 +82,6 @@ class PredictionData(ccd.CryptoData):
         mem += self.est.features.mnemonic() + "__" + self.est.targets.mnemonic()
         return mem
 
-    def new_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        """ Predicts all samples and returns the result.
-            set_type specific evaluations can be done using the saved prediction data.
-        """
-        fdf = self.est.features.get_data_old(base, last, minutes)
-        tdf = self.est.targets.get_data_old(base, last, minutes)
-        if (fdf is None) or fdf.empty or (tdf is None) or tdf.empty:
-            return None
-        [fdf, tdf] = ccd.common_timerange([fdf, tdf])
-        # odf = pd.Series(odf.close, name="close")
-
-        if self.est.scaler is not None:
-            fdf_scaled = self.est.scaler.transform(fdf.values)
-        pred = self.est.classifier.predict_on_batch(fdf_scaled)
-        pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
-        return self.check_timerange_old(pdf, last, minutes)
-
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
@@ -192,12 +175,12 @@ class PerformanceData(ccd.CryptoData):
             df = df.drop(df.index[-1])
         return df
 
-    def new_data_backup(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+    def new_data_backup(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
-        odf = self.pred.est.ohlcv.get_data_old(base, last, minutes)
-        pred_df = self.pred.get_data_old(base, last, minutes, use_cache)  # enforce recalculation
+        odf = self.pred.est.ohlcv.get_data(base, first, last)
+        pred_df = self.pred.get_data(base, first, last, use_cache)  # enforce recalculation
         if (odf is None) or odf.empty or (pred_df is None) or pred_df.empty:
             return None
         pred_df = pred_df[["buy", "sell"]]
@@ -208,26 +191,7 @@ class PerformanceData(ccd.CryptoData):
             perf_df.loc[:, lbl] = 0
             if not rdf.empty:
                 perf_df.loc[[rdf.sell_tic.iat[stix] for stix in range(len(rdf))], lbl] = rdf["perf"].values
-        return self.check_timerange_old(perf_df, last, minutes)
-
-    def new_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        """ Predicts all samples and returns the result.
-            set_type specific evaluations can be done using the saved prediction data.
-        """
-        odf = self.pred.est.ohlcv.get_data_old(base, last, minutes)
-        pred_df = self.pred.get_data_old(base, last, minutes, use_cache)  # enforce recalculation
-        if (odf is None) or odf.empty or (pred_df is None) or pred_df.empty:
-            return None
-        cdf = pd.concat([odf.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
-        df_list = list()
-        for (lbl, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
-            rdf = self.performance_calculation(cdf, bt, st, ct.FEE, verbose=False)
-            df_list.append(rdf)
-        perf_df = pd.concat(df_list, join="outer", axis=0, keys=self.keys())
-        return perf_df
-
-    def get_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
-        return self.new_data_old(base, last, minutes, use_cache)
+        return self.check_timerange(perf_df, first, last)
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Predicts all samples and returns the result.
