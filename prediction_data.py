@@ -64,8 +64,9 @@ class Estimator:
 class PredictionData(ccd.CryptoData):
 
     def __init__(self, estimator_obj: Estimator):
-        self.est = estimator_obj
         super().__init__()
+        self.est = estimator_obj
+        self.missing_file_warning = False
 
     def history(self):
         "no history minutes are requires to calculate prediction data"
@@ -96,7 +97,6 @@ class PredictionData(ccd.CryptoData):
             fdf_scaled = self.est.scaler.transform(fdf.values)
         pred = self.est.classifier.predict_on_batch(fdf_scaled)
         pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
-        print("pdf", pdf.describe(percentiles=[], include='all'))
         return self.check_timerange(pdf, last, minutes)
 
 
@@ -138,17 +138,23 @@ class PerformanceData(ccd.CryptoData):
             Returns a DataFrame with a % performance column 'perf%', buy_tic and sell_tic.
             The returned DataFrame has an int range index not compatible with in_df.
         """
-
         in_df.index.rename("tic", inplace=True)  # debug candy
         df = in_df.reset_index().copy()  # preserve tics as data but use one numbers as index
         df.index.rename("ix", inplace=True)
         df.at[df.index[-1], "buy"] = 0  # no buy at last tic
         df.at[df.index[-1], "sell"] = 1  # forced sell at last tic
+        df["sell_ix"] = pd.Series(dtype=pd.Int64Dtype())
+        df["sell_tic"] = pd.Series(dtype='datetime64[ns, UTC]')
+        df["sell_price"] = pd.Series(dtype=float)
+        df["sell_trhld"] = st
+        df["buy_trhld"] = bt
         df = df.loc[(df.buy >= bt) | (df.sell >= st)]
+        # ccd.show_verbose(in_df, verbose)
+        df = df.reset_index()  # preserve ix line numbers as unique reference of sell lines
         if len(df) > 1:
-            ccd.show_verbose(in_df, verbose)
-            df = df.reset_index()  # preserve ix line numbers as unique reference of sell lines
             ccd.show_verbose(df, verbose)
+            df["sell_ix"] = pd.Series(dtype=pd.Int64Dtype())
+            df["sell_tic"] = pd.Series(dtype='datetime64[ns, UTC]')
             df.loc[(df.sell >= st), "sell_price"] = df.close
             df.loc[(df.sell >= st), "sell_ix"] = df["ix"]
             df.loc[(df.sell < st), "sell"] = np.nan  # debug candy
@@ -156,37 +162,55 @@ class PerformanceData(ccd.CryptoData):
             df.loc[:, "sell_ix"] = df.sell_ix.fillna(method='backfill')
             df.loc[:, "sell_price"] = df.sell_price.fillna(method='backfill')
             df.loc[:, "sell"] = df.sell.fillna(method='backfill')  # debug candy
-            df.loc[:, "sell_tic"] = df.sell.fillna(method='backfill')  # debug candy
+            df.loc[:, "sell_tic"] = df.sell_tic.fillna(method='backfill')  # debug candy
             df = df.rename(columns={"close": "buy_price", "tic": "buy_tic", "ix": "buy_ix"})
             df = df.loc[(df.buy >= bt)]
             ccd.show_verbose(df, verbose)
             df = df.drop_duplicates("sell_ix", keep="first")
-            df["perf%"] = df.sell_price * (1 - fee_factor) - df.buy_price * (1 + fee_factor)
+            df["perf"] = (df.sell_price * (1 - fee_factor) - df.buy_price * (1 + fee_factor)) / df.buy_price * 100
+            df = df.reset_index(drop=True)  # eye candy
             ccd.show_verbose(df, verbose)
         else:
+            df = df.rename(columns={"close": "buy_price", "tic": "buy_tic", "ix": "buy_ix"})
             df = df.drop(df.index[-1])
         return df
+
+    def new_data_backup(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+        """ Predicts all samples and returns the result.
+            set_type specific evaluations can be done using the saved prediction data.
+        """
+        odf = self.pred.est.ohlcv.get_data(base, last, minutes)
+        pred_df = self.pred.get_data(base, last, minutes, use_cache)  # enforce recalculation
+        if (odf is None) or odf.empty or (pred_df is None) or pred_df.empty:
+            return None
+        pred_df = pred_df[["buy", "sell"]]
+        cdf = pd.concat([odf.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
+        perf_df = pd.DataFrame(columns=self.keys(), index=cdf.index)
+        for (lbl, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
+            rdf = self.performance_calculation(cdf, bt, st, ct.FEE, verbose=False)
+            perf_df.loc[:, lbl] = 0
+            if not rdf.empty:
+                perf_df.loc[[rdf.sell_tic.iat[stix] for stix in range(len(rdf))], lbl] = rdf["perf"].values
+        return self.check_timerange(perf_df, last, minutes)
 
     def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
         odf = self.pred.est.ohlcv.get_data(base, last, minutes)
-        # tdf = self.pred.est.targets.get_data(base, last, minutes)
         pred_df = self.pred.get_data(base, last, minutes, use_cache)  # enforce recalculation
         if (odf is None) or odf.empty or (pred_df is None) or pred_df.empty:
             return None
-        pred_df = pred_df[["buy", "sell"]]
         cdf = pd.concat([odf.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
-        # print("combi_pdf", cdf.describe(percentiles=[], include='all'))
-        perf_df = pd.DataFrame(columns=self.keys(), index=cdf.index)
+        df_list = list()
         for (lbl, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
-            rdf = self.performance_calculation(cdf, bt, st, ct.FEE, verbose=True)
-            perf_df.loc[:, lbl] = 0
-            if not rdf.empty:
-                perf_df.loc[rdf.sell_tic, lbl] = rdf["perf%"]
-        print("perf_df", perf_df.describe(percentiles=[], include='all'))
-        return self.check_timerange(perf_df, last, minutes)
+            rdf = self.performance_calculation(cdf, bt, st, ct.FEE, verbose=False)
+            df_list.append(rdf)
+        perf_df = pd.concat(df_list, join="outer", axis=0, keys=self.keys())
+        return perf_df
+
+    def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+        return self.new_data(base, last, minutes, use_cache)
 
 
 class EvalPerf:
@@ -501,6 +525,39 @@ class Classifier(Estimator):
         else:
             print(f"{env.timestr()} WARNING: missing classifier - cannot save it")
 
+    def performance_assessment3(self, bases: list, set_type, epoch=0):
+        """ Evaluates the performance on the given set and prints the confusion and
+            performance matrix.
+
+            Returns a tuple of (best-performance, at-buy-probability-threshold,
+            at-sell-probability-threshold, with-number-of-transactions)
+        """
+        perf = PerformanceData(PredictionData(self))
+        df_list = list()
+        for base in bases:
+            perf_df = perf.set_type_data(base, set_type)
+            df_list.append(perf_df)
+        set_type_df = pd.concat(df_list, join="outer", axis=0, keys=bases)
+        set_type_df = set_type_df.swaplevel(i=0, j=1, axis=0)
+        print(set_type_df.describe(percentiles=[], include='all'))
+        total = pd.DataFrame(columns=["perf", "count", "buy_trhld", "sell_trhld"], dtype=float)
+        for kix, k in enumerate(perf.keys()):
+            total.loc[kix, "perf"] = set_type_df.loc[k, "perf"].sum().round(2)
+            total.loc[kix, "count"] = set_type_df.loc[k, "perf"].count().round(0)
+            total.loc[kix, "buy_trhld"] = set_type_df.loc[k, "buy_trhld"].mean().round(1)
+            total.loc[kix, "sell_trhld"] = set_type_df.loc[k, "sell_trhld"].mean().round(1)
+            # total.loc[kix, "label"] = k
+            if total.at[kix, "count"] < 10:
+                print("check:", set_type_df.loc[k])
+        # print(set_type_df.describe())
+        # total = set_type_df.sum(numeric_only=True).to_frame(name="perf")
+        # total.index.rename("ix", inplace=True)
+        # total = total.reset_index()
+        print(set_type_df, "\n", total)
+        max_ix = total.perf.idxmax()
+        res = (total.at[max_ix, "perf"], total.at[max_ix, "buy_trhld"], total.at[max_ix, "sell_trhld"], total.at[max_ix, "count"])
+        return res
+
     def performance_assessment2(self, bases: list, set_type, epoch=0):
         """Evaluates the performance on the given set and prints the confusion and
         performance matrix.
@@ -514,13 +571,13 @@ class Classifier(Estimator):
             perf_df = perf.set_type_data(base, set_type)
             df_list.append(perf_df)
         set_type_df = pd.concat(df_list, join="outer", axis=0, keys=bases)
-        print(set_type_df.describe())
-        total = set_type_df.sum(numeric_only=True)
+        # print(set_type_df.describe())
+        total = set_type_df.sum(numeric_only=True).to_frame(name="perf")
+        total.index.rename("ix", inplace=True)
+        total = total.reset_index()
         print(total)
-        ixl = set_type_df.index()
-        max_ix = total.values.argmax()
-        ix = ixl[max_ix]
-        res = (total.iat[max_ix], *ix, set_type_df.iloc[:, max_ix].count())
+        max_ix = total.perf.idxmax()
+        res = (total.at[max_ix, "perf"], 0.9, 0.9, set_type_df.iloc[:, max_ix].count())  # ! 0.9, 0.9 is dummy data
         return res
 
     def performance_assessment(self, set_type, epoch=0):
@@ -683,6 +740,7 @@ def convert_cpc_classifier():
 if __name__ == "__main__":
     # env.test_mode()
     tee = env.Tee()
+    start_time = timeit.default_timer()
     ohlcv = ccd.Ohlcv()
     targets = ct.T10up5low30min(ohlcv)
     if True:
@@ -694,9 +752,12 @@ if __name__ == "__main__":
         classifier.adapt_keras()
     else:
         # convert_cpc_classifier()
-        classifier.load("MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
+        classifier.load("MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
+        # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
         # print("return: ", classifier.performance_assessment(ad.VAL))
-        # print("return new: ", classifier.performance_assessment2(Env.bases, ad.VAL))
-        print("return new: ", classifier.performance_assessment2(["xrp"], ad.VAL))
+        print("return new: ", classifier.performance_assessment3(Env.bases, ad.VAL))
+        # print("return new: ", classifier.performance_assessment2(["xrp"], ad.VAL))
         # classifier.performance_assessment(ad.TEST)
+    tdiff = (timeit.default_timer() - start_time) / 60
+    print(f"{env.timestr()} total script time: {tdiff:.0f} min")
     tee.close()

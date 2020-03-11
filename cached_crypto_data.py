@@ -14,8 +14,8 @@ from local_xch import Xch
 
 
 def show_verbose(df, verbose=True, lines=5):
-    print(f"{datetime.now().strftime(Env.dt_format)}: entries: {len(df)}")
     if verbose:
+        print(f"{datetime.now().strftime(Env.dt_format)}: entries: {len(df)}")
         if len(df) <= (2*lines):
             print(df, "\n")
         else:
@@ -137,6 +137,7 @@ class CryptoData:
     def __init__(self):
         self.path = Env.data_path
         self.sets_split = None
+        self.missing_file_warning = True
 
     def history(self):
         """ Returns the number of history sample minutes
@@ -211,7 +212,8 @@ class CryptoData:
                 df = df.to_frame()
             df = df.loc[:, self.keys()]
         except IOError:
-            print(f"{env.timestr()} WARNING: cannot load {self.fname(base)}")
+            if self.missing_file_warning:
+                print(f"{env.timestr()} WARNING: cannot load {self.fname(base)}")
             df = None
         return df
 
