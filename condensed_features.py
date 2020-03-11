@@ -241,10 +241,17 @@ class F2cond20(ccd.Features):
         "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "F2cond{}".format(FEATURE_COUNT)
 
-    def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+    def new_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Downloads or calculates new data for 'minutes' samples up to and including last.
         """
-        df = self.ohlcv.get_data(base, last, minutes + self.history())
+        df = self.ohlcv.get_data_old(base, last, minutes + self.history())
+        return cal_features(df)
+
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Downloads or calculates new data from 'first' sample up to and including 'last'.
+        """
+        ohlc_first = first - pd.Timedelta(self.history(), unit="T")
+        df = self.ohlcv.get_data(base, ohlc_first, last)
         return cal_features(df)
 
 

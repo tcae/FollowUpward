@@ -153,8 +153,15 @@ class CryptoData:
         "returns a string that represents this class as mnemonic, e.g. to use it in file names"
         return "missing subclass implementation"
 
-    def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+    def new_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Downloads or calculates new data for 'minutes' samples up to and including last.
+            This is the core method to be implemented by subclasses.
+            If use_cache == False then no saved data is used.
+        """
+        return None
+
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Downloads or calculates new data from 'first' sample up to and including 'last'.
             This is the core method to be implemented by subclasses.
             If use_cache == False then no saved data is used.
         """
@@ -165,7 +172,7 @@ class CryptoData:
         fname = self.path + base + "_" + self.mnemonic() + "_df.h5"
         return fname
 
-    def check_timerange(self, df: pd.DataFrame, last: pd.Timestamp, minutes: int):
+    def check_timerange_old(self, df: pd.DataFrame, last: pd.Timestamp, minutes: int):
         """ Returns a data frame that is limited to the given timerange.
             Issues a warning if the timerange is smaller than requested.
         """
@@ -175,7 +182,19 @@ class CryptoData:
             print(f"WARNING missing minutes: {df.index[0] - first} at start, {last - df.index[-1]} at end")
         return df
 
-    def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+    def check_timerange(self, df: pd.DataFrame, first: pd.Timestamp, last: pd.Timestamp):
+        """ Returns a data frame that is limited to the given timerange.
+            Issues a warning if the timerange is smaller than requested.
+        """
+        assert first is not None
+        assert last is not None
+        assert first <= last
+        df = df.loc[(df.index >= first) & (df.index <= last)]
+        if (df.index[0] > first) or (df.index[-1] < last):
+            print(f"WARNING index time gap of: {df.index[0] - first} at start, {last - df.index[-1]} at end")
+        return df
+
+    def get_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
             If use_cache == False then no saved data is used.
         """
@@ -199,7 +218,35 @@ class CryptoData:
                 df = df.loc[df.index < ndf.index[0]]
                 # thereby cutting any time overlaps, e.g. +1 minute due to incomplete last minute effect
                 df = pd.concat([df, ndf], join="outer", axis=0, sort=True, verify_integrity=True)
-        df = df.loc[(df.index > first) & (df.index <= last), self.keys()]
+        df = df.loc[(df.index >= first) & (df.index <= last), self.keys()]
+        assert no_index_gaps(df)
+        return df
+
+    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Loads and downloads/calculates new data from 'first' sample up to and including 'last'.
+            If use_cache == False then no saved data is used.
+        """
+        assert first is not None
+        assert last is not None
+        assert first <= last
+        if use_cache:
+            df = self.load_data(base)
+        else:
+            df = None
+        if (df is None) or df.empty:
+            df = self.new_data(base, first, last, use_cache)
+            if (df is None) or df.empty:
+                return None
+        elif (last > df.index[-1]):
+            if first > df.index[-1]:
+                df = self.new_data(base, first, last, use_cache)
+            else:
+                # include df.index[-1] as new data first due to incomplete last minute effect
+                ndf = self.new_data(base, df.index[-1], last, use_cache)
+                df = df.loc[df.index < ndf.index[0]]
+                # thereby cutting any time overlaps, e.g. +1 minute due to incomplete last minute effect
+                df = pd.concat([df, ndf], join="outer", axis=0, sort=True, verify_integrity=True)
+        df = df.loc[(df.index >= first) & (df.index <= last), self.keys()]
         assert no_index_gaps(df)
         return df
 
@@ -243,13 +290,12 @@ class CryptoData:
         for ix in sdf.index:
             last = pd.Timestamp(sdf.loc[ix, "end"])
             first = pd.Timestamp(sdf.loc[ix, "start"])
-            minutes = int((last - first) / pd.Timedelta(1, unit="T")) + 1
-            df = self.get_data(base, last, minutes, use_cache=True)
+            df = self.get_data(base, first, last, use_cache=True)
             all.append(df)
         set_type_df = pd.concat(all, join="outer", axis=0)
         return set_type_df
 
-    def check_report(self, base):
+    def check_report_obsolete(self, base):
         """ request data that crosses the boundry of to be downloaded and cached ohlcv data.
             Reports check results.
         """
@@ -277,7 +323,7 @@ class Ohlcv(CryptoData):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
         return "OHLCV"
 
-    def new_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+    def new_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
             If use_cache == False then no saved data is used.
@@ -285,11 +331,32 @@ class Ohlcv(CryptoData):
         df = Xch.get_ohlcv(base, minutes, last)
         return df[Xch.data_keys]
 
-    def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+    def get_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
             For Ohlcv enforce to use_cache.
         """
-        return super().get_data(base, last, minutes, use_cache=True)
+        return super().get_data_old(base, last, minutes, use_cache=True)
+
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Predicts all samples and returns the result.
+            set_type specific evaluations can be done using the saved prediction data.
+            If use_cache == False then no saved data is used.
+        """
+        assert first is not None
+        assert last is not None
+        assert first <= last
+        minutes = int((last - first) / pd.Timedelta(1, unit="T"))
+        if minutes > 0:
+            df = Xch.get_ohlcv(base, minutes, last)
+            return df[Xch.data_keys]
+        else:
+            return None
+
+    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Loads and downloads/calculates new data from 'first' sample up to and including 'last'.
+            For Ohlcv enforce to use_cache.
+        """
+        return super().get_data(base, first, last, use_cache=True)
 
     # def load_data(self, base: str):
     #     """ Loads all saved ohlcv data and returns it as a data frame.
@@ -310,11 +377,17 @@ class Features(CryptoData):
         self.ohlcv = ohlcv
         super().__init__()
 
-    def get_data(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
+    def get_data_old(self, base: str, last: pd.Timestamp, minutes: int, use_cache=True):
         """ Loads and downloads/calculates new data for 'minutes' samples up to and including last.
             For Features enforce to use_cache.
         """
-        return super().get_data(base, last, minutes, use_cache=True)
+        return super().get_data_old(base, last, minutes, use_cache=True)
+
+    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Loads and downloads/calculates new data from 'first' sample up to and including 'last'.
+            For Features enforce to use_cache.
+        """
+        return super().get_data(base, first, last, use_cache=True)
 
 
 def check_df(df):
