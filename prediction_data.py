@@ -41,7 +41,7 @@ print(f"Keras version: {keras.__version__}")
 print(__doc__)
 
 
-class Estimator:
+class Predictor:
 
     def __init__(self, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
         self.ohlcv = ohlcv
@@ -49,24 +49,33 @@ class Estimator:
         self.features = features
         self.params = {}
         self.scaler = None
-        self.classifier = None
-        self.estimator = None
+        self.predictor = None
         self.training_gen = ad.TrainingGenerator(self.scaler, features, targets, shuffle=False)
         self.validation_gen = ad.ValidationGenerator(ad.VAL, self.scaler, features, targets)
+        self.path = Env.model_path
 
     def mnemonic(self):
         "returns a string that represent the estimator class as mnemonic, e.g. to use it in file names"
-        pmem = [str(p) + "=" + str(self.params[p]) for p in self.params]
-        mem = "MLP2_" + "_".join(pmem)
+        pmem = [str(p) + "-" + str(self.params[p]) for p in self.params]
+        mem = "MLP2_" + "_".join(pmem) + "__" + self.features.mnemonic() + "__" + self.targets.mnemonic()
         return mem
+
+    def path(self):
+        """ Returns a path where several files that are related to a classifier are stored,
+            e.g. keras model, scaler, parameters, prediction data.
+            With that there is one folder to find everything related and also just one folder to
+            delete when the classifier is obsolete.
+        """
+        return self.path + self.mnemonic()
 
 
 class PredictionData(ccd.CryptoData):
 
-    def __init__(self, estimator_obj: Estimator):
+    def __init__(self, estimator_obj: Predictor):
         super().__init__()
         self.est = estimator_obj
         self.missing_file_warning = False
+        self.path = self.est.path()
 
     def history(self):
         "no history minutes are requires to calculate prediction data"
@@ -78,8 +87,7 @@ class PredictionData(ccd.CryptoData):
 
     def mnemonic(self):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        mem = "predictions_" + self.est.mnemonic() + "__"
-        mem += self.est.features.mnemonic() + "__" + self.est.targets.mnemonic()
+        mem = "predictions_" + self.est.mnemonic()
         return mem
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
@@ -103,8 +111,9 @@ class PredictionData(ccd.CryptoData):
 class PerformanceData(ccd.CryptoData):
 
     def __init__(self, prediction_obj: PredictionData):
-        self.pred = prediction_obj
         super().__init__()
+        self.pred = prediction_obj
+        self.path = self.pred.path
 
     def history(self):
         "no history minutes are requires to calculate prediction data"
@@ -129,8 +138,7 @@ class PerformanceData(ccd.CryptoData):
 
     def mnemonic(self):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        mem = "performance_" + self.pred.est.mnemonic() + "__"
-        mem += self.pred.est.features.mnemonic() + "__" + self.pred.est.targets.mnemonic()
+        mem = "performance_" + self.pred.est.mnemonic()
         return mem
 
     def performance_calculation(self, in_df, bt: float, st: float, fee_factor: float, verbose=False):
@@ -213,200 +221,6 @@ class PerformanceData(ccd.CryptoData):
         return self.new_data(base, first, last, use_cache)
 
 
-class EvalPerf:
-    """Evaluates the performance of a buy/sell probability threshold
-    """
-
-    def __init__(self, buy_prob_threshold, sell_prob_threshold):
-        """receives minimum thresholds to consider the transaction
-        """
-        self.bpt = buy_prob_threshold
-        self.spt = sell_prob_threshold
-        self.transactions = 0
-        self.open_transaction = False
-        self.performance = 0
-
-    def add_trade_signal(self, prob, close_price, signal):
-        if signal == ct.TARGETS[ct.BUY]:
-            if not self.open_transaction:
-                if prob >= self.bpt:
-                    self.open_transaction = True
-                    self.open_buy = close_price * (1 + ct.FEE)
-                    self.highest = close_price
-        elif signal == ct.TARGETS[ct.SELL]:
-            if self.open_transaction:
-                if prob >= self.spt:
-                    self.open_transaction = False
-                    gain = (close_price * (1 - ct.FEE) - self.open_buy) / self.open_buy
-                    self.performance += gain
-                    self.transactions += 1
-        elif signal == ct.TARGETS[ct.HOLD]:
-            pass
-
-    def __str__(self):
-        return "bpt: {:<5.2} spt: {:<5.2} perf: {:>5.0%} #trans.: {:>4}".format(
-              self.bpt, self.spt, self.performance, self.transactions)
-
-
-class PerfMatrix:
-    """Evaluates the performance across a range of buy/sell thresholds
-    """
-
-    def __init__(self, epoch, set_type="unknown set type"):
-
-        self.p_range = range(6, 10)
-        self.perf = np.zeros((len(self.p_range), len(self.p_range)), dtype=EvalPerf)
-        for bp in self.p_range:
-            for sp in self.p_range:
-                self.perf[bp - self.p_range[0], sp - self.p_range[0]] = \
-                    EvalPerf(float((bp)/10), float((sp)/10))
-        self.confusion = np.zeros((ct.TARGET_CLASS_COUNT, ct.TARGET_CLASS_COUNT), dtype=int)
-        self.epoch = epoch
-        self.set_type = set_type
-        self.start_ts = timeit.default_timer()
-        self.end_ts = None
-        self.descr = list()  # list of descriptions that contribute to performance
-
-    def pix(self, bp, sp):
-        return self.perf[bp - self.p_range[0], sp - self.p_range[0]]
-
-    def print_result_distribution(self):
-        for bp in self.p_range:
-            for sp in self.p_range:
-                print(self.pix(bp, sp))
-
-    def best(self):
-        """Returns a tuple of (best-performance-factor, at-buy-probability-threshold,
-        at-sell-probability-threshold, with-number-of-transactions)
-        """
-        best = float(self.perf[0, 0].performance)
-        hbp = hsp = self.p_range[0]
-        for bp in self.p_range:
-            for sp in self.p_range:
-                if best < self.pix(bp, sp).performance:
-                    best = self.pix(bp, sp).performance
-                    hbp = bp
-                    hsp = sp
-        bpt = float(hbp/10)
-        spt = float(hsp/10)
-        t = self.pix(hbp, hsp).transactions
-        return (best, bpt, spt, t)
-
-    def __str__(self):
-        (best, bpt, spt, t) = self.best()
-        return f"epoch {self.epoch}, best performance {best:6.0%}" + \
-            f" with buy threshold {bpt:.1f} / sell threshold {spt:.1f} at {t} transactions"
-
-    def add_signal(self, prob, close_price, signal, target):
-        assert (prob >= 0) and (prob <= 1), \
-                print(f"PerfMatrix add_signal: unexpected probability {prob}")
-        if signal in ct.TARGETS.values():
-            for bp in self.p_range:
-                for sp in self.p_range:
-                    self.pix(bp, sp).add_trade_signal(prob, close_price, signal)
-            if target not in ct.TARGETS.values():
-                print(f"PerfMatrix add_signal: unexpected target result {target}")
-                return
-            self.confusion[signal, target] += 1
-        else:
-            raise ValueError(f"PerfMatrix add_signal: unexpected class result {signal}")
-
-    def assess_sample_prediction(self, pred, skl_close, skl_target, skl_tics, skl_descr):
-        """Assess the highest probability of a class prediction
-        to find the optimum buy/sell threshold. No consideration of time gaps or open transactions
-        at the end of the sample sequence
-        """
-        pred_cnt = len(pred)
-        # begin = env.timestr(skl_tics[0])
-        for sample in range(pred_cnt):
-            high_prob_cl = 0
-            for cl in range(len(pred[0])):
-                if pred[sample, high_prob_cl] < pred[sample, cl]:
-                    high_prob_cl = cl
-            self.add_signal(pred[sample, high_prob_cl], skl_close[sample],
-                            high_prob_cl, skl_target[sample])
-        self.descr.append(skl_descr)
-
-    def assess_prediction(self, pred, skl_close, skl_target, skl_tics, skl_descr):
-        """Assess the highest probability of a class prediction
-        to find the optimum buy/sell threshold.
-
-        handling of time gaps: in case of a time gap the last value of the time slice is taken
-        to close any open transaction
-
-        """
-        pred_cnt = len(pred)
-        # begin = env.timestr(skl_tics[0])
-        for sample in range(pred_cnt):
-            if (sample + 1) >= pred_cnt:
-                self.add_signal(1, skl_close[sample], ct.TARGETS[ct.SELL], ct.TARGETS[ct.SELL])
-                # end = env.timestr(skl_tics[sample])
-                # print("assessment between {} and {}".format(begin, end))
-            elif (skl_tics[sample+1] - skl_tics[sample]) > np.timedelta64(1, "m"):
-                self.add_signal(1, skl_close[sample], ct.TARGETS[ct.SELL], ct.TARGETS[ct.SELL])
-                # end = env.timestr(skl_tics[sample])
-                # print("assessment between {} and {}".format(begin, end))
-                # begin = env.timestr(skl_tics[sample+1])
-            else:
-                high_prob_cl = 0
-
-                for cl in range(len(pred[0])):
-                    if pred[sample, high_prob_cl] < pred[sample, cl]:
-                        high_prob_cl = cl
-                self.add_signal(pred[sample, high_prob_cl], skl_close[sample],
-                                high_prob_cl, skl_target[sample])
-        self.descr.append(skl_descr)
-
-    def conf(self, estimate_class, target_class):
-        elem = self.confusion[estimate_class, target_class]
-        targets = 0
-        estimates = 0
-        for i in ct.TARGETS:
-            targets += self.confusion[estimate_class, ct.TARGETS[i]]
-            estimates += self.confusion[ct.TARGETS[i], target_class]
-        return (elem, elem/estimates, elem/targets)
-
-    def report_assessment(self):
-        self.end_ts = timeit.default_timer()
-        tdiff = (self.end_ts - self.start_ts) / 60
-        print("")
-        print(f"{env.timestr()} {self.set_type} performance assessment time: {tdiff:.1f}min")
-
-        def pt(bp, sp): return (self.pix(bp, sp).performance, self.pix(bp, sp).transactions)
-
-        print(self)
-        print("target:    {: >7}/est%/tgt% {: >7}/est%/tgt% {: >7}/est%/tgt%".format(
-                ct.HOLD, ct.BUY, ct.SELL))
-        print("est. {: >4}: {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%}".format(
-              ct.HOLD,
-              *self.conf(ct.TARGETS[ct.HOLD], ct.TARGETS[ct.HOLD]),
-              *self.conf(ct.TARGETS[ct.HOLD], ct.TARGETS[ct.BUY]),
-              *self.conf(ct.TARGETS[ct.HOLD], ct.TARGETS[ct.SELL])))
-        print("est. {: >4}: {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%}".format(
-              ct.BUY,
-              *self.conf(ct.TARGETS[ct.BUY], ct.TARGETS[ct.HOLD]),
-              *self.conf(ct.TARGETS[ct.BUY], ct.TARGETS[ct.BUY]),
-              *self.conf(ct.TARGETS[ct.BUY], ct.TARGETS[ct.SELL])))
-        print("est. {: >4}: {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%} {: >7}/{:4.0%}/{:4.0%}".format(
-              ct.SELL,
-              *self.conf(ct.TARGETS[ct.SELL], ct.TARGETS[ct.HOLD]),
-              *self.conf(ct.TARGETS[ct.SELL], ct.TARGETS[ct.BUY]),
-              *self.conf(ct.TARGETS[ct.SELL], ct.TARGETS[ct.SELL])))
-
-        # self.print_result_distribution()
-        print("performance matrix: estimated probability/number of buy+sell trades")
-        print("     {: ^10} {: ^10} {: ^10} {: ^10} < spt".format(0.6, 0.7, 0.8, 0.9))
-        print("0.6  {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4}".format(
-                *pt(6, 6), *pt(6, 7), *pt(6, 8), *pt(6, 9)))
-        print("0.7  {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4}".format(
-                *pt(7, 6), *pt(7, 7), *pt(7, 8), *pt(7, 9)))
-        print("0.8  {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4}".format(
-                *pt(8, 6), *pt(8, 7), *pt(8, 8), *pt(8, 9)))
-        print("0.9  {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4} {:>5.0%}/{:<4}".format(
-                *pt(9, 6), *pt(9, 7), *pt(9, 8), *pt(9, 9)))
-        print("^bpt")
-
-
 class EpochPerformance(keras.callbacks.Callback):
     def __init__(self, classifier, patience_mistake_focus=6, patience_stop=12):
         self.classifier = classifier
@@ -437,7 +251,7 @@ class EpochPerformance(keras.callbacks.Callback):
         print(f"on_epoch_end logs:{logs}")
 
 
-class Classifier(Estimator):
+class Classifier(Predictor):
     """Provides methods to adapt single currency performance classifiers
     """
 
@@ -446,18 +260,14 @@ class Classifier(Estimator):
         self.params["epoch"] = 0
         self.params["talos_iter"] = 0
 
-    def load(self, classifier_file: str):
+    def load_classifier_file_collection(self, classifier_file: str):
         """ loads a classifier and the corresoonding scaler.
             'classifier_file' shall be provided without path and suffix
             because the path is requested as model_path from Env and
             scaler and classifier are stored in different files with
             different suffix.
         """
-        mpath = Env.model_path
-        if classifier_file is None:
-            classifier_file = self.fname()
-
-        fname = str("{}{}{}".format(mpath, classifier_file, ".scaler_pydata"))
+        fname = str("{}{}{}".format(self.path, classifier_file, ".scaler_pydata"))
         try:
             with open(fname, "rb") as df_f:
                 self.scaler = pickle.load(df_f)  # requires import * to resolve Cpc attribute
@@ -466,7 +276,7 @@ class Classifier(Estimator):
         except IOError:
             print(f"IO-error when loading scaler from {fname}")
 
-        fname = str("{}{}{}".format(mpath, classifier_file, ".params_pydata"))
+        fname = str("{}{}{}".format(self.path, classifier_file, ".params_pydata"))
         try:
             with open(fname, "rb") as df_f:
                 self.params = pickle.load(df_f)  # requires import * to resolve Cpc attribute
@@ -475,57 +285,110 @@ class Classifier(Estimator):
         except IOError:
             print(f"IO-error when loading params from {fname}")
 
-        fname = str("{}{}{}".format(mpath, classifier_file, ".keras_h5"))
+        fname = str("{}{}{}".format(self.path, classifier_file, ".keras_h5"))
         try:
             with open(fname, "rb") as df_f:
                 df_f.close()
 
-                self.classifier = keras.models.load_model(fname, custom_objects=None, compile=True)
-                print(f"classifier loaded from {fname}")
+                self.predictor = keras.models.load_model(fname, custom_objects=None, compile=True)
+                print(f"mpl2 classifier loaded from {fname}")
         except IOError:
             print(f"IO-error when loading classifier from {fname}")
 
-    def fname(self):
-        fname = self.mnemonic() + "__" + self.features.mnemonic() + "__" + self.targets.mnemonic()
-        return fname
+    def load_classifier_subdir(self, classifier_file: str):
+        """ loads a classifier and the corresoonding scaler.
+            'classifier_file' shall be provided without path and suffix
+            because the path is requested as model_path from Env and
+            scaler and classifier are stored in different files with
+            different suffix.
+        """
+        pname = self.path()
+        fname = pname + "/scaler.pydata"
+        try:
+            with open(fname, "rb") as df_f:
+                self.scaler = pickle.load(df_f)  # requires import * to resolve Cpc attribute
+                df_f.close()
+                print(f"scaler loaded from {fname}")
+        except IOError:
+            print(f"IO-error when loading scaler from {fname}")
+
+        fname = pname + "/params.pydata"
+        try:
+            with open(fname, "rb") as df_f:
+                self.params = pickle.load(df_f)  # requires import * to resolve Cpc attribute
+                df_f.close()
+                print(f"{len(self.params)} params loaded from {fname}")
+        except IOError:
+            print(f"IO-error when loading params from {fname}")
+
+        fname = pname + "/keras.h5"
+        try:
+            with open(fname, "rb") as df_f:
+                df_f.close()
+
+                self.predictor = keras.models.load_model(fname, custom_objects=None, compile=True)
+                print(f"mpl3 classifier loaded from {fname}")
+        except IOError:
+            print(f"IO-error when loading classifier from {fname}")
+
+    def load(self, classifier_file: str):
+        """ loads a classifier and the corresoonding scaler.
+            'classifier_file' shall be provided without path and suffix
+            because the path is requested as model_path from Env and
+            scaler and classifier are stored in different files with
+            different suffix.
+            Returns 'None'
+        """
+        pname = self.path()
+        if os.path.isdir(pname):
+            self.load_classifier_subdir(classifier_file)
+        else:
+            self.load_classifier_file_collection(classifier_file)
 
     def save(self):
         """Saves classifier with scaler and params in seperate files.
         """
-        mpath = Env.model_path
-
-        if not os.path.isdir(mpath):
+        if not os.path.isdir(self.path):
             try:
-                os.mkdir(mpath)
-                print(f"created {mpath}")
+                os.mkdir(self.path)
+                print(f"created {self.path}")
             except OSError:
-                print(f"Creation of the directory {mpath} failed")
+                print(f"Creation of the directory {self.path} failed")
+                return
             else:
-                print(f"Successfully created the directory {mpath}")
+                print(f"Successfully created the directory {self.path}")
 
-        if self.classifier is not None:
-            fname = str("{}{}{}".format(mpath, self.fname(), ".keras_h5"))
+        if self.predictor is not None:
+            pname = self.path()
+            if not os.path.isdir(pname):
+                try:
+                    os.mkdir(pname)
+                except OSError:
+                    print(f"Creation of the directory {self.path} failed")
+                    return
+
             # Save entire tensorflow keras model to a HDF5 file
-            self.classifier.save(fname)
+            fname = pname + "/keras.h5"
+            self.predictor.save(fname)
             # keras.models.save_model(classifier, fname, overwrite=True, include_optimizer=True)
             # , save_format="tf", signatures=None)
 
             if self.scaler is not None:
-                fname = str("{}{}{}".format(mpath, self.fname(), ".scaler_pydata"))
+                fname = pname + "/scaler.pydata"
                 df_f = open(fname, "wb")
                 pickle.dump(self.scaler, df_f, pickle.HIGHEST_PROTOCOL)
                 df_f.close()
 
-            fname = str("{}{}{}".format(mpath, self.fname(), ".params_pydata"))
+            fname = pname + "/params.pydata"
             df_f = open(fname, "wb")
             pickle.dump(self.params, df_f, pickle.HIGHEST_PROTOCOL)
             df_f.close()
 
-            print(f"{env.timestr()} classifier saved in {mpath + self.fname()}")
+            print(f"{env.timestr()} classifier saved in {pname}")
         else:
             print(f"{env.timestr()} WARNING: missing classifier - cannot save it")
 
-    def performance_assessment3(self, bases: list, set_type, epoch=0):
+    def assess_performance(self, bases: list, set_type, epoch=0):
         """ Evaluates the performance on the given set and prints the confusion and
             performance matrix.
 
@@ -561,45 +424,6 @@ class Classifier(Estimator):
                total.at[max_ix, "count"])
         return res
 
-    def performance_assessment2(self, bases: list, set_type, epoch=0):
-        """Evaluates the performance on the given set and prints the confusion and
-        performance matrix.
-
-        Returns a tuple of (best-performance, at-buy-probability-threshold,
-        at-sell-probability-threshold, with-number-of-transactions)
-        """
-        perf = PerformanceData(PredictionData(self))
-        df_list = list()
-        for base in bases:
-            perf_df = perf.set_type_data(base, set_type)
-            df_list.append(perf_df)
-        set_type_df = pd.concat(df_list, join="outer", axis=0, keys=bases)
-        # print(set_type_df.describe())
-        total = set_type_df.sum(numeric_only=True).to_frame(name="perf")
-        total.index.rename("ix", inplace=True)
-        total = total.reset_index()
-        print(total)
-        max_ix = total.perf.idxmax()
-        res = (total.at[max_ix, "perf"], 0.9, 0.9, set_type_df.iloc[:, max_ix].count())  # ! 0.9, 0.9 is dummy data
-        return res
-
-    def performance_assessment(self, set_type, epoch=0):
-        """Evaluates the performance on the given set and prints the confusion and
-        performance matrix.
-
-        Returns a tuple of (best-performance, at-buy-probability-threshold,
-        at-sell-probability-threshold, with-number-of-transactions)
-        """
-        pm = PerfMatrix(epoch, set_type)
-        assessment = ad.AssessmentGenerator(set_type, self.scaler, self.ohlcv, self.features, self.targets)
-        for odf, fdf, tdf in assessment:
-            if self.scaler is not None:
-                fdf_scaled = self.scaler.transform(fdf.values)
-            pred = self.classifier.predict_on_batch(fdf_scaled)
-            pm.assess_prediction(pred, odf.close.values, tdf.target.values, odf.index.values, self.mnemonic())
-        pm.report_assessment()
-        return pm.best()
-
     def adapt_keras(self):
 
         def MLP1(x, y, x_val, y_val, params):
@@ -625,7 +449,7 @@ class Classifier(Estimator):
             model.compile(optimizer=params["optimizer"],
                           loss="categorical_crossentropy",
                           metrics=["accuracy", km.Precision()])
-            self.classifier = model
+            self.predictor = model
             self.params["l1"] = params["l1_neurons"]
             self.params["do"] = params["dropout"]
             self.params["l2"] = params["l2_neurons"]
@@ -645,7 +469,7 @@ class Classifier(Estimator):
                 keras.callbacks.TensorBoard(log_dir=tensorfile)]
 
             # print(model.summary())
-            out = self.classifier.fit_generator(
+            out = self.predictor.fit_generator(
                     self.training_gen,
                     steps_per_epoch=len(self.training_gen),
                     epochs=params["epochs"],
@@ -728,7 +552,7 @@ class Classifier(Estimator):
 def convert_cpc_classifier():
     load_classifier = "MLP_l1-16_do-0.2_h-19_no-l3_optAdam_F2cond24_0"
     cpc = ck.Cpc(load_classifier, None)
-    classifier.classifier = cpc.classifier
+    classifier.predictor = cpc.classifier
     classifier.scaler = cpc.scaler
     classifier.params["l1"] = 16
     classifier.params["do"] = 0.2
@@ -757,10 +581,8 @@ if __name__ == "__main__":
         # convert_cpc_classifier()
         classifier.load("MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
         # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
-        # print("return: ", classifier.performance_assessment(ad.VAL))
-        print("return new: ", classifier.performance_assessment3(Env.bases, ad.VAL))
-        # print("return new: ", classifier.performance_assessment2(["xrp"], ad.VAL))
-        # classifier.performance_assessment(ad.TEST)
+        print("return new: ", classifier.assess_performance(Env.bases, ad.VAL))
+        # print("return new: ", classifier.assess_performance(["xrp"], ad.VAL))
     tdiff = (timeit.default_timer() - start_time) / 60
     print(f"{env.timestr()} total script time: {tdiff:.0f} min")
     tee.close()
