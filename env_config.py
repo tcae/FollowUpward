@@ -158,31 +158,46 @@ def base_of_sym(sym):
 
 
 class Tee(object):
+    file = None
+    stdout = None
 
     def __init__(self):
-        name = f"{Env.model_path}Log_{timestr()}.txt"  # f"{env.MODEL_PATH}Log_{env.timestr()}.txt"
-        self.file = open(name, "w")
-        self.stdout = sys.stdout
-        sys.stdout = self
+        Tee.reset_path()
 
-    def close(self):
-        if self.stdout is not None:
-            sys.stdout = self.stdout
-            self.stdout = None
-        if self.file is not None:
-            self.file.close()
-            self.file = None
+    @classmethod
+    def reset_path(cls):
+        cls.set_path(Env.model_path)
 
-    def write(self, data):
-        self.file.write(data)
-        self.stdout.write(data)
+    @classmethod
+    def set_path(cls, log_path: str):
+        cls.close()
+        name = f"{log_path}Log_{timestr()}.txt"
+        cls.file = open(name, "w")
+        cls.stdout = sys.stdout
+        sys.stdout = cls
 
-    def flush(self):
-        self.file.flush()
-        self.stdout.flush()
+    @classmethod
+    def close(cls):
+        if cls.stdout is not None:
+            sys.stdout = cls.stdout
+            cls.stdout = None
+        if cls.file is not None:
+            cls.file.close()
+            cls.file = None
 
-    def __del__(self):
-        self.close()
+    @classmethod
+    def write(cls, data):
+        cls.file.write(data)
+        cls.stdout.write(data)
+
+    @classmethod
+    def flush(cls):
+        cls.file.flush()
+        cls.stdout.flush()
+
+    @classmethod
+    def __del__(cls):
+        cls.close()
 
 
 def test_mode():

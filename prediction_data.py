@@ -49,7 +49,7 @@ class Predictor:
         self.features = features
         self.params = {}
         self.scaler = None
-        self.predictor = None
+        self.kerasmodel = None
         self.training_gen = ad.TrainingGenerator(self.scaler, features, targets, shuffle=False)
         self.validation_gen = ad.ValidationGenerator(ad.VAL, self.scaler, features, targets)
         self.path = Env.model_path
@@ -60,22 +60,29 @@ class Predictor:
         mem = "MLP2_" + "_".join(pmem) + "__" + self.features.mnemonic() + "__" + self.targets.mnemonic()
         return mem
 
-    def path(self):
+    def pathname(self):
         """ Returns a path where several files that are related to a classifier are stored,
             e.g. keras model, scaler, parameters, prediction data.
             With that there is one folder to find everything related and also just one folder to
             delete when the classifier is obsolete.
         """
-        return self.path + self.mnemonic()
+        path = self.path + self.mnemonic()
+        if not os.path.isdir(path):
+            try:
+                os.mkdir(path)
+            except OSError:
+                print(f"Creation of the directory {path} failed")
+                return
+        return path + "/"
 
 
 class PredictionData(ccd.CryptoData):
 
     def __init__(self, estimator_obj: Predictor):
         super().__init__()
-        self.est = estimator_obj
+        self.predictor = estimator_obj
         self.missing_file_warning = False
-        self.path = self.est.path()
+        self.path = self.predictor.pathname()
 
     def history(self):
         "no history minutes are requires to calculate prediction data"
@@ -83,27 +90,28 @@ class PredictionData(ccd.CryptoData):
 
     def keys(self):
         "returns the list of element keys"
-        return self.est.targets.target_dict().keys()
+        return self.predictor.targets.target_dict().keys()
 
     def mnemonic(self):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        mem = "predictions_" + self.est.mnemonic()
+        # mem = self.predictor.filename()["epoch"] + self.predictor.mnemonic() + "_predictions"
+        mem = self.predictor.filename()["epoch"] + "_predictions"
         return mem
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
-        fdf = self.est.features.get_data(base, first, last)
-        tdf = self.est.targets.get_data(base, first, last)
+        fdf = self.predictor.features.get_data(base, first, last)
+        tdf = self.predictor.targets.get_data(base, first, last)
         if (fdf is None) or fdf.empty or (tdf is None) or tdf.empty:
             return None
         [fdf, tdf] = ccd.common_timerange([fdf, tdf])
         # odf = pd.Series(odf.close, name="close")
 
-        if self.est.scaler is not None:
-            fdf_scaled = self.est.scaler.transform(fdf.values)
-        pred = self.est.classifier.predict_on_batch(fdf_scaled)
+        if self.predictor.scaler is not None:
+            fdf_scaled = self.predictor.scaler.transform(fdf.values)
+        pred = self.predictor.kerasmodel.predict_on_batch(fdf_scaled)
         pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
         return self.check_timerange(pdf, first, last)
 
@@ -112,8 +120,8 @@ class PerformanceData(ccd.CryptoData):
 
     def __init__(self, prediction_obj: PredictionData):
         super().__init__()
-        self.pred = prediction_obj
-        self.path = self.pred.path
+        self.predictions = prediction_obj
+        self.path = self.predictions.predictor.pathname()
 
     def history(self):
         "no history minutes are requires to calculate prediction data"
@@ -138,7 +146,8 @@ class PerformanceData(ccd.CryptoData):
 
     def mnemonic(self):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        mem = "performance_" + self.pred.est.mnemonic()
+        # mem = self.predictions.predictor.filename()["epoch"] + self.predictions.predictor.mnemonic() + "_performance"
+        mem = self.predictions.predictor.filename()["epoch"] + "_performance"
         return mem
 
     def performance_calculation(self, in_df, bt: float, st: float, fee_factor: float, verbose=False):
@@ -187,8 +196,8 @@ class PerformanceData(ccd.CryptoData):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
-        odf = self.pred.est.ohlcv.get_data(base, first, last)
-        pred_df = self.pred.get_data(base, first, last, use_cache)  # enforce recalculation
+        odf = self.predictions.predictor.ohlcv.get_data(base, first, last)
+        pred_df = self.predictions.get_data(base, first, last, use_cache)  # enforce recalculation
         if (odf is None) or odf.empty or (pred_df is None) or pred_df.empty:
             return None
         pred_df = pred_df[["buy", "sell"]]
@@ -205,8 +214,8 @@ class PerformanceData(ccd.CryptoData):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
-        odf = self.pred.est.ohlcv.get_data(base, first, last)
-        pred_df = self.pred.get_data(base, first, last, use_cache)  # enforce recalculation
+        odf = self.predictions.predictor.ohlcv.get_data(base, first, last)
+        pred_df = self.predictions.get_data(base, first, last, use_cache)  # enforce recalculation
         if (odf is None) or odf.empty or (pred_df is None) or pred_df.empty:
             return None
         cdf = pd.concat([odf.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
@@ -220,6 +229,9 @@ class PerformanceData(ccd.CryptoData):
     def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         return self.new_data(base, first, last, use_cache)
 
+    def save_data(self, base: str, df: pd.DataFrame):
+        print("WARNING: save is not implemented for PerformanceData")
+
 
 class EpochPerformance(keras.callbacks.Callback):
     def __init__(self, classifier, patience_mistake_focus=6, patience_stop=12):
@@ -231,13 +243,18 @@ class EpochPerformance(keras.callbacks.Callback):
         super().__init__()
 
     def on_epoch_begin(self, epoch, logs=None):
-        self.classifier.params["epoch"] = epoch
+        self.classifier.epoch = epoch
 
     def on_epoch_end(self, epoch, logs=None):
         print("{} epoch end ==> talos iteration: {} epoch: {} classifier config: {}".format(
                 env.timestr(), self.classifier.params["talos_iter"], epoch, self.classifier.mnemonic()))
-        (best, bpt, spt, transactions) = self.classifier.performance_assessment(ad.TRAIN, epoch)
-        (best, bpt, spt, transactions) = self.classifier.performance_assessment(ad.VAL, epoch)
+        perf = PerformanceData(PredictionData(self.classifier))
+        for base in Env.bases:
+            perf_df = perf.load_data(base)
+            perf.save_data(base, perf_df)
+
+        (best, bpt, spt, transactions) = self.classifier.assess_performance(Env.bases, ad.TRAIN, epoch)
+        (best, bpt, spt, transactions) = self.classifier.assess_performance(Env.bases, ad.VAL, epoch)
         if best > self.best_perf:
             self.best_perf = best
             self.missing_improvements = 0
@@ -245,7 +262,7 @@ class EpochPerformance(keras.callbacks.Callback):
         else:
             self.missing_improvements += 1
         if self.missing_improvements >= self.patience_stop:
-            self.classifier.classifier.stop_training = True
+            self.classifier.kerasmodel.stop_training = True
             print("Stop training due to missing val_perf improvement since {} epochs".format(
                   self.missing_improvements))
         print(f"on_epoch_end logs:{logs}")
@@ -257,8 +274,20 @@ class Classifier(Predictor):
 
     def __init__(self, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
         super().__init__(ohlcv, features, targets)
-        self.params["epoch"] = 0
+        self.epoch = 0
         self.params["talos_iter"] = 0
+
+    def filename(self):
+        """ Returns a dictionary of full qualified filenames to store or load a classifier.
+        """
+        fname = dict()
+        fname["epoch"] = f"epoch{self.epoch}_"
+        path_epoch = self.pathname() + fname["epoch"]  # path + epoch prefix
+        fname["scaler"] = path_epoch + "scaler.pydata"
+        fname["params"] = path_epoch + "params.pydata"
+        fname["keras"] = path_epoch + "keras.h5"
+        fname["path_epoch"] = path_epoch
+        return fname
 
     def load_classifier_file_collection(self, classifier_file: str):
         """ loads a classifier and the corresoonding scaler.
@@ -266,6 +295,8 @@ class Classifier(Predictor):
             because the path is requested as model_path from Env and
             scaler and classifier are stored in different files with
             different suffix.
+
+            This method is maintained for backward compatibility and is deprecated.
         """
         fname = str("{}{}{}".format(self.path, classifier_file, ".scaler_pydata"))
         try:
@@ -290,10 +321,12 @@ class Classifier(Predictor):
             with open(fname, "rb") as df_f:
                 df_f.close()
 
-                self.predictor = keras.models.load_model(fname, custom_objects=None, compile=True)
+                self.kerasmodel = keras.models.load_model(fname, custom_objects=None, compile=True)
                 print(f"mpl2 classifier loaded from {fname}")
         except IOError:
             print(f"IO-error when loading classifier from {fname}")
+        self.epoch = self.params["epoch"]
+        del self.params["epoch"]
 
     def load_classifier_subdir(self, classifier_file: str):
         """ loads a classifier and the corresoonding scaler.
@@ -302,34 +335,31 @@ class Classifier(Predictor):
             scaler and classifier are stored in different files with
             different suffix.
         """
-        pname = self.path()
-        fname = pname + "/scaler.pydata"
+        fname = self.filename()
         try:
-            with open(fname, "rb") as df_f:
+            with open(fname["scaler"], "rb") as df_f:
                 self.scaler = pickle.load(df_f)  # requires import * to resolve Cpc attribute
                 df_f.close()
-                print(f"scaler loaded from {fname}")
+                print(f"scaler loaded from {fname['scaler']}")
         except IOError:
-            print(f"IO-error when loading scaler from {fname}")
+            print(f"IO-error when loading scaler from {fname['scaler']}")
 
-        fname = pname + "/params.pydata"
         try:
-            with open(fname, "rb") as df_f:
+            with open(fname["params"], "rb") as df_f:
                 self.params = pickle.load(df_f)  # requires import * to resolve Cpc attribute
                 df_f.close()
-                print(f"{len(self.params)} params loaded from {fname}")
+                print(f"{len(self.params)} params loaded from {fname['params']}")
         except IOError:
-            print(f"IO-error when loading params from {fname}")
+            print(f"IO-error when loading params from {fname['params']}")
 
-        fname = pname + "/keras.h5"
         try:
-            with open(fname, "rb") as df_f:
+            with open(fname["keras"], "rb") as df_f:
                 df_f.close()
 
-                self.predictor = keras.models.load_model(fname, custom_objects=None, compile=True)
-                print(f"mpl3 classifier loaded from {fname}")
+                self.kerasmodel = keras.models.load_model(fname["keras"], custom_objects=None, compile=True)
+                print(f"classifier loaded from {fname['keras']}")
         except IOError:
-            print(f"IO-error when loading classifier from {fname}")
+            print(f"IO-error when loading classifier from {fname['keras']}")
 
     def load(self, classifier_file: str):
         """ loads a classifier and the corresoonding scaler.
@@ -339,52 +369,29 @@ class Classifier(Predictor):
             different suffix.
             Returns 'None'
         """
-        pname = self.path()
-        if os.path.isdir(pname):
-            self.load_classifier_subdir(classifier_file)
-        else:
-            self.load_classifier_file_collection(classifier_file)
+        self.load_classifier_subdir(classifier_file)
 
     def save(self):
-        """Saves classifier with scaler and params in seperate files.
+        """Saves classifier with scaler and params in seperate files in a classifier specific folder.
         """
-        if not os.path.isdir(self.path):
-            try:
-                os.mkdir(self.path)
-                print(f"created {self.path}")
-            except OSError:
-                print(f"Creation of the directory {self.path} failed")
-                return
-            else:
-                print(f"Successfully created the directory {self.path}")
-
-        if self.predictor is not None:
-            pname = self.path()
-            if not os.path.isdir(pname):
-                try:
-                    os.mkdir(pname)
-                except OSError:
-                    print(f"Creation of the directory {self.path} failed")
-                    return
-
+        path = self.pathname()
+        if self.kerasmodel is not None:
             # Save entire tensorflow keras model to a HDF5 file
-            fname = pname + "/keras.h5"
-            self.predictor.save(fname)
-            # keras.models.save_model(classifier, fname, overwrite=True, include_optimizer=True)
+            fname = self.filename()
+            self.kerasmodel.save(fname["keras"])
+            # keras.models.save_model(classifier, fname["keras"], overwrite=True, include_optimizer=True)
             # , save_format="tf", signatures=None)
 
             if self.scaler is not None:
-                fname = pname + "/scaler.pydata"
-                df_f = open(fname, "wb")
+                df_f = open(fname["scaler"], "wb")
                 pickle.dump(self.scaler, df_f, pickle.HIGHEST_PROTOCOL)
                 df_f.close()
 
-            fname = pname + "/params.pydata"
-            df_f = open(fname, "wb")
+            df_f = open(fname["params"], "wb")
             pickle.dump(self.params, df_f, pickle.HIGHEST_PROTOCOL)
             df_f.close()
 
-            print(f"{env.timestr()} classifier saved in {pname}")
+            print(f"{env.timestr()} classifier saved in {path}")
         else:
             print(f"{env.timestr()} WARNING: missing classifier - cannot save it")
 
@@ -426,7 +433,7 @@ class Classifier(Predictor):
 
     def adapt_keras(self):
 
-        def MLP1(x, y, x_val, y_val, params):
+        def MLP2(x, y, x_val, y_val, params):
             keras.backend.clear_session()  # done by switch in talos Scan command
             self.params["talos_iter"] += 1
             print(f"talos iteration: {self.params['talos_iter']}")
@@ -449,7 +456,7 @@ class Classifier(Predictor):
             model.compile(optimizer=params["optimizer"],
                           loss="categorical_crossentropy",
                           metrics=["accuracy", km.Precision()])
-            self.predictor = model
+            self.kerasmodel = model
             self.params["l1"] = params["l1_neurons"]
             self.params["do"] = params["dropout"]
             self.params["l2"] = params["l2_neurons"]
@@ -459,20 +466,19 @@ class Classifier(Predictor):
                 self.params["l3"] = "no"
             self.params["opt"] = params["optimizer"]
 
-            tensorboardpath = Env.tensorboardpath()
-            tensorfile = "{}epoch{}.hdf5".format(tensorboardpath, "{epoch}")
+            env.Tee.set_path(self.pathname())
             callbacks = [
                 EpochPerformance(self, patience_mistake_focus=5, patience_stop=10),
                 # Interrupt training if `val_loss` stops improving for over 2 epochs
                 # keras.callbacks.EarlyStopping(patience=10),
                 # keras.callbacks.ModelCheckpoint(tensorfile, verbose=1),
-                keras.callbacks.TensorBoard(log_dir=tensorfile)]
+                keras.callbacks.TensorBoard(log_dir=self.pathname())]
 
             # print(model.summary())
-            out = self.predictor.fit_generator(
+            out = self.kerasmodel.fit_generator(
                     self.training_gen,
                     steps_per_epoch=len(self.training_gen),
-                    epochs=params["epochs"],
+                    epochs=self.epoch,
                     callbacks=callbacks,
                     verbose=2,
                     validation_data=self.validation_gen,
@@ -484,6 +490,7 @@ class Classifier(Predictor):
                     shuffle=True,
                     initial_epoch=0)
             assert out is not None
+            env.Tee.reset_path()
 
             return out, model
 
@@ -534,7 +541,7 @@ class Classifier(Predictor):
 
         ta.Scan(x=dummy_x,  # real data comes from generator
                 y=dummy_y,  # real data comes from generator
-                model=MLP1,
+                model=MLP2,
                 print_params=True,
                 clear_session=True,
                 params=params,
@@ -552,7 +559,7 @@ class Classifier(Predictor):
 def convert_cpc_classifier():
     load_classifier = "MLP_l1-16_do-0.2_h-19_no-l3_optAdam_F2cond24_0"
     cpc = ck.Cpc(load_classifier, None)
-    classifier.predictor = cpc.classifier
+    classifier.kerasmodel = cpc.classifier
     classifier.scaler = cpc.scaler
     classifier.params["l1"] = 16
     classifier.params["do"] = 0.2
@@ -560,7 +567,7 @@ def convert_cpc_classifier():
     classifier.params["no"] = "l3"
     classifier.params["opt"] = "optAdam"
     classifier.params["opt"] = "optAdam"
-    classifier.params["epoch"] = 0
+    classifier.epoch = 0
     classifier.save()
 
 
@@ -579,10 +586,21 @@ if __name__ == "__main__":
         classifier.adapt_keras()
     else:
         # convert_cpc_classifier()
-        classifier.load("MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
+        classifier.load_classifier_file_collection(
+            "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
+        env.Tee.set_path(classifier.pathname())
+        classifier.save()
         # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
+        pred = PredictionData(classifier)
+        for base in Env.bases:
+            features_df = features.load_data(base)
+            print(features_df.index[0], features_df.index[-1])
+            pred_df = pred.get_data(base, features_df.index[0], features_df.index[-1])
+            pred.save_data(base, pred_df)
+
         print("return new: ", classifier.assess_performance(Env.bases, ad.VAL))
         # print("return new: ", classifier.assess_performance(["xrp"], ad.VAL))
+        env.Tee.reset_path()
     tdiff = (timeit.default_timer() - start_time) / 60
     print(f"{env.timestr()} total script time: {tdiff:.0f} min")
     tee.close()
