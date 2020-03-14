@@ -53,20 +53,28 @@ class Predictor:
         self.training_gen = ad.TrainingGenerator(self.scaler, features, targets, shuffle=False)
         self.validation_gen = ad.ValidationGenerator(ad.VAL, self.scaler, features, targets)
         self.path = Env.model_path
+        self.mnemonic = None
+        self.epoch = 0
 
-    def mnemonic(self):
+    def mnemonic_without_epoch(self):
         "returns a string that represent the estimator class as mnemonic, e.g. to use it in file names"
-        pmem = [str(p) + "-" + str(self.params[p]) for p in self.params]
-        mem = "MLP2_" + "_".join(pmem) + "__" + self.features.mnemonic() + "__" + self.targets.mnemonic()
+        if self.mnemonic is None:
+            pmem = [str(p) + "-" + str(self.params[p]) for p in self.params]
+            self.mnemonic = "MLP2_" + "_".join(pmem) + "__" + self.features.mnemonic() + "__" + self.targets.mnemonic()
+        return self.mnemonic
+
+    def mnemonic_with_epoch(self):
+        "returns a string that represent the estimator class as mnemonic including the predictor adaptation epoch"
+        mem = self.mnemonic_without_epoch() + "_" + f"epoch{self.epoch}"
         return mem
 
-    def pathname(self):
+    def path_without_epoch(self):
         """ Returns a path where several files that are related to a classifier are stored,
             e.g. keras model, scaler, parameters, prediction data.
             With that there is one folder to find everything related and also just one folder to
             delete when the classifier is obsolete.
         """
-        path = self.path + self.mnemonic()
+        path = self.path + self.mnemonic_without_epoch()
         if not os.path.isdir(path):
             try:
                 os.mkdir(path)
@@ -75,6 +83,18 @@ class Predictor:
                 return
         return path + "/"
 
+    def path_with_epoch(self):
+        """ Returns a dictionary of full qualified filenames to store or load a classifier.
+        """
+        path_epoch = f"{self.path_without_epoch()}epoch{self.epoch}"
+        if not os.path.isdir(path_epoch):
+            try:
+                os.mkdir(path_epoch)
+            except OSError:
+                print(f"Creation of the directory {path_epoch} failed")
+                return
+        return path_epoch + "/"
+
 
 class PredictionData(ccd.CryptoData):
 
@@ -82,7 +102,7 @@ class PredictionData(ccd.CryptoData):
         super().__init__()
         self.predictor = estimator_obj
         self.missing_file_warning = False
-        self.path = self.predictor.pathname()
+        self.path = self.predictor.path_with_epoch()
 
     def history(self):
         "no history minutes are requires to calculate prediction data"
@@ -94,8 +114,7 @@ class PredictionData(ccd.CryptoData):
 
     def mnemonic(self):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        # mem = self.predictor.filename()["epoch"] + self.predictor.mnemonic() + "_predictions"
-        mem = self.predictor.filename()["epoch"] + "_predictions"
+        mem = self.predictor.mnemonic_with_epoch() + "_predictions"
         return mem
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
@@ -107,7 +126,7 @@ class PredictionData(ccd.CryptoData):
         if (fdf is None) or fdf.empty or (tdf is None) or tdf.empty:
             return None
         [fdf, tdf] = ccd.common_timerange([fdf, tdf])
-        # odf = pd.Series(odf.close, name="close")
+        # ohlcv_df = pd.Series(ohlcv_df.close, name="close")
 
         if self.predictor.scaler is not None:
             fdf_scaled = self.predictor.scaler.transform(fdf.values)
@@ -121,7 +140,7 @@ class PerformanceData(ccd.CryptoData):
     def __init__(self, prediction_obj: PredictionData):
         super().__init__()
         self.predictions = prediction_obj
-        self.path = self.predictions.predictor.pathname()
+        self.path = self.predictions.predictor.path_with_epoch()
 
     def history(self):
         "no history minutes are requires to calculate prediction data"
@@ -135,7 +154,7 @@ class PerformanceData(ccd.CryptoData):
     def keys(self):
         "returns the list of element keys"
         keyl = list()
-        [keyl.append(lbl) for (lbl, _) in self.keyiter()]
+        [keyl.append((bt, st)) for (lbl, (bt, st)) in self.keyiter()]
         return keyl
 
     def indexlist(self):
@@ -146,17 +165,17 @@ class PerformanceData(ccd.CryptoData):
 
     def mnemonic(self):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        # mem = self.predictions.predictor.filename()["epoch"] + self.predictions.predictor.mnemonic() + "_performance"
-        mem = self.predictions.predictor.filename()["epoch"] + "_performance"
+        mem = self.predictions.predictor.mnemonic_with_epoch() + "_performances"
         return mem
 
     def performance_calculation(self, in_df, bt: float, st: float, fee_factor: float, verbose=False):
         """ Expect a DataFrame with columns 'close', 'buy', 'sell' and a Timerange index.
-            Returns a DataFrame with a % performance column 'perf%', buy_tic and sell_tic.
+            Returns a DataFrame with a % performance column 'perf' in %,
+            buy_tic, buy_price, buy prediction, buy_threshold, sell_tic, sell_price, sell prediction, sell_threshold.
             The returned DataFrame has an int range index not compatible with in_df.
         """
         in_df.index.rename("tic", inplace=True)  # debug candy
-        df = in_df.reset_index().copy()  # preserve tics as data but use one numbers as index
+        df = in_df.reset_index().copy()  # preserve tics as data but use numbers as index
         df.index.rename("ix", inplace=True)
         df.at[df.index[-1], "buy"] = 0  # no buy at last tic
         df.at[df.index[-1], "sell"] = 1  # forced sell at last tic
@@ -190,47 +209,30 @@ class PerformanceData(ccd.CryptoData):
         else:
             df = df.rename(columns={"close": "buy_price", "tic": "buy_tic", "ix": "buy_ix"})
             df = df.drop(df.index[-1])
+        df = df.set_index("buy_tic")
         return df
-
-    def new_data_backup(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
-        """ Predicts all samples and returns the result.
-            set_type specific evaluations can be done using the saved prediction data.
-        """
-        odf = self.predictions.predictor.ohlcv.get_data(base, first, last)
-        pred_df = self.predictions.get_data(base, first, last, use_cache)  # enforce recalculation
-        if (odf is None) or odf.empty or (pred_df is None) or pred_df.empty:
-            return None
-        pred_df = pred_df[["buy", "sell"]]
-        cdf = pd.concat([odf.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
-        perf_df = pd.DataFrame(columns=self.keys(), index=cdf.index)
-        for (lbl, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
-            rdf = self.performance_calculation(cdf, bt, st, ct.FEE, verbose=False)
-            perf_df.loc[:, lbl] = 0
-            if not rdf.empty:
-                perf_df.loc[[rdf.sell_tic.iat[stix] for stix in range(len(rdf))], lbl] = rdf["perf"].values
-        return self.check_timerange(perf_df, first, last)
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
-        odf = self.predictions.predictor.ohlcv.get_data(base, first, last)
+        ohlcv_df = self.predictions.predictor.ohlcv.get_data(base, first, last)
         pred_df = self.predictions.get_data(base, first, last, use_cache)  # enforce recalculation
-        if (odf is None) or odf.empty or (pred_df is None) or pred_df.empty:
+        if (ohlcv_df is None) or ohlcv_df.empty or (pred_df is None) or pred_df.empty:
             return None
-        cdf = pd.concat([odf.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
-        df_list = list()
+        cdf = pd.concat([ohlcv_df.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
+        # mix = pd.MultiIndex.from_tuples(self.keys(), names=["bt", "st"])
+        # perf_df = pd.DataFrame(data=float(0.0), index=cdf.index, columns=mix)
+        rdf_list = list()
         for (lbl, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
             rdf = self.performance_calculation(cdf, bt, st, ct.FEE, verbose=False)
-            df_list.append(rdf)
-        perf_df = pd.concat(df_list, join="outer", axis=0, keys=self.keys())
-        return perf_df
+            # perf_df.loc[[tic for tic in rdf.index], (round(rdf.buy_trhld, 1), round(rdf.sell_trhld, 1))] = rdf.perf
+            rdf_list.append(rdf)
+        rdf = pd.concat(rdf_list, join="outer", axis=0, keys=self.keys())
+        return rdf
 
     def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         return self.new_data(base, first, last, use_cache)
-
-    def save_data(self, base: str, df: pd.DataFrame):
-        print("WARNING: save is not implemented for PerformanceData")
 
 
 class EpochPerformance(keras.callbacks.Callback):
@@ -246,8 +248,8 @@ class EpochPerformance(keras.callbacks.Callback):
         self.classifier.epoch = epoch
 
     def on_epoch_end(self, epoch, logs=None):
-        print("{} epoch end ==> talos iteration: {} epoch: {} classifier config: {}".format(
-                env.timestr(), self.classifier.params["talos_iter"], epoch, self.classifier.mnemonic()))
+        print("{} epoch end ==> epoch: {} classifier config: {}".format(
+                env.timestr(), epoch, self.classifier.mnemonic_with_epoch()))
         perf = PerformanceData(PredictionData(self.classifier))
         for base in Env.bases:
             perf_df = perf.load_data(base)
@@ -274,19 +276,15 @@ class Classifier(Predictor):
 
     def __init__(self, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
         super().__init__(ohlcv, features, targets)
-        self.epoch = 0
-        self.params["talos_iter"] = 0
 
     def filename(self):
         """ Returns a dictionary of full qualified filenames to store or load a classifier.
         """
         fname = dict()
-        fname["epoch"] = f"epoch{self.epoch}_"
-        path_epoch = self.pathname() + fname["epoch"]  # path + epoch prefix
-        fname["scaler"] = path_epoch + "scaler.pydata"
-        fname["params"] = path_epoch + "params.pydata"
-        fname["keras"] = path_epoch + "keras.h5"
-        fname["path_epoch"] = path_epoch
+        path_epoch = self.path_with_epoch()
+        fname["scaler"] = path_epoch + self.mnemonic_with_epoch() + "_scaler.pydata"
+        fname["params"] = path_epoch + self.mnemonic_with_epoch() + "_params.pydata"
+        fname["keras"] = path_epoch + self.mnemonic_with_epoch() + "_keras.h5"
         return fname
 
     def load_classifier_file_collection(self, classifier_file: str):
@@ -327,14 +325,18 @@ class Classifier(Predictor):
             print(f"IO-error when loading classifier from {fname}")
         self.epoch = self.params["epoch"]
         del self.params["epoch"]
+        print(self.params)
 
-    def load_classifier_subdir(self, classifier_file: str):
+    def load(self, classifier_file: str, epoch: int):
         """ loads a classifier and the corresoonding scaler.
             'classifier_file' shall be provided without path and suffix
             because the path is requested as model_path from Env and
             scaler and classifier are stored in different files with
             different suffix.
+            Returns 'None'
         """
+        self.epoch = epoch
+        self.mnemonic = classifier_file
         fname = self.filename()
         try:
             with open(fname["scaler"], "rb") as df_f:
@@ -361,20 +363,9 @@ class Classifier(Predictor):
         except IOError:
             print(f"IO-error when loading classifier from {fname['keras']}")
 
-    def load(self, classifier_file: str):
-        """ loads a classifier and the corresoonding scaler.
-            'classifier_file' shall be provided without path and suffix
-            because the path is requested as model_path from Env and
-            scaler and classifier are stored in different files with
-            different suffix.
-            Returns 'None'
-        """
-        self.load_classifier_subdir(classifier_file)
-
     def save(self):
         """Saves classifier with scaler and params in seperate files in a classifier specific folder.
         """
-        path = self.pathname()
         if self.kerasmodel is not None:
             # Save entire tensorflow keras model to a HDF5 file
             fname = self.filename()
@@ -391,7 +382,7 @@ class Classifier(Predictor):
             pickle.dump(self.params, df_f, pickle.HIGHEST_PROTOCOL)
             df_f.close()
 
-            print(f"{env.timestr()} classifier saved in {path}")
+            print(f"{env.timestr()} classifier saved in {self.path_with_epoch()}")
         else:
             print(f"{env.timestr()} WARNING: missing classifier - cannot save it")
 
@@ -406,37 +397,28 @@ class Classifier(Predictor):
         df_list = list()
         for base in bases:
             perf_df = perf.set_type_data(base, set_type)
-            df_list.append(perf_df)
+            if (perf_df is not None) and (not perf_df.empty):
+                df_list.append(perf_df)
         set_type_df = pd.concat(df_list, join="outer", axis=0, keys=bases)
-        set_type_df = set_type_df.swaplevel(i=0, j=1, axis=0)
-        print(set_type_df.describe(percentiles=[], include='all'))
-        total = pd.DataFrame(columns=["perf", "count", "buy_trhld", "sell_trhld"], dtype=float)
-        for kix, k in enumerate(perf.keys()):
-            total.loc[kix, "perf"] = set_type_df.loc[k, "perf"].sum().round(2)
-            total.loc[kix, "count"] = set_type_df.loc[k, "perf"].count().round(0)
-            total.loc[kix, "buy_trhld"] = set_type_df.loc[k, "buy_trhld"].mean().round(1)
-            total.loc[kix, "sell_trhld"] = set_type_df.loc[k, "sell_trhld"].mean().round(1)
-            # total.loc[kix, "label"] = k
-            if total.at[kix, "count"] < 10:
-                print("check:", set_type_df.loc[k])
-        # print(set_type_df.describe())
-        # total = set_type_df.sum(numeric_only=True).to_frame(name="perf")
-        # total.index.rename("ix", inplace=True)
-        # total = total.reset_index()
-        print(set_type_df, "\n", total)
+        mix = pd.MultiIndex.from_tuples(perf.keys(), names=["bt", "st"])
+        total = pd.DataFrame(index=mix, columns=["perf", "count"], dtype=int)
+        ccd.show_verbose(set_type_df.loc[set_type_df.sum(axis=1) > 0], True, 2)
+        ccd.show_verbose(total, True, 2)
+        idx = pd.IndexSlice  # requird for multilevel slicing
+        for (lbl, (bt, st)) in perf.keyiter():  # (bt, st) = signal thresholds
+            total.loc[(bt, st), "perf"] = set_type_df.loc[idx[:, bt, st], "perf"].sum().round(0)
+            total.loc[(bt, st), "count"] = set_type_df.loc[idx[:, bt, st], "perf"].count().round(0)
         max_ix = total.perf.idxmax()
         res = (total.at[max_ix, "perf"],
-               total.at[max_ix, "buy_trhld"],
-               total.at[max_ix, "sell_trhld"],
                total.at[max_ix, "count"])
+        total = total.unstack(level=0)
+        print(total)
         return res
 
     def adapt_keras(self):
 
         def MLP2(x, y, x_val, y_val, params):
             keras.backend.clear_session()  # done by switch in talos Scan command
-            self.params["talos_iter"] += 1
-            print(f"talos iteration: {self.params['talos_iter']}")
             model = keras.models.Sequential()
             model.add(keras.layers.Dense(
                 params["l1_neurons"], input_dim=samples.shape[1],
@@ -466,13 +448,13 @@ class Classifier(Predictor):
                 self.params["l3"] = "no"
             self.params["opt"] = params["optimizer"]
 
-            env.Tee.set_path(self.pathname())
+            env.Tee.set_path(self.path_without_epoch())
             callbacks = [
                 EpochPerformance(self, patience_mistake_focus=5, patience_stop=10),
                 # Interrupt training if `val_loss` stops improving for over 2 epochs
                 # keras.callbacks.EarlyStopping(patience=10),
                 # keras.callbacks.ModelCheckpoint(tensorfile, verbose=1),
-                keras.callbacks.TensorBoard(log_dir=self.pathname())]
+                keras.callbacks.TensorBoard(log_dir=self.path_without_epoch())]
 
             # print(model.summary())
             out = self.kerasmodel.fit_generator(
@@ -495,9 +477,6 @@ class Classifier(Predictor):
             return out, model
 
         start_time = timeit.default_timer()
-        print(f"{env.timestr()} loading history sets")
-        self.params["talos_iter"] = 0
-
         print(f"{env.timestr()} adapting scaler")
         scaler = preprocessing.StandardScaler(copy=False)
         for samples, targets in self.validation_gen:
@@ -566,7 +545,6 @@ def convert_cpc_classifier():
     classifier.params["h"] = 19
     classifier.params["no"] = "l3"
     classifier.params["opt"] = "optAdam"
-    classifier.params["opt"] = "optAdam"
     classifier.epoch = 0
     classifier.save()
 
@@ -586,17 +564,18 @@ if __name__ == "__main__":
         classifier.adapt_keras()
     else:
         # convert_cpc_classifier()
-        classifier.load_classifier_file_collection(
-            "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
-        env.Tee.set_path(classifier.pathname())
-        classifier.save()
+        # classifier.load_classifier_file_collection(
+        #     "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
+        classifier.load("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
+        env.Tee.set_path(classifier.path_without_epoch())
+        # classifier.save()
         # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
-        pred = PredictionData(classifier)
-        for base in Env.bases:
-            features_df = features.load_data(base)
-            print(features_df.index[0], features_df.index[-1])
-            pred_df = pred.get_data(base, features_df.index[0], features_df.index[-1])
-            pred.save_data(base, pred_df)
+        # perf = PerformanceData(PredictionData(classifier))
+        # for base in Env.bases:
+        #     features_df = features.load_data(base)
+        #     print(features_df.index[0], features_df.index[-1])
+        #     perf_df = perf.get_data(base, features_df.index[0], features_df.index[-1], use_cache=False)
+        #     perf.save_data(base, perf_df)
 
         print("return new: ", classifier.assess_performance(Env.bases, ad.VAL))
         # print("return new: ", classifier.assess_performance(["xrp"], ad.VAL))

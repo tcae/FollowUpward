@@ -246,7 +246,8 @@ class CryptoData:
             last = pd.Timestamp(sdf.loc[ix, "end"])
             first = pd.Timestamp(sdf.loc[ix, "start"])
             df = self.get_data(base, first, last, use_cache=True)
-            all.append(df)
+            if (df is not None) and (not df.empty):
+                all.append(df)
         set_type_df = pd.concat(all, join="outer", axis=0)
         return set_type_df
 
