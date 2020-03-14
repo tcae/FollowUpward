@@ -26,7 +26,7 @@ Stock trading is a possible future step but cryoto trading offers more opportuni
 - `prediction_data` (earlier `classify_keras` - now deprecated) is used to train and evaluate ML.
 - `trading` is used to trade via ccxt.
 - `training_dashboard` are for visual analysis
-- `update_crypto_history` (earlier `local_xch` - now deprecated) updates the cached historic ohlcv and feature data
+- `update_crypto_history` updates the cached historic ohlcv and feature data
 
 ## Design approach
 
@@ -47,11 +47,12 @@ In order to focus on the ML part data handling shall be unified over all data pr
 - `TrainingGenerator(keras.utils.Sequence)` in `adaptation_data` provides a multi processing and threat save generator for keras model adaptation
 - `ValidationGenerator(keras.utils.Sequence)` in `adaptation_data` provides a multi processing and threat save generator for keras model evaluation
 - `AssessmentGenerator(keras.utils.Sequence)` in `adaptation_data` provides a multi processing and threat save generator for performance assessment
-- `Bk()` in `bookkeeping.py` keeps track of actions, currencies under monitoring, and trades
-- `Trading()` in `trading.py` provides the core trading loop
+- `Xch()` in `local_xch.py` provides encapsulation to ccxt, e.g. checking limits, exception handling
+- `Bk()` in `bookkeeping.py` keeps track of actions, currencies under monitoring, and trades using `Xch()`
+- `Trading()` in `trading.py` provides the core trading loop using `Bk()`
 - `trading_dashboard.py` provides a visualization of historic data, features, targets based on Dash
 - `indicators.py` provides 1D regression
-
+_
 ## Deprecated
 - `classify_keras.py` that provided in the past the adaptaion
 - `Catalyst2Pandas.ipynb` is a jupyter notebook that provided historic Catalyst data. Required old pandas version. Is replaced by ccxt.
