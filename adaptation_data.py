@@ -26,11 +26,10 @@ class TrainingData:
     def __init__(self, features: ccd.Features, targets: ct.Targets):
         self.features = features
         self.targets = targets
-        self.bgs = 100  # batch group size
+        self.bgs = 10000  # batch group size
         self.tbgdf = None
         self.fbgdf = None
         self.bgdf_ix = 0
-        self.hdf = None
 
     def training_batch_size(self):
         """ Return the number of training samples for one batch.
@@ -84,102 +83,95 @@ class TrainingData:
         """ Returns the complete shuffled index with the columns "base" and "timestamp"
         """
         fname = self.fname()
-        if self.hdf is None:
-            self.hdf = pd.HDFStore(fname, "r")
-        try:
-            idf = self.hdf.get("/index")
-            # idf = pd.read_hdf(fname, "/index")
-            return idf
-        except IOError:
-            print(f"{env.timestr()} load data frame file ERROR: cannot load (base, timestamp) 'index' from {fname}")
-            return None
+        with pd.HDFStore(fname, "r") as hdf:
+            try:
+                idf = hdf.get("/index")
+                # idf = pd.read_hdf(fname, "/index")
+            except IOError:
+                print(f"{env.timestr()} load data frame file ERROR: cannot load (base, timestamp) 'index' from {fname}")
+                idf = None
+        return idf
 
     def load_meta(self):
         "Returns the metadata batch_size, batches, samples as a dictionary"
         fname = self.fname()
-        if self.hdf is None:
-            self.hdf = pd.HDFStore(fname, "r")
-        try:
-            mdf = self.hdf.get("/meta")
-            # mdf = pd.read_hdf(fname, "/meta")
-            meta = {ix: mdf[ix] for ix in mdf.index}
-            return meta
-        except IOError:
-            print(f"{env.timestr()} load data frame file ERROR: cannot load 'meta' from {fname}")
-            return None
+        with pd.HDFStore(fname, "r") as hdf:
+            try:
+                mdf = hdf.get("/meta")
+                # mdf = pd.read_hdf(fname, "/meta")
+                meta = {ix: mdf[ix] for ix in mdf.index}
+            except IOError:
+                print(f"{env.timestr()} load data frame file ERROR: cannot load 'meta' from {fname}")
+                meta = None
+        return meta
 
     def load_data(self, batch_ix):
         """ Returns a data frame for all saved training data independent of base.
             This provides the means to shuffle across bases and load it in batches as needed.
         """
-        if self.hdf is None:
-            self.hdf = pd.HDFStore(self.fname(), "r")
-        try:
-            fname = self.fname()
-            bg_ix = int(batch_ix / self.bgs)
-            if (self.tbgdf is None) or (self.bgdf_ix != bg_ix):
-                self.bgdf_ix = bg_ix
-                self.fbgdf = self.hdf.get(f"/features_{bg_ix}")
-                self.tbgdf = self.hdf.get(f"/targets_{bg_ix}")
-                # self.fbgdf = fdf = pd.read_hdf(fname, f"/features_{bg_ix}")
-                # self.tbgdf = tdf = pd.read_hdf(fname, f"/targets_{bg_ix}")
-            tdf = self.tbgdf
-            fdf = self.fbgdf
-            bs = self.training_batch_size()
-            ix = (batch_ix % self.bgs) * bs
-            if ix + bs > len(fdf):
-                fdf = fdf.iloc[ix:]
-                tdf = tdf.iloc[ix:]
-            else:
-                fdf = fdf.iloc[ix:ix+bs]
-                tdf = tdf.iloc[ix:ix+bs]
-            return fdf, tdf
-        except IOError:
-            print(f"{env.timestr()} load data frame file ERROR: cannot load batch_ix {batch_ix} from {fname}")
-            return None, None
+        bg_ix = int(batch_ix / self.bgs)
+        if (self.fbgdf is None) or (self.tbgdf is None) or (self.bgdf_ix != bg_ix):
+            with pd.HDFStore(self.fname(), "r") as hdf:
+                try:
+                    self.bgdf_ix = bg_ix
+                    self.fbgdf = hdf.get(f"/features_{bg_ix}")
+                    self.tbgdf = hdf.get(f"/targets_{bg_ix}")
+                except IOError:
+                    print("{} load data frame file ERROR: cannot load batch_ix {} from {}".format(
+                        env.timestr(), batch_ix, self.fname()))
+                    return None, None
+        tdf = self.tbgdf
+        fdf = self.fbgdf
+        bs = self.training_batch_size()
+        ix = (batch_ix % self.bgs) * bs
+        if ix + bs > len(fdf):
+            fdf = fdf.iloc[ix:]
+            tdf = tdf.iloc[ix:]
+        else:
+            fdf = fdf.iloc[ix:ix+bs]
+            tdf = tdf.iloc[ix:ix+bs]
+        return fdf, tdf
 
     def save_data(self, data_df):
         """ Saves a training data frame independent of base as well as the corresponding counters and metadata.
             This provides the means to shuffle across bases and load it in batches as needed.
         """
         fname = self.fname()
-        assert self.hdf is None
 
-        hdf = pd.HDFStore(fname, "w")
-        bs = self.training_batch_size()
-        batches = int(math.ceil(len(data_df) / bs))
-        meta_df = pd.Series(
-            {"batch_size": bs, "batches": batches, "samples": len(data_df)})
-        print("{}: writing {} for {} samples as {} batches".format(
-            env.timestr(), fname, len(data_df), batches))
-        hdf.put("/meta", meta_df, "fixed")
-        # meta_df.to_hdf(fname, "/meta", mode="w")
-        idf = data_df.index.to_frame(name=["base", "timestamp"], index=False)
-        idf.index.set_names("idx", inplace=True)
-        hdf.put("/index", idf, "fixed")
-        # idf.to_hdf(fname, "/index", mode="a")
-        data_df = data_df.reset_index(drop=True)
-        data_df.index.set_names("idx", inplace=True)
-        batch_groups = int(math.ceil(batches / self.bgs))
-        bgs = bs * self.bgs
-        check = 0
-        print(f"bgroups: {batch_groups} * bgs = {batch_groups*self.bgs}")
+        with pd.HDFStore(fname, "w") as hdf:
+            bs = self.training_batch_size()
+            batches = int(math.ceil(len(data_df) / bs))
+            meta_df = pd.Series(
+                {"batch_size": bs, "batches": batches, "samples": len(data_df)})
+            print("{}: writing {} for {} samples as {} batches".format(
+                env.timestr(), fname, len(data_df), batches))
+            hdf.put("/meta", meta_df, "fixed")
+            # meta_df.to_hdf(fname, "/meta", mode="w")
+            idf = data_df.index.to_frame(name=["base", "timestamp"], index=False)
+            idf.index.set_names("idx", inplace=True)
+            hdf.put("/index", idf, "fixed")
+            # idf.to_hdf(fname, "/index", mode="a")
+            data_df = data_df.reset_index(drop=True)
+            data_df.index.set_names("idx", inplace=True)
+            batch_groups = int(math.ceil(batches / self.bgs))
+            bgs = bs * self.bgs
+            check = 0
+            print(f"bgroups: {batch_groups} * bgs = {batch_groups*self.bgs}")
 
-        for bg in range(batch_groups - 1):
-            sdf = data_df.iloc[bg * bgs: (bg + 1) * bgs]
+            for bg in range(batch_groups - 1):
+                sdf = data_df.iloc[bg * bgs: (bg + 1) * bgs]
+                check += len(sdf)
+                hdf.put(f"/features_{bg}", sdf["features"], "fixed")
+                # sdf["features"].to_hdf(fname, f"/features_{bg}", mode="a")
+                hdf.put(f"/targets_{bg}", sdf["targets"], "fixed")
+                # sdf["targets"].to_hdf(fname, f"/targets_{bg}", mode="a")
+            bg = batch_groups - 1
+            sdf = data_df.iloc[bg * bgs:]
             check += len(sdf)
             hdf.put(f"/features_{bg}", sdf["features"], "fixed")
             # sdf["features"].to_hdf(fname, f"/features_{bg}", mode="a")
             hdf.put(f"/targets_{bg}", sdf["targets"], "fixed")
             # sdf["targets"].to_hdf(fname, f"/targets_{bg}", mode="a")
-        bg = batch_groups - 1
-        sdf = data_df.iloc[bg * bgs:]
-        check += len(sdf)
-        hdf.put(f"/features_{bg}", sdf["features"], "fixed")
-        # sdf["features"].to_hdf(fname, f"/features_{bg}", mode="a")
-        hdf.put(f"/targets_{bg}", sdf["targets"], "fixed")
-        # sdf["targets"].to_hdf(fname, f"/targets_{bg}", mode="a")
-        hdf.close()
         assert check == len(data_df)
 
 
@@ -199,6 +191,7 @@ def prepare4keras(scaler, feature_df, target_df, targets):
 class TrainingGenerator(keras.utils.Sequence):
     "Generates training data for Keras"
     def __init__(self, scaler, features: ccd.Features, targets: ct.Targets, shuffle=False):
+        # print("TrainGenerator: __init__")
         self.scaler = scaler
         self.shuffle = shuffle
         self.training = TrainingData(features, targets)
@@ -211,10 +204,12 @@ class TrainingGenerator(keras.utils.Sequence):
 
     def __len__(self):
         "Denotes the number of batches per epoch"
+        # print(f"TrainGenerator: __len__ :{self.batches}")
         return self.batches
 
     def __getitem__(self, index):
         "Generate one batch of data"
+        # print(f"TrainGenerator: __getitem__ ix:{index}")
         if index >= self.batches:
             print(f"TrainGenerator: index {index} > len {self.batches}")
             index %= self.batches
@@ -223,7 +218,7 @@ class TrainingGenerator(keras.utils.Sequence):
 
     def on_epoch_end(self):
         'Updates indexes after each epoch'
-        print("TrainGenerator: on_epoch_end")
+        # print("TrainGenerator: on_epoch_end")
         if self.shuffle is True:
             # np.random.shuffle(self.indices)
             pass
@@ -232,6 +227,7 @@ class TrainingGenerator(keras.utils.Sequence):
 class ValidationGenerator(keras.utils.Sequence):
     'Generates validation data for Keras'
     def __init__(self, set_type, scaler, features: ccd.Features, targets: ct.Targets):
+        # print("ValidationGenerator: __init__")
         self.set_type = set_type
         self.scaler = scaler
         self.features = features
@@ -239,10 +235,12 @@ class ValidationGenerator(keras.utils.Sequence):
 
     def __len__(self):
         'Denotes the number of batches per epoch'
+        # print(f"ValidationGenerator: __len__: {len(Env.bases)}")
         return len(Env.bases)
 
     def __getitem__(self, index):
         'Generate one batch of data'
+        # print(f"ValidationGenerator: __getitem__: {index}")
         if index >= len(Env.bases):
             print(f"BaseGenerator: index {index} > len {len(Env.bases)}")
             index %= len(Env.bases)
@@ -256,6 +254,7 @@ class ValidationGenerator(keras.utils.Sequence):
 class AssessmentGenerator(keras.utils.Sequence):
     'Generates close, features, targets dataframes - use values attribute for Keras'
     def __init__(self, set_type, scaler, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
+        # print("AssessmentGenerator: __init__")
         self.set_type = set_type
         self.scaler = scaler
         self.ohlcv = ohlcv
@@ -264,10 +263,12 @@ class AssessmentGenerator(keras.utils.Sequence):
 
     def __len__(self):
         'Denotes the number of batches per epoch'
+        # print(f"AssessmentGenerator: __len__: {len(Env.bases)}")
         return len(Env.bases)
 
     def __getitem__(self, index):
         'Generate one batch of data'
+        # print(f"AssessmentGenerator: __getitem__: {index}")
         if index >= len(Env.bases):
             print(f"BaseGenerator: index {index} > len {len(Env.bases)}")
             index %= len(Env.bases)
@@ -289,7 +290,7 @@ if __name__ == "__main__":
     else:
         features = agf.F1agg110(ohlcv)
     td = TrainingData(features, targets)
-    if False:  # create training sets
+    if True:  # create training sets
         start_time = timeit.default_timer()
         print(f"{env.timestr()} creating training batches")
         td.create_training_datasets()
@@ -297,7 +298,7 @@ if __name__ == "__main__":
         meta = td.load_meta()
         cnt = meta["samples"]
         print(f"{env.timestr()} training set retrieval time: {(tdiff / 60):.0f} min = {(tdiff / cnt):.0f}s/sample")
-    if False:  # retrieve training sets for test purposes
+    if True:  # retrieve training sets for test purposes
         meta = td.load_meta()
         print(meta)
         start_time = timeit.default_timer()

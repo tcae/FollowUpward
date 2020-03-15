@@ -142,7 +142,7 @@ def __vol_rel(volumes, long_period, short_period=5):
 def cal_features(ohlcv):
     """ Receives a float ohlcv DataFrame of consecutive prices in fixed minute frequency starting with the oldest price.
         Returns a DataFrame of features per price base on close prices and volumes
-        that begins 'HMWF' minutes later than 'ohlcv'.
+        that begins 'HMWF' minutes later than 'ohlcv.index[0]'.
     """
     cols = [
         COL_PREFIX[ix] + ext

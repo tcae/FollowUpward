@@ -15,11 +15,30 @@ Stock trading is a possible future step but cryoto trading offers more opportuni
 - keras for ML models
 - Tensorflow 2 servings Keras for machine learning.
 - ccxt for crypto trading.
-- talos for hyperparameter optimization
 - pickle and pandas hdf5 for storage of results
 - Dash and plotly for interactive visualizations
 - development and debug environment based on Visual Studio Code (Jupyter notebooks are not suited for easy debugging)
 - conda for package consistency and virtual environment
+
+### package installations
+
+- conda install -c intel intelpython3_full
+- conda install dash
+- pip install ccxt
+- pip install tables
+
+|Name                     | Version           |        Build  | Channel
+|-------------------------|-------------------|---------------|-----------
+|tables                   | 3.6.1             |       pypi_0  | pypi
+|ccxt                     | 1.24.20           |       pypi_0  | pypi
+|dash                     | 1.9.1             |        py_0   | conda-forge
+|dash-core-components     | 1.8.1             |        py_0   | conda-forge
+|dash-html-components     | 1.0.2             |        py_0   | conda-forge
+|dash-renderer            | 1.2.4             |        py_0   | conda-forge
+|dash-table               | 4.6.1             |        py_0   | conda-forge
+|intelpython3_full        | 2020.0            |           0   | intel
+
+Downgrade package `gast` to version 0.2.2 with `conda install gast=0.2.2`
 
 ## Main code entry points
 
@@ -52,15 +71,15 @@ In order to focus on the ML part data handling shall be unified over all data pr
 - `Trading()` in `trading.py` provides the core trading loop using `Bk()`
 - `trading_dashboard.py` provides a visualization of historic data, features, targets based on Dash
 - `indicators.py` provides 1D regression
-_
+
 ## Deprecated
+
 - `classify_keras.py` that provided in the past the adaptaion
 - `Catalyst2Pandas.ipynb` is a jupyter notebook that provided historic Catalyst data. Required old pandas version. Is replaced by ccxt.
 - `crypto_history_sets.py` is the former management of training, validation and test sets - was too complex and replced by the CryptoData and TrainingData approach
 
 `history2pandas.py` to load historical Catalyst data into pandas stored as msgpack files.
 //: # `Catalyst2PandasData.ipynb` to load historical Catalyst data into pandas stored as msgpack files.
-
 
 ### Configurations
 

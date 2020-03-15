@@ -5,7 +5,6 @@ import timeit
 # import itertools
 # import math
 import pickle
-# import h5py
 
 # Import datasets, classifiers and performance metrics
 from sklearn import preprocessing
@@ -17,7 +16,6 @@ import tensorflow.keras.metrics as km
 # import keras
 # import keras.metrics as km
 # import tensorflow.compat.v1 as tf1
-import talos as ta
 
 # import matplotlib.pyplot as plt
 # from sklearn.model_selection import learning_curve
@@ -27,14 +25,26 @@ import talos as ta
 import env_config as env
 from env_config import Env
 import crypto_targets as ct
-# import crypto_features as cf
-# import crypto_history_sets as chs
 import cached_crypto_data as ccd
 import condensed_features as cof
 import aggregated_features as agf
-import classify_keras as ck
+# import classify_keras as ck
 import adaptation_data as ad
 
+"""
+NUM_PARALLEL_EXEC_UNITS = 6
+config = tf.compat.v1.ConfigProto(
+    intra_op_parallelism_threads=NUM_PARALLEL_EXEC_UNITS,
+    inter_op_parallelism_threads=2,
+    allow_soft_placement=True,
+    device_count={'CPU': NUM_PARALLEL_EXEC_UNITS})
+session = tf.compat.v1.Session(config=config)
+# keras.backend.set_session(session)
+os.environ["OMP_NUM_THREADS"] = "6"
+os.environ["KMP_BLOCKTIME"] = "30"
+os.environ["KMP_SETTINGS"] = "1"
+os.environ["KMP_AFFINITY"] = "granularity=fine,verbose,compact,1,0"
+"""
 
 print(f"Tensorflow version: {tf.version.VERSION}")
 print(f"Keras version: {keras.__version__}")
@@ -117,12 +127,12 @@ class PredictionData(ccd.CryptoData):
         mem = self.predictor.mnemonic_with_epoch() + "_predictions"
         return mem
 
-    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=False):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
-        fdf = self.predictor.features.get_data(base, first, last)
-        tdf = self.predictor.targets.get_data(base, first, last)
+        fdf = self.predictor.features.get_data(base, first, last, use_cache=True)
+        tdf = self.predictor.targets.get_data(base, first, last, use_cache=True)
         if (fdf is None) or fdf.empty or (tdf is None) or tdf.empty:
             return None
         [fdf, tdf] = ccd.common_timerange([fdf, tdf])
@@ -133,6 +143,9 @@ class PredictionData(ccd.CryptoData):
         pred = self.predictor.kerasmodel.predict_on_batch(fdf_scaled)
         pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
         return self.check_timerange(pdf, first, last)
+
+    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=False):
+        return self.new_data(base, first, last, use_cache)
 
 
 class PerformanceData(ccd.CryptoData):
@@ -188,7 +201,7 @@ class PerformanceData(ccd.CryptoData):
         # ccd.show_verbose(in_df, verbose)
         df = df.reset_index()  # preserve ix line numbers as unique reference of sell lines
         if len(df) > 1:
-            ccd.show_verbose(df, verbose)
+            # ccd.show_verbose(df, verbose)
             df["sell_ix"] = pd.Series(dtype=pd.Int64Dtype())
             df["sell_tic"] = pd.Series(dtype='datetime64[ns, UTC]')
             df.loc[(df.sell >= st), "sell_price"] = df.close
@@ -201,11 +214,10 @@ class PerformanceData(ccd.CryptoData):
             df.loc[:, "sell_tic"] = df.sell_tic.fillna(method='backfill')  # debug candy
             df = df.rename(columns={"close": "buy_price", "tic": "buy_tic", "ix": "buy_ix"})
             df = df.loc[(df.buy >= bt)]
-            ccd.show_verbose(df, verbose)
             df = df.drop_duplicates("sell_ix", keep="first")
             df["perf"] = (df.sell_price * (1 - fee_factor) - df.buy_price * (1 + fee_factor)) / df.buy_price * 100
             df = df.reset_index(drop=True)  # eye candy
-            ccd.show_verbose(df, verbose)
+            # ccd.show_verbose(df, verbose)
         else:
             df = df.rename(columns={"close": "buy_price", "tic": "buy_tic", "ix": "buy_ix"})
             df = df.drop(df.index[-1])
@@ -216,8 +228,8 @@ class PerformanceData(ccd.CryptoData):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
-        ohlcv_df = self.predictions.predictor.ohlcv.get_data(base, first, last)
-        pred_df = self.predictions.get_data(base, first, last, use_cache)  # enforce recalculation
+        ohlcv_df = self.predictions.predictor.ohlcv.get_data(base, first, last, use_cache=True)
+        pred_df = self.predictions.get_data(base, first, last, use_cache=False)  # enforce recalculation
         if (ohlcv_df is None) or ohlcv_df.empty or (pred_df is None) or pred_df.empty:
             return None
         cdf = pd.concat([ohlcv_df.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
@@ -228,15 +240,16 @@ class PerformanceData(ccd.CryptoData):
             rdf = self.performance_calculation(cdf, bt, st, ct.FEE, verbose=False)
             # perf_df.loc[[tic for tic in rdf.index], (round(rdf.buy_trhld, 1), round(rdf.sell_trhld, 1))] = rdf.perf
             rdf_list.append(rdf)
-        rdf = pd.concat(rdf_list, join="outer", axis=0, keys=self.keys())
+        rdf = pd.concat(rdf_list, join="outer", axis=0, keys=self.keys(), sort=True)
         return rdf
 
-    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=False):
         return self.new_data(base, first, last, use_cache)
 
 
 class EpochPerformance(keras.callbacks.Callback):
     def __init__(self, classifier, patience_mistake_focus=6, patience_stop=12):
+        # print("EpochPerformance: __init__")
         self.classifier = classifier
         self.missing_improvements = 0
         self.best_perf = 0
@@ -245,18 +258,15 @@ class EpochPerformance(keras.callbacks.Callback):
         super().__init__()
 
     def on_epoch_begin(self, epoch, logs=None):
+        # print(f"EpochPerformance: on_epoch_begin: {epoch}, logs: {logs}")
         self.classifier.epoch = epoch
 
     def on_epoch_end(self, epoch, logs=None):
         print("{} epoch end ==> epoch: {} classifier config: {}".format(
                 env.timestr(), epoch, self.classifier.mnemonic_with_epoch()))
-        perf = PerformanceData(PredictionData(self.classifier))
-        for base in Env.bases:
-            perf_df = perf.load_data(base)
-            perf.save_data(base, perf_df)
 
-        (best, bpt, spt, transactions) = self.classifier.assess_performance(Env.bases, ad.TRAIN, epoch)
-        (best, bpt, spt, transactions) = self.classifier.assess_performance(Env.bases, ad.VAL, epoch)
+        (best, transactions) = self.classifier.assess_performance(Env.bases, ad.TRAIN, epoch)
+        (best, transactions) = self.classifier.assess_performance(Env.bases, ad.VAL, epoch)
         if best > self.best_perf:
             self.best_perf = best
             self.missing_improvements = 0
@@ -399,11 +409,15 @@ class Classifier(Predictor):
             perf_df = perf.set_type_data(base, set_type)
             if (perf_df is not None) and (not perf_df.empty):
                 df_list.append(perf_df)
-        set_type_df = pd.concat(df_list, join="outer", axis=0, keys=bases)
+        if len(df_list) > 1:
+            set_type_df = pd.concat(df_list, join="outer", axis=0, keys=bases)
+        elif len(df_list) == 1:
+            set_type_df = df_list[0]
+        else:
+            print(f"WARNING assess_performance: no {set_type} dataset available")
+            return (0, 0)
         mix = pd.MultiIndex.from_tuples(perf.keys(), names=["bt", "st"])
         total = pd.DataFrame(index=mix, columns=["perf", "count"], dtype=int)
-        ccd.show_verbose(set_type_df.loc[set_type_df.sum(axis=1) > 0], True, 2)
-        ccd.show_verbose(total, True, 2)
         idx = pd.IndexSlice  # requird for multilevel slicing
         for (lbl, (bt, st)) in perf.keyiter():  # (bt, st) = signal thresholds
             total.loc[(bt, st), "perf"] = set_type_df.loc[idx[:, bt, st], "perf"].sum().round(0)
@@ -417,7 +431,8 @@ class Classifier(Predictor):
 
     def adapt_keras(self):
 
-        def MLP2(x, y, x_val, y_val, params):
+        # def MLP2(x, y, x_val, y_val, params):
+        def MLP2(params):
             keras.backend.clear_session()  # done by switch in talos Scan command
             model = keras.models.Sequential()
             model.add(keras.layers.Dense(
@@ -457,96 +472,82 @@ class Classifier(Predictor):
                 keras.callbacks.TensorBoard(log_dir=self.path_without_epoch())]
 
             # print(model.summary())
-            out = self.kerasmodel.fit_generator(
-                    self.training_gen,
-                    steps_per_epoch=len(self.training_gen),
-                    epochs=self.epoch,
+            out = self.kerasmodel.fit(
+                    x=self.training_gen,
+                    # steps_per_epoch=len(self.training_gen),
+                    epochs=50,
                     callbacks=callbacks,
                     verbose=2,
                     validation_data=self.validation_gen,
-                    validation_steps=len(self.validation_gen),
-                    class_weight=None,
-                    max_queue_size=10,
+                    # validation_steps=len(self.validation_gen),
+                    # class_weight=None,
+                    # max_queue_size=10,
                     workers=6,
                     use_multiprocessing=True,
-                    shuffle=True,
-                    initial_epoch=0)
+                    shuffle=False  # True leads to frequent access of different trainings files
+                    )
             assert out is not None
             env.Tee.reset_path()
 
             return out, model
 
+        def next_MLP_iteration(params: dict, p_inst: dict, model, level):
+            activate = True
+            for para in params:
+                if para not in p_inst:
+                    activate = False
+                    for val in params[para]:
+                        p_inst[para] = val
+                        next_MLP_iteration(params, p_inst, model, level + 1)
+                    p_inst.popitem()
+                    break
+            if activate:
+                print("next MLP2: ", p_inst)
+                model(p_inst)
+
         start_time = timeit.default_timer()
         print(f"{env.timestr()} adapting scaler")
         scaler = preprocessing.StandardScaler(copy=False)
         for samples, targets in self.validation_gen:
-            # print("scaler fit")
             scaler.partial_fit(samples)
         self.scaler = scaler
         print(f"{env.timestr()} scaler adapted")
 
-        dummy_x = np.empty((1, samples.shape[1]))
-        dummy_y = np.empty((1, targets.shape[1]))
-
         fc = len(self.features.keys())
         tc = len(self.targets.target_dict())
         assert tc == 3
-        if False:
-            params = {
-                "l1_neurons": [60],  # [max(3*tc, int(0.7*fc)), max(3*tc, int(0.9*fc))],
-                "l2_neurons": [48],  # 48 = 60 * 0.8   [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
-                "epochs": [50],
-                "use_l3": [False],  # True
-                "l3_neurons": [38],  # 38 = 60 * 0.8 * 0.8   [max(1*tc, int(0.3*fc))],
-                "kernel_initializer": ["he_uniform"],
-                "dropout": [0.2],  # , 0.45, switched off anyhow 0.6,
-                "optimizer": ["Adam"],
-                "losses": ["categorical_crossentropy"],
-                "activation": ["relu"],
-                "last_activation": ["softmax"]}
-        else:
-            params = {
-                "l1_neurons": [max(3*tc, int(0.7*fc)), max(3*tc, int(1.2*fc))],
-                "l2_neurons": [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
+        params = {
+                "l1_neurons": [max(3*tc, int(0.7*fc))],  # , max(3*tc, int(1.2*fc))],
+                "l2_neurons": [max(2*tc, int(0.5*fc))],  # , max(2*tc, int(0.8*fc))],
                 "epochs": [50],
                 "use_l3": [False],  # [False, True]
                 "l3_neurons": [max(1*tc, int(0.3*fc))],
                 "kernel_initializer": ["he_uniform"],
-                "dropout": [0.45, 0.8],  # [0.2, 0.45, 0.8]
+                "dropout": [0.2],  # [0.2, 0.45, 0.8]
                 "optimizer": ["Adam"],
                 "losses": ["categorical_crossentropy"],
                 "activation": ["relu"],
                 "last_activation": ["softmax"]}
 
-        ta.Scan(x=dummy_x,  # real data comes from generator
-                y=dummy_y,  # real data comes from generator
-                model=MLP2,
-                print_params=True,
-                clear_session=True,
-                params=params,
-                # dataset_name="xrp-eos-bnb-btc-eth-neo-ltc-trx",
-                # dataset_name="xrp_eos",
-                # grid_downsample=1,
-                experiment_name=f"talos_{env.timestr()}")
-
-        # ta.Deploy(scan, "talos_lstm_x", metric="val_loss", asc=True)
+        # print(params)
+        next_MLP_iteration(params, dict(), MLP2, 1)
 
         tdiff = (timeit.default_timer() - start_time) / 60
         print(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
 
 
-def convert_cpc_classifier():
-    load_classifier = "MLP_l1-16_do-0.2_h-19_no-l3_optAdam_F2cond24_0"
-    cpc = ck.Cpc(load_classifier, None)
-    classifier.kerasmodel = cpc.classifier
-    classifier.scaler = cpc.scaler
-    classifier.params["l1"] = 16
-    classifier.params["do"] = 0.2
-    classifier.params["h"] = 19
-    classifier.params["no"] = "l3"
-    classifier.params["opt"] = "optAdam"
-    classifier.epoch = 0
-    classifier.save()
+# def convert_cpc_classifier():
+#     load_classifier = "MLP_l1-16_do-0.2_h-19_no-l3_optAdam_F2cond24_0"
+#     cpc = ck.Cpc(load_classifier, None)
+#     classifier.kerasmodel = cpc.classifier
+#     classifier.scaler = cpc.scaler
+#     classifier.params["l1"] = 16
+#     classifier.params["do"] = 0.2
+#     classifier.params["h"] = 19
+#     classifier.params["no"] = "l3"
+#     classifier.params["opt"] = "optAdam"
+#     classifier.epoch = 0
+#     classifier.save()
 
 
 if __name__ == "__main__":
@@ -560,7 +561,7 @@ if __name__ == "__main__":
     else:
         features = agf.AggregatedFeatures(ohlcv)
     classifier = Classifier(ohlcv, features, targets)
-    if False:
+    if True:
         classifier.adapt_keras()
     else:
         # convert_cpc_classifier()

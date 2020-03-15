@@ -20,7 +20,10 @@ external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
-cmd = None  # cmd == crypto minute data
+ohlcv_df_dict = None  # ohlcv minute data
+features = None
+targets = None
+
 styles = {
     'pre': {
         'border': 'thin lightgrey solid',
@@ -35,7 +38,7 @@ app.layout = html.Div([
         html.Div([
             dcc.Checklist(
                 id='crossfilter-crypto-select',
-                options=[{'label': i, 'value': i} for i in Env.usage.bases],
+                options=[{'label': i, 'value': i} for i in Env.bases],
                 labelStyle={'display': 'inline-block'}
             ),
             html.Button('all', id='all-button', style={'display': 'inline-block'}),
@@ -102,7 +105,7 @@ app.layout = html.Div([
     html.Div([
         dcc.RadioItems(
             id='crossfilter-crypto-radio',
-            options=[{'label': i, 'value': i} for i in Env.usage.bases],
+            options=[{'label': i, 'value': i} for i in Env.bases],
             labelStyle={'display': 'inline-block'}
         ),
         dcc.Checklist(
@@ -134,9 +137,9 @@ def update_graph(bases):
     graph_bases = []
     if bases is not None:
         for base in bases:
-            # df_check(cmd[base], None)
-            bmd = cmd[base].resample("D").agg({"close": "first"})  # bmd == base minute data
-            # bmd = cmd[base].resample("D").agg({"open": "first", "close": "last", "high": "max",
+            # df_check(ohlcv_df_dict[base], None)
+            bmd = ohlcv_df_dict[base].resample("D").agg({"close": "first"})  # bmd == base minute data
+            # bmd = ohlcv_df_dict[base].resample("D").agg({"open": "first", "close": "last", "high": "max",
             #                                     "low": "min", "volume": "sum"})
             bmd = bmd/bmd.max()  # normalize
             graph_bases.append(dict(
@@ -168,14 +171,14 @@ def update_graph(bases):
 def select_all_none(all_click_ts, none_click_ts):
     if (all_click_ts is not None) and (none_click_ts is not None):
         if all_click_ts > none_click_ts:
-            return Env.usage.bases
+            return Env.bases
         else:
             return []
     if all_click_ts is not None:
-        return Env.usage.bases
+        return Env.bases
     if none_click_ts is not None:
         return []
-    return [Env.usage.bases[0]]
+    return [Env.bases[0]]
 
 
 @app.callback(
@@ -185,7 +188,7 @@ def radio_range(selected_cryptos):
     if (selected_cryptos is not None) and (len(selected_cryptos) > 0):
         return selected_cryptos[0]
     else:
-        return Env.usage.bases[0]
+        return Env.bases[0]
 
 
 @app.callback(
@@ -278,13 +281,14 @@ def volume_ratio_marker(time, vol_ratio, legendname):
     return dict(x=[time], y=[vol_ratio], mode="scatter", name=legendname, yaxis='y')
 
 
-def show_condensed_features(start, time, bmd):
+def show_condensed_features(base, start, time):
     """ Input 'time' timestamp of period and base minute data 'bmd' for which features are required.
         'bmd' shall have history data of cof.MHE minutes before 'time' for feature calculation.
 
         Returns a plotly graph that visualizes the features at timestamp 'time'. The graph starts at 'start'.
     """
-    regr_start = time - pd.Timedelta(cof.MHE, "T")
+    regr_start = time - pd.Timedelta(features.history(), "T")
+    bmd = ohlcv_df_dict[base]
     reduced_bmd = bmd.loc[(bmd.index >= regr_start) & (bmd.index <= time)]
 
     normfactor = bmd.loc[start, "close"]
@@ -293,13 +297,14 @@ def show_condensed_features(start, time, bmd):
     red_bmdc.loc[:, "volume"] = reduced_bmd["volume"]
     # df_check(red_bmdc, pd.Timedelta(time-start, "m"))
 
-    bf = cof.calc_features_nocache(red_bmdc)  # bf == base features
-    # df_check(bf, pd.Timedelta(time-start, "m"))
+    bf_df = cof.cal_features(red_bmdc)  # bf_df == base features
+    # bf_df = cof.calc_features_nocache(red_bmdc)  # bf_df == base features
+    # df_check(bf_df, pd.Timedelta(time-start, "m"))
 
     start = max(start, regr_start)
     for (regr_only, offset, minutes, ext) in cof.REGRESSION_KPI:
-        time_regr_y = float(bf["price"+ext])
-        gain = float(bf["gain"+ext])
+        time_regr_y = float(bf_df["price"+ext])
+        gain = float(bf_df["gain"+ext])
         line_end = time - pd.Timedelta(offset, "T")
         line_start = line_end - pd.Timedelta(minutes-1, "T")
         line_start = max(line_start, start)
@@ -307,14 +312,14 @@ def show_condensed_features(start, time, bmd):
         yield straigt_line(line_start, line_end, time_regr_y, gain, legendname)
         if not regr_only:
             time_cur_y = float(red_bmdc.loc[line_end, "close"])
-            chance = float(bf["chance"+ext])
-            risk = float(bf["risk"+ext])
+            chance = float(bf_df["chance"+ext])
+            risk = float(bf_df["risk"+ext])
             legendname = "{}: chance/risk = {:4.3f}/{:4.3f}".format(ext, chance, risk)
             yield chance_risk_marker(line_start, line_end, time_cur_y, chance, risk, legendname)
     for (svol, lvol, ext) in cof.VOL_KPI:
         # df["vol"+ext][tic] = __vol_rel(volumes, lvol, svol)
         legendname = "vol"+ext
-        vol_ratio = float(bf.loc[time, "vol"+ext])
+        vol_ratio = float(bf_df.loc[time, "vol"+ext])
         yield volume_ratio_marker(time, vol_ratio, legendname)
 
     return None
@@ -336,7 +341,7 @@ def close_timeline_graph(timerange, aggregation, click_data, bases, regression_b
     end = pd.Timestamp.now(tz='UTC')
     if bases is not None and len(bases) > 0:
         if click_data is None:
-            end = cmd[bases[0]].index[len(cmd[bases[0]])-1]
+            end = ohlcv_df_dict[bases[0]].index[-1]
         else:
             end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
     start = end - timerange
@@ -344,7 +349,7 @@ def close_timeline_graph(timerange, aggregation, click_data, bases, regression_b
     if bases is None:
         bases = []
     for base in bases:
-        reduced_bmd = normalize_close(cmd[base], start, end, aggregation)
+        reduced_bmd = normalize_close(ohlcv_df_dict[base], start, end, aggregation)
         regr = regression_graph(start, end, reduced_bmd, aggregation)
         if indicators is None:
             indicators = []
@@ -353,8 +358,8 @@ def close_timeline_graph(timerange, aggregation, click_data, bases, regression_b
                 if regression_base == base:
                     graph_bases.append(regr)
 
-        # df_check(cmd[base], timerange)
-        bmd = normalize_close(cmd[base], start, end, aggregation)
+        # df_check(ohlcv_df_dict[base], timerange)
+        bmd = normalize_close(ohlcv_df_dict[base], start, end, aggregation)
         legendname = base + " " + regr["name"]
         graph_bases.append(dict(x=bmd.index, y=bmd["close"],  mode='lines', name=legendname))
 
@@ -419,11 +424,12 @@ def target_list(base, start, end, bmd):
     colormap = {ct.TARGETS[ct.HOLD]: 0, ct.TARGETS[ct.BUY]: 1, ct.TARGETS[ct.SELL]: -1}
 
     target_dict = dict()
-    fstart = start - pd.Timedelta(chs.ActiveFeatures.history(), "T")
-    fdf = bmd.loc[(bmd.index >= fstart) & (bmd.index <= end)]
-    tf = chs.ActiveFeatures(base, minute_dataframe=fdf)
-    tf.crypto_targets()
-    bmd = tf.minute_data.loc[(tf.minute_data.index >= start) & (tf.minute_data.index <= end)]
+    target_df = targets.get_data(base, start, end)
+    # fstart = start - pd.Timedelta(features.history(), "T")
+    # fdf = bmd.loc[(bmd.index >= fstart) & (bmd.index <= end)]
+    # tf = chs.ActiveFeatures(base, minute_dataframe=fdf)
+    # tf.crypto_targets()
+    # bmd = tf.minute_data.loc[(tf.minute_data.index >= start) & (tf.minute_data.index <= end)]
 
     # targets = [t for t in bmd["target_thresholds"]]
     # labels = [ct.TARGET_NAMES[t] for t in targets]
@@ -433,9 +439,9 @@ def target_list(base, start, end, bmd):
     # labels = [ct.TARGET_NAMES[t] for t in targets]
     # target_dict["newtargets"] = {"targets": targets, "labels": labels}
 
-    targets = [colormap[t] for t in bmd["target"]]
-    labels = [ct.TARGET_NAMES[t] for t in bmd["target"]]
-    target_dict["target1"] = {"targets": targets, "labels": labels}
+    target_colors = [colormap[t] for t in target_df["target"]]
+    labels = [ct.TARGET_NAMES[t] for t in target_df["target"]]
+    target_dict["target1"] = {"targets": target_colors, "labels": labels}
 
     # labels2 = [ct.TARGET_NAMES[t] for t in bmd["target2"]]
     # print(len(labels1), labels1, len(targets1), targets1)
@@ -474,7 +480,7 @@ def update_detail_graph_by_click(zoom_click, day_click, base, indicators):
         together with selected indicators
     """
     graph_bases = []
-    bmd = cmd[base]
+    bmd = ohlcv_df_dict[base]
     zoom_in_time = 4*60
 
     aggregation = "T"
@@ -482,7 +488,7 @@ def update_detail_graph_by_click(zoom_click, day_click, base, indicators):
         indicators = []
     end = pd.Timestamp.now(tz='UTC')
     if day_click is None:
-        end = cmd[base].index[len(cmd[base])-1]
+        end = ohlcv_df_dict[base].index[-1]
     else:
         end = pd.Timestamp(day_click['points'][0]['x'], tz='UTC')
     start = end - pd.Timedelta(zoom_in_time, "m")
@@ -512,7 +518,7 @@ def update_detail_graph_by_click(zoom_click, day_click, base, indicators):
 
     if ("features" in indicators) and (zoom_click is not None):
         clicked_time = pd.Timestamp(zoom_click['points'][0]['x'], tz='UTC')
-        for graph in show_condensed_features(start, clicked_time, bmd):
+        for graph in show_condensed_features(base, start, clicked_time):
             # print(graph)
             graph_bases.append(graph)
 
@@ -540,5 +546,8 @@ def update_detail_graph_by_click(zoom_click, day_click, base, indicators):
 if __name__ == '__main__':
     # load_crypto_data()
     # env.test_mode()
-    cmd = {base: ccd.load_asset_dataframe(base, path=Env.data_path) for base in Env.usage.bases}
+    ohlcv = ccd.Ohlcv()
+    features = cof.F2cond20(ohlcv)
+    targets = ct.T10up5low30min(ohlcv)
+    ohlcv_df_dict = {base: ohlcv.load_data(base) for base in Env.bases}
     app.run_server(debug=True)

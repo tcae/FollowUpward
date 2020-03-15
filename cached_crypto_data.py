@@ -198,9 +198,10 @@ class CryptoData:
             else:
                 # include df.index[-1] as new data first due to incomplete last minute effect
                 ndf = self.new_data(base, df.index[-1], last, use_cache)
-                df = df.loc[df.index < ndf.index[0]]
-                # thereby cutting any time overlaps, e.g. +1 minute due to incomplete last minute effect
-                df = pd.concat([df, ndf], join="outer", axis=0, sort=True, verify_integrity=True)
+                if (ndf is not None) and (not ndf.empty):
+                    df = df.loc[df.index < ndf.index[0]]
+                    # thereby cutting any time overlaps, e.g. +1 minute due to incomplete last minute effect
+                    df = pd.concat([df, ndf], join="outer", axis=0, sort=True, verify_integrity=True)
         df = df.loc[(df.index >= first) & (df.index <= last), self.keys()]
         assert no_index_gaps(df)
         return df
@@ -242,13 +243,17 @@ class CryptoData:
 
         sdf = self.sets_split.loc[self.sets_split.set_type == set_type]
         all = list()
+        set_type_df = None
         for ix in sdf.index:
             last = pd.Timestamp(sdf.loc[ix, "end"])
             first = pd.Timestamp(sdf.loc[ix, "start"])
             df = self.get_data(base, first, last, use_cache=True)
             if (df is not None) and (not df.empty):
                 all.append(df)
-        set_type_df = pd.concat(all, join="outer", axis=0)
+        if len(all) > 1:
+            set_type_df = pd.concat(all, join="outer", axis=0)
+        elif len(all) == 1:
+            set_type_df = all[0]
         return set_type_df
 
     def check_report_obsolete(self, base):

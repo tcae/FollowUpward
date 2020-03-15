@@ -139,10 +139,13 @@ def update_history(bases: list, last: pd.Timestamp, data_objs: list):
         for do in data_objs:
             df = do.load_data(base)
             if not df.empty:
-                minutes = int((last - df.index[0]) / pd.Timedelta(1, unit="T")) + 1
+                minutes = int((last - df.index[-1]) / pd.Timedelta(1, unit="T")) + 1
             minutes = max(minutes, minimum)
-            df = do.get_data(base, last, minutes)
-            do.save_data(base, df)
+            if minutes > 0:
+                first = last - pd.Timedelta(minutes, unit="T")
+                print("updating gap for {} from {} until {} = {} minutes".format(base, first, last, minutes))
+                df = do.get_data(base, first, last)
+                do.save_data(base, df)
 
 
 if __name__ == "__main__":
