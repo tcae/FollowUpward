@@ -6,9 +6,14 @@ import timeit
 # import math
 import pickle
 
+# from concurrent.futures import ProcessPoolExecutor
+
 # Import datasets, classifiers and performance metrics
 from sklearn import preprocessing
 # from sklearn.neural_network import MLPClassifier
+
+import logging
+# logging.getLogger("tensorflow").setLevel(logging.ERROR)  # before importing tensorflow.
 
 import tensorflow as tf
 import tensorflow.keras as keras
@@ -45,10 +50,10 @@ os.environ["KMP_BLOCKTIME"] = "30"
 os.environ["KMP_SETTINGS"] = "1"
 os.environ["KMP_AFFINITY"] = "granularity=fine,verbose,compact,1,0"
 """
-
-print(f"Tensorflow version: {tf.version.VERSION}")
-print(f"Keras version: {keras.__version__}")
-print(__doc__)
+logger = logging.getLogger(__name__)
+logger.debug(f"Tensorflow version: {tf.version.VERSION}")
+logger.debug(f"Keras version: {keras.__version__}")
+logger.debug(__doc__)
 
 
 class Predictor:
@@ -60,8 +65,6 @@ class Predictor:
         self.params = {}
         self.scaler = None
         self.kerasmodel = None
-        self.training_gen = ad.TrainingGenerator(self.scaler, features, targets, shuffle=False)
-        self.validation_gen = ad.ValidationGenerator(ad.VAL, self.scaler, features, targets)
         self.path = Env.model_path
         self.mnemonic = None
         self.epoch = 0
@@ -89,7 +92,7 @@ class Predictor:
             try:
                 os.mkdir(path)
             except OSError:
-                print(f"Creation of the directory {path} failed")
+                logger.error(f"Creation of the directory {path} failed")
                 return
         return path + "/"
 
@@ -101,7 +104,7 @@ class Predictor:
             try:
                 os.mkdir(path_epoch)
             except OSError:
-                print(f"Creation of the directory {path_epoch} failed")
+                logger.error(f"Creation of the directory {path_epoch} failed")
                 return
         return path_epoch + "/"
 
@@ -160,8 +163,8 @@ class PerformanceData(ccd.CryptoData):
         return 0
 
     def keyiter(self):
-        for bt in np.linspace(0.3, 0.9, num=7):  # bt = lower bound buy signal bucket
-            for st in np.linspace(0.4, 1, num=7):  # st = lower bound sell signal bucket
+        for bt in np.linspace(0.3, 0.5, num=3):  # bt = lower bound buy signal bucket
+            for st in np.linspace(0.4, 0.6, num=3):  # st = lower bound sell signal bucket
                 yield (f"bt{bt:1.1f}/st{st:1.1f}", (round(bt, 1), round(st, 1)))
 
     def keys(self):
@@ -237,6 +240,7 @@ class PerformanceData(ccd.CryptoData):
         # perf_df = pd.DataFrame(data=float(0.0), index=cdf.index, columns=mix)
         rdf_list = list()
         for (lbl, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
+            logger.debug(f"performance_calculation with {base} {lbl} from {first} to {last}")
             rdf = self.performance_calculation(cdf, bt, st, ct.FEE, verbose=False)
             # perf_df.loc[[tic for tic in rdf.index], (round(rdf.buy_trhld, 1), round(rdf.sell_trhld, 1))] = rdf.perf
             rdf_list.append(rdf)
@@ -249,7 +253,7 @@ class PerformanceData(ccd.CryptoData):
 
 class EpochPerformance(keras.callbacks.Callback):
     def __init__(self, classifier, patience_mistake_focus=6, patience_stop=12):
-        # print("EpochPerformance: __init__")
+        # logger.debug("EpochPerformance: __init__")
         self.classifier = classifier
         self.missing_improvements = 0
         self.best_perf = 0
@@ -258,15 +262,18 @@ class EpochPerformance(keras.callbacks.Callback):
         super().__init__()
 
     def on_epoch_begin(self, epoch, logs=None):
-        # print(f"EpochPerformance: on_epoch_begin: {epoch}, logs: {logs}")
+        # logger.debug(f"EpochPerformance: on_epoch_begin: {epoch}, logs: {logs}")
         self.classifier.epoch = epoch
 
     def on_epoch_end(self, epoch, logs=None):
-        print("{} epoch end ==> epoch: {} classifier config: {}".format(
-                env.timestr(), epoch, self.classifier.mnemonic_with_epoch()))
+        logger.info("epoch end ==> epoch: {} classifier config: {}".format(
+              epoch, self.classifier.mnemonic_with_epoch()))
 
+        logger.debug(f"on_epoch_end {ad.TRAIN}")
         (best, transactions) = self.classifier.assess_performance(Env.bases, ad.TRAIN, epoch)
+        logger.debug(f"on_epoch_end {ad.VAL}")
         (best, transactions) = self.classifier.assess_performance(Env.bases, ad.VAL, epoch)
+        logger.debug(f"on_epoch_end assessment done")
         if best > self.best_perf:
             self.best_perf = best
             self.missing_improvements = 0
@@ -275,9 +282,24 @@ class EpochPerformance(keras.callbacks.Callback):
             self.missing_improvements += 1
         if self.missing_improvements >= self.patience_stop:
             self.classifier.kerasmodel.stop_training = True
-            print("Stop training due to missing val_perf improvement since {} epochs".format(
+            logger.info("Stop training due to missing val_perf improvement since {} epochs".format(
                   self.missing_improvements))
-        print(f"on_epoch_end logs:{logs}")
+        logger.info(f"on_epoch_end logs:{logs}")
+
+
+def next_MLP_iteration(params: dict, p_inst: dict, model, level):
+    activate = True
+    for para in params:
+        if para not in p_inst:
+            activate = False
+            for val in params[para]:
+                p_inst[para] = val
+                next_MLP_iteration(params, p_inst, model, level + 1)
+            p_inst.popitem()
+            break
+    if activate:
+        logger.debug("next MLP2: ", p_inst)
+        model(p_inst)
 
 
 class Classifier(Predictor):
@@ -311,18 +333,18 @@ class Classifier(Predictor):
             with open(fname, "rb") as df_f:
                 self.scaler = pickle.load(df_f)  # requires import * to resolve Cpc attribute
                 df_f.close()
-                print(f"scaler loaded from {fname}")
+                logger.debug(f"scaler loaded from {fname}")
         except IOError:
-            print(f"IO-error when loading scaler from {fname}")
+            logger.error(f"IO-error when loading scaler from {fname}")
 
         fname = str("{}{}{}".format(self.path, classifier_file, ".params_pydata"))
         try:
             with open(fname, "rb") as df_f:
                 self.params = pickle.load(df_f)  # requires import * to resolve Cpc attribute
                 df_f.close()
-                print(f"{len(self.params)} params loaded from {fname}")
+                logger.debug(f"{len(self.params)} params loaded from {fname}")
         except IOError:
-            print(f"IO-error when loading params from {fname}")
+            logger.error(f"IO-error when loading params from {fname}")
 
         fname = str("{}{}{}".format(self.path, classifier_file, ".keras_h5"))
         try:
@@ -330,12 +352,12 @@ class Classifier(Predictor):
                 df_f.close()
 
                 self.kerasmodel = keras.models.load_model(fname, custom_objects=None, compile=True)
-                print(f"mpl2 classifier loaded from {fname}")
+                logger.info(f"mpl2 classifier loaded from {fname}")
         except IOError:
-            print(f"IO-error when loading classifier from {fname}")
+            logger.error(f"IO-error when loading classifier from {fname}")
         self.epoch = self.params["epoch"]
         del self.params["epoch"]
-        print(self.params)
+        logger.debug(self.params)
 
     def load(self, classifier_file: str, epoch: int):
         """ loads a classifier and the corresoonding scaler.
@@ -352,26 +374,26 @@ class Classifier(Predictor):
             with open(fname["scaler"], "rb") as df_f:
                 self.scaler = pickle.load(df_f)  # requires import * to resolve Cpc attribute
                 df_f.close()
-                print(f"scaler loaded from {fname['scaler']}")
+                logger.debug(f"scaler loaded from {fname['scaler']}")
         except IOError:
-            print(f"IO-error when loading scaler from {fname['scaler']}")
+            logger.error(f"IO-error when loading scaler from {fname['scaler']}")
 
         try:
             with open(fname["params"], "rb") as df_f:
                 self.params = pickle.load(df_f)  # requires import * to resolve Cpc attribute
                 df_f.close()
-                print(f"{len(self.params)} params loaded from {fname['params']}")
+                logger.debug(f"{len(self.params)} params loaded from {fname['params']}")
         except IOError:
-            print(f"IO-error when loading params from {fname['params']}")
+            logger.error(f"IO-error when loading params from {fname['params']}")
 
         try:
             with open(fname["keras"], "rb") as df_f:
                 df_f.close()
 
                 self.kerasmodel = keras.models.load_model(fname["keras"], custom_objects=None, compile=True)
-                print(f"classifier loaded from {fname['keras']}")
+                logger.info(f"classifier loaded from {fname['keras']}")
         except IOError:
-            print(f"IO-error when loading classifier from {fname['keras']}")
+            logger.error(f"IO-error when loading classifier from {fname['keras']}")
 
     def save(self):
         """Saves classifier with scaler and params in seperate files in a classifier specific folder.
@@ -392,9 +414,9 @@ class Classifier(Predictor):
             pickle.dump(self.params, df_f, pickle.HIGHEST_PROTOCOL)
             df_f.close()
 
-            print(f"{env.timestr()} classifier saved in {self.path_with_epoch()}")
+            logger.info(f"classifier saved in {self.path_with_epoch()}")
         else:
-            print(f"{env.timestr()} WARNING: missing classifier - cannot save it")
+            logger.warning(f"missing classifier - cannot save it")
 
     def assess_performance(self, bases: list, set_type, epoch=0):
         """ Evaluates the performance on the given set and prints the confusion and
@@ -403,8 +425,14 @@ class Classifier(Predictor):
             Returns a tuple of (best-performance, at-buy-probability-threshold,
             at-sell-probability-threshold, with-number-of-transactions)
         """
+        logger.debug(f"assess_performance {set_type}")
+        start_time = timeit.default_timer()
         perf = PerformanceData(PredictionData(self))
         df_list = list()
+        # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ProcessPoolExecutor
+        # https://www.blog.pythonlibrary.org/2016/08/03/python-3-concurrency-the-concurrent-futures-module/
+        # with ProcessPoolExecutor() as executor:
+        #     for perf_df in executor.map((lambda base: perf.set_type_data(base, set_type)), bases):
         for base in bases:
             perf_df = perf.set_type_data(base, set_type)
             if (perf_df is not None) and (not perf_df.empty):
@@ -414,7 +442,7 @@ class Classifier(Predictor):
         elif len(df_list) == 1:
             set_type_df = df_list[0]
         else:
-            print(f"WARNING assess_performance: no {set_type} dataset available")
+            logger.warning(f"assess_performance: no {set_type} dataset available")
             return (0, 0)
         mix = pd.MultiIndex.from_tuples(perf.keys(), names=["bt", "st"])
         total = pd.DataFrame(index=mix, columns=["perf", "count"], dtype=int)
@@ -427,6 +455,8 @@ class Classifier(Predictor):
                total.at[max_ix, "count"])
         total = total.unstack(level=0)
         print(total)
+        tdiff = (timeit.default_timer() - start_time) / 60
+        logger.info(f"assess_performance set type {set_type} time: {tdiff:.0f} min")
         return res
 
     def adapt_keras(self):
@@ -462,56 +492,48 @@ class Classifier(Predictor):
             else:
                 self.params["l3"] = "no"
             self.params["opt"] = params["optimizer"]
+            out = None
 
-            env.Tee.set_path(self.path_without_epoch())
-            callbacks = [
-                EpochPerformance(self, patience_mistake_focus=5, patience_stop=10),
-                # Interrupt training if `val_loss` stops improving for over 2 epochs
-                # keras.callbacks.EarlyStopping(patience=10),
-                # keras.callbacks.ModelCheckpoint(tensorfile, verbose=1),
-                keras.callbacks.TensorBoard(log_dir=self.path_without_epoch())]
+            try:
+                env.Tee.set_path(self.path_without_epoch())
+                callbacks = [
+                    EpochPerformance(self, patience_mistake_focus=5, patience_stop=10),
+                    # Interrupt training if `val_loss` stops improving for over 2 epochs
+                    # keras.callbacks.EarlyStopping(patience=10),
+                    # keras.callbacks.ModelCheckpoint(tensorfile, verbose=1),
+                    keras.callbacks.TensorBoard(log_dir=self.path_without_epoch())]
+                training_gen = ad.TrainingGenerator(self.scaler, self.features, self.targets, shuffle=False)
+                validation_gen = ad.BaseGenerator(ad.VAL, self.scaler, self.features, self.targets)
 
-            # print(model.summary())
-            out = self.kerasmodel.fit(
-                    x=self.training_gen,
-                    # steps_per_epoch=len(self.training_gen),
-                    epochs=50,
-                    callbacks=callbacks,
-                    verbose=2,
-                    validation_data=self.validation_gen,
-                    # validation_steps=len(self.validation_gen),
-                    # class_weight=None,
-                    # max_queue_size=10,
-                    workers=6,
-                    use_multiprocessing=True,
-                    shuffle=False  # True leads to frequent access of different trainings files
-                    )
-            assert out is not None
-            env.Tee.reset_path()
+                logger.debug(model.summary())
+                out = self.kerasmodel.fit(
+                        x=training_gen,
+                        steps_per_epoch=len(training_gen),
+                        epochs=50,
+                        callbacks=callbacks,
+                        verbose=2,
+                        validation_data=validation_gen,
+                        validation_steps=len(validation_gen),
+                        # class_weight=None,
+                        # max_queue_size=10,
+                        workers=6,
+                        use_multiprocessing=True,
+                        shuffle=False  # True leads to frequent access of different trainings files
+                        )
+                assert out is not None
+                env.Tee.reset_path()
+            except KeyboardInterrupt:
+                env.Tee.close()
 
             return out, model
 
-        def next_MLP_iteration(params: dict, p_inst: dict, model, level):
-            activate = True
-            for para in params:
-                if para not in p_inst:
-                    activate = False
-                    for val in params[para]:
-                        p_inst[para] = val
-                        next_MLP_iteration(params, p_inst, model, level + 1)
-                    p_inst.popitem()
-                    break
-            if activate:
-                print("next MLP2: ", p_inst)
-                model(p_inst)
-
         start_time = timeit.default_timer()
-        print(f"{env.timestr()} adapting scaler")
+        logger.info(f"adapting scaler")
         scaler = preprocessing.StandardScaler(copy=False)
-        for samples, targets in self.validation_gen:
+        for samples, targets in ad.BaseGenerator(ad.TRAIN, None, self.features, self.targets):
             scaler.partial_fit(samples)
         self.scaler = scaler
-        print(f"{env.timestr()} scaler adapted")
+        logger.info(f"scaler adapted")
 
         fc = len(self.features.keys())
         tc = len(self.targets.target_dict())
@@ -529,11 +551,11 @@ class Classifier(Predictor):
                 "activation": ["relu"],
                 "last_activation": ["softmax"]}
 
-        # print(params)
+        logger.debug(params)
         next_MLP_iteration(params, dict(), MLP2, 1)
 
         tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
+        logger.info(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
 
 
 # def convert_cpc_classifier():
@@ -551,8 +573,8 @@ class Classifier(Predictor):
 
 
 if __name__ == "__main__":
-    # env.test_mode()
-    tee = env.Tee()
+    env.test_mode()
+    tee = env.Tee(log_prefix="TrainEval")
     start_time = timeit.default_timer()
     ohlcv = ccd.Ohlcv()
     targets = ct.T10up5low30min(ohlcv)
@@ -582,5 +604,5 @@ if __name__ == "__main__":
         # print("return new: ", classifier.assess_performance(["xrp"], ad.VAL))
         env.Tee.reset_path()
     tdiff = (timeit.default_timer() - start_time) / 60
-    print(f"{env.timestr()} total script time: {tdiff:.0f} min")
+    logger.info(f"total script time: {tdiff:.0f} min")
     tee.close()

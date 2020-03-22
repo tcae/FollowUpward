@@ -6,6 +6,7 @@
 	],
 	"settings": {
 		"terminal.integrated.inheritEnv": false,
-		"python.dataScience.debugJustMyCode": false
+		"python.dataScience.debugJustMyCode": false,
+		"gremlins.showInProblemPane": true
 	}
 }

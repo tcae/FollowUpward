@@ -1,4 +1,5 @@
 import os
+import logging
 # import math
 import pandas as pd
 import numpy as np
@@ -6,11 +7,12 @@ import ccxt
 import json
 import pytz  # 3rd party: $ pip install pytz
 from datetime import datetime
-from env_config import nowstr
 from env_config import Env
 import env_config as env
 
-# logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+# logger.basicConfig(level=logging.DEBUG)
 RETRIES = 5  # number of ccxt retry attempts before proceeding without success
 
 
@@ -35,16 +37,16 @@ class Xch():
     # def __init__():
     fname = Env.auth_file
     if not os.path.isfile(Env.auth_file):
-        print(f"file {Env.auth_file} not found")
+        logger.error(f"file {Env.auth_file} not found")
         # return
     try:
         with open(fname, "rb") as fp:
             auth = json.load(fp)
         if ("name" not in auth) or ("key" not in auth) or \
                 ("secret" not in auth):
-            print(f"missing auth keys: {auth}")
+            logger.error(f"missing auth keys: {auth}")
     except IOError:
-        print(f"IO error while trying to open {fname}")
+        logger.error(f"IO error while trying to open {fname}")
         # return
     lxch = ccxt.binance({
         "apiKey": auth["key"],
@@ -101,56 +103,43 @@ class Xch():
                 ohlcvs = Xch.lxch.fetch_ohlcv(sym, "1m", since=since, limit=minutes)
                 # only 1000 entries are returned by one fetch
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a RequestTimeout error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a RequestTimeout error:", str(err))
                 continue
             except ccxt.DDoSProtection as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a DDoSProtection error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a DDoSProtection error:", str(err))
                 continue
             except ccxt.ExchangeNotAvailable as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a ExchangeNotAvl error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a ExchangeNotAvl error:", str(err))
                 continue
             except ccxt.InvalidNonce as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a InvalidNonce error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a InvalidNonce error:", str(err))
                 continue
             except ccxt.NetworkError as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a NetworkError error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a NetworkError error:", str(err))
                 continue
             except ccxt.ArgumentsRequired as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a ArgumentsReqd error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a ArgumentsReqd error:", str(err))
                 break
             except ccxt.BadRequest as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a BadRequest error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a BadRequest error:", str(err))
                 break
             except ccxt.NullResponse as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a NullResponse error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a NullResponse error:", str(err))
                 break
             except ccxt.BadResponse as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a BadResponse error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a BadResponse error:", str(err))
                 break
             except ccxt.AddressPending as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a AddressPending error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a AddressPending error:", str(err))
                 break
             except ccxt.InvalidAddress as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a InvalidAddress error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a InvalidAddress error:", str(err))
                 break
             except ccxt.NotSupported as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a NotSupported error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a NotSupported error:", str(err))
                 break
             except ccxt.ExchangeError as err:
-                print(f"{nowstr()} fetch_ohlcv failed {i}x due to a ExchangeError error:",
-                      str(err))
+                logger.error(f"fetch_ohlcv failed {i}x due to a ExchangeError error:", str(err))
                 break
             else:
                 if len(ohlcvs) == 0:
@@ -174,13 +163,12 @@ class Xch():
             try:
                 tickers = Xch.fetch_tickers()
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} fetch_tickers failed {i}x due to a RequestTimeout error:",
-                      str(err))
+                logger.error(f"fetch_tickers failed {i}x due to a RequestTimeout error:", str(err))
                 continue
             else:
                 break
         if tickers is None:
-            print(f"nowstr() {caller} ERROR: cannot fetch_tickers")
+            logger.error(f"{caller} cannot fetch_tickers")
         return tickers
 
     def create_limit_sell_order(sym, amount, price, *params):
@@ -190,13 +178,12 @@ class Xch():
             try:
                 myorder = Xch.lxch.create_limit_sell_order(sym, amount, price, *params)
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} sell_order failed {i}x due to a RequestTimeout error:",
-                      str(err))
+                logger.error(f"sell_order failed {i}x due to a RequestTimeout error:", str(err))
                 continue
             else:
                 break
         if myorder is None:
-            print(f"nowstr() sell_order ERROR: cannot create_limit_sell_order")
+            logger.error(f"sell_order ERROR: cannot create_limit_sell_order")
         return myorder
 
     def create_limit_buy_order(base, amount, price, *params):
@@ -207,16 +194,14 @@ class Xch():
             try:
                 myorder = Xch.lxch.create_limit_buy_order(sym, amount, price, *params)
             except ccxt.InsufficientFunds as err:
-                print(f"{nowstr()} buy_order failed due to a InsufficientFunds ",
-                      str(err))
+                logger.error(f"buy_order failed due to a InsufficientFunds ", str(err))
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} buy_order failed {i}x due to a RequestTimeout error: ",
-                      str(err))
+                logger.error(f"buy_order failed {i}x due to a RequestTimeout error: ", str(err))
                 continue
             else:
                 break
         if myorder is None:
-            print(f"nowstr() buy_order ERROR: cannot create_limit_buy_order")
+            logger.error(f"buy_order ERROR: cannot create_limit_buy_order")
             return
 
     def myfetch_balance(caller):
@@ -225,11 +210,10 @@ class Xch():
             try:
                 mybalance = Xch.lxch.fetch_balance()
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} fetch_balance failed {i}x due to a RequestTimeout error:",
-                      str(err))
+                logger.error(f"fetch_balance failed {i}x due to a RequestTimeout error:", str(err))
                 continue
         if mybalance is None:
-            print(f"nowstr() {caller} ERROR: cannot fetch_balance")
+            logger.error(f"{caller} ERROR: cannot fetch_balance")
         return mybalance
 
     def fetch_order_book(sym):
@@ -238,13 +222,12 @@ class Xch():
             try:
                 ob = Xch.lxch.fetch_order_book(sym)  # returns 100 bids and 100 asks
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} fetch_order_book failed {i}x due to a RequestTimeout error:",
-                      str(err))
+                logger.error(f"fetch_order_book failed {i}x due to a RequestTimeout error:", str(err))
                 continue
             else:
                 break
         if ob is None:
-            print(f"nowstr() log_trades_orderbook ERROR: cannot fetch_order_book")
+            logger.error(f"log_trades_orderbook ERROR: cannot fetch_order_book")
         return ob
 
     def fetch_trades(sym):
@@ -253,13 +236,12 @@ class Xch():
             try:
                 trades = Xch.lxch.fetch_trades(sym)  # returns 500 trades
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} fetch_trades failed {i}x due to a RequestTimeout error:",
-                      str(err))
+                logger.error(f"fetch_trades failed {i}x due to a RequestTimeout error:", str(err))
                 continue
             else:
                 break
         if trades is None:
-            print(f"nowstr() ERROR: cannot fetch_trades")
+            logger.error(f"ERROR: cannot fetch_trades")
         return trades
 
     def myfetch_open_orders(base, caller):
@@ -269,13 +251,12 @@ class Xch():
             try:
                 oo = Xch.lxch.fetch_open_orders(sym)
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} fetch_open_orders failed {i}x due to a RequestTimeout error:",
-                      str(err))
+                logger.error(f"fetch_open_orders failed {i}x due to a RequestTimeout error:", str(err))
                 continue
             else:
                 break
         if oo is None:
-            print(f"nowstr() {caller} ERROR: cannot fetch_tickers")
+            logger.error(f"{caller} ERROR: cannot fetch_tickers")
         return oo
 
     def myfetch_cancel_orders(orderid, base):
@@ -284,8 +265,7 @@ class Xch():
             try:
                 Xch.lxch.cancel_order(orderid, sym)
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} cancel_order failed {i}x due to a RequestTimeout error:",
-                      str(err))
+                logger.error(f"cancel_order failed {i}x due to a RequestTimeout error:", str(err))
                 continue
             except ccxt.OrderNotFound:
                 break  # order is already closed
@@ -299,8 +279,7 @@ class Xch():
             try:
                 Xch.lxch.cancel_order(orderid, sym)
             except ccxt.RequestTimeout as err:
-                print(f"{nowstr()} 2nd cancel_order failed {i}x due to a RequestTimeout error:",
-                      str(err))
+                logger.error(f"2nd cancel_order failed {i}x due to a RequestTimeout error:", str(err))
                 continue
             except ccxt.OrderNotFound:
                 break  # order is already closed
@@ -315,33 +294,33 @@ class Xch():
         minamount = Xch.markets[sym]["limits"]["amount"]["min"]
         if minamount is not None:
             if amount <= minamount:
-                print(f"{nowstr()} limit violation: {sym} amount {amount} <= min({minamount})")
+                logger.error(f"limit violation: {sym} amount {amount} <= min({minamount})")
                 return (0, price, 0)
         maxamount = Xch.markets[sym]["limits"]["amount"]["max"]
         if maxamount is not None:
             if amount >= maxamount:
-                print(f"{nowstr()} limit violation: {sym} amount {amount} >= min({maxamount})")
+                logger.error(f"limit violation: {sym} amount {amount} >= min({maxamount})")
                 return (0, price, 0)
         minprice = Xch.markets[sym]["limits"]["price"]["min"]
         if minprice is not None:
             if price <= minprice:
-                print(f"{nowstr()} limit violation: {sym} price {price} <= min({minprice})")
+                logger.error(f"limit violation: {sym} price {price} <= min({minprice})")
                 return (amount, 0, ice_chunk)
         maxprice = Xch.markets[sym]["limits"]["price"]["max"]
         if maxprice is not None:
             if price >= maxprice:
-                print(f"{nowstr()} limit violation: {sym} price {price} >= min({maxprice})")
+                logger.error(f"limit violation: {sym} price {price} >= min({maxprice})")
                 return (amount, 0, ice_chunk)
         cost = price * amount
         mincost = Xch.markets[sym]["limits"]["cost"]["min"]
         if mincost is not None:
             if cost <= mincost:
-                print(f"{nowstr()} limit violation: {sym} cost {cost} <= min({mincost})")
+                logger.error(f"limit violation: {sym} cost {cost} <= min({mincost})")
                 return (0, 0, 0)
         maxcost = Xch.markets[sym]["limits"]["cost"]["max"]
         if maxcost is not None:
             if cost >= maxcost:
-                print(f"{nowstr()} limit violation: {sym} cost {cost} >= min({maxcost})")
+                logger.error(f"limit violation: {sym} cost {cost} >= min({maxcost})")
                 return (0, 0, 0)
         return (amount, price, ice_chunk)
 
@@ -369,7 +348,7 @@ class Xch():
         for ohlcv in ohlcvs:
             tic = pd.Timestamp(datetime.utcfromtimestamp(ohlcv[0]/1000), tz='UTC')
             if int((tic - prev_tic)/pd.Timedelta(1, unit='T')) > 1:
-                print(f"ohlcv time gap for {base} between {prev_tic} and {tic}")
+                logger.info(f"ohlcv time gap for {base} between {prev_tic} and {tic}")
                 if prev_tic < fromdate:
                     if df.index.isin([prev_tic]).any():  # repair first tics
                         last_tic = prev_tic
@@ -398,11 +377,11 @@ class Xch():
             tic = df.index[ix]
             diff = int(pd.Timedelta((tic - last_tic), unit='T').seconds) / 60
             if (ix > 0) and (diff != 1):
-                print(f"ix: {ix} tic: {tic} - last_tic: {last_tic} != {diff} minute")
+                logger.debug(f"ix: {ix} tic: {tic} - last_tic: {last_tic} != {diff} minute")
             if df.loc[tic].isna().any():
-                print(f"detetced Nan at ix {ix}: {df[tic]}")
+                logger.info(f"detetced Nan at ix {ix}: {df[tic]}")
             last_tic = tic
-        # print("consistency check done")
+        # logger.debug("consistency check done")
 
     def get_ohlcv(base, minutes, last_minute):
         """Returns the last 'minutes' OHLCV values of pair before 'last_minute'.
@@ -414,39 +393,34 @@ class Xch():
             1) gaps in tics (e.g. maintenance) ==> will be filled with last values before the gap,
             2) last_minute before df cache coverage (e.g. simulation) ==> # TODO
         """
-        # print(f"last_minute: {last_minute}  minutes{minutes}")
+        # logger.debug(f"last_minute: {last_minute}  minutes{minutes}")
         last_minute = pd.Timestamp(last_minute).replace(second=0, microsecond=0, nanosecond=0)
         last_minute += pd.Timedelta(1, unit='T')  # one minute later to include the `last_minute`
         minutes += 1  # `minutes` is extended by one to replace the last old and incomplete sample
 
         df, remaining = Xch.__get_ohlcv_cache(base, last_minute, minutes)
-        # print(df.tail(5))
+        # logger.debug(df.tail(5))
         sym = Xch.xhc_sym_of_base(base)
         while remaining > 0:
             fromdate = last_minute - pd.Timedelta(remaining, unit='T')
-            # print(f"{nowstr()} {base} fromdate {env.timestr(fromdate)} minutes {remaining}")
+            # logger.error(f"{base} fromdate {env.timestr(fromdate)} minutes {remaining}")
             ohlcvs = Xch.__fetch_ohlcv(sym, since=fromdate, minutes=remaining)
             # only 1000 entries are returned by one fetch
             if ohlcvs is None:
-                print(
-                    "{} get_ohlcv ERROR: {} None result when requesting {} minutes from: {}".format(
-                        nowstr(), sym, remaining, fromdate.strftime(Env.dt_format)))
+                logger.error("{} None result when requesting {} minutes from: {}".format(
+                    sym, remaining, fromdate.strftime(Env.dt_format)))
                 return None
 
             if len(ohlcvs) > 0:
                 remaining -= Xch.__ohlcvs2df_fill_gaps(ohlcvs, df, fromdate, base)
-                # print(df.head(3))
-                # print(df.tail(3))
-                # print(f"{base} len(df): {len(df)} , minutes: {minutes} minutes, remaining: {remaining} minutes ")
             else:
-                print(
-                    "{} get_ohlcv ERROR: {} empty when requesting {} minutes from: {} - last df tic {}".format(
-                        nowstr(), sym, remaining, fromdate.strftime(Env.dt_format), df.index[len(df)-1]))
+                logger.error("{} empty when requesting {} minutes from: {} - last df tic {}".format(
+                    sym, remaining, fromdate.strftime(Env.dt_format), df.index[len(df)-1]))
                 break
 
         Xch.ohlcv[base] = df
         if len(df) < minutes:
-            print(f"{base} len(df) {len(df)} < {minutes} minutes")
+            logger.debug(f"{base} len(df) {len(df)} < {minutes} minutes")
         if len(df) > minutes:
             df = df.iloc[-minutes:]
         Xch.check_df_result(df)
@@ -464,7 +438,7 @@ class Xch():
     def __show_all_binance_commands():
         binance_api = dir(ccxt.binance())
         for cmd in binance_api:
-            print(cmd)
+            logger.debug(cmd)
 
     def __show_binance_base_constraints(base):
         dct = Xch.public_get_exchangeinfo()
@@ -472,7 +446,7 @@ class Xch():
         for s in syms:
             if (s["baseAsset"] == base) and (s["quoteAsset"] == "USDT"):
                 for f in s["filters"]:
-                    print(f)
+                    logger.debug(f)
 
 
 if __name__ == "__main__":

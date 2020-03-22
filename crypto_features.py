@@ -5,7 +5,8 @@ Created on Mon Jan  7 21:43:26 2019
 
 @author: tc
 """
-from datetime import datetime  # , timedelta
+import logging
+# from datetime import datetime  # , timedelta
 import numpy as np
 import pandas as pd
 from sklearn.utils import Bunch
@@ -14,6 +15,8 @@ import env_config as env
 from env_config import Env
 import crypto_targets as ct
 import cached_crypto_data as ccd
+
+logger = logging.getLogger(__name__)
 
 
 class NoSubsetWarning(Exception):
@@ -37,7 +40,7 @@ def targets_to_features(tfv_ta_df, target_df):
 
 
 def report_setsize(setname, df):
-    print(f"{str_setsize(df)} on {setname}")
+    logger.info(f"{str_setsize(df)} on {setname}")
 
 
 def str_setsize(df):
@@ -122,7 +125,7 @@ class TargetsFeatures:
         return "AbstractTargetsFeatures"
 
     def calc_features(self, minute_data):
-        print("ERROR: no features implemented")
+        logger.error("no features implemented")
         return None
 
     def crypto_targets(self):
@@ -156,17 +159,18 @@ class TargetsFeatures:
         len_vec = len(self.vec)
         if len_md == len_vec:  # minute_data was already reduced to vec length
             if self.minute_data.index[0] != self.vec.index[0]:
-                print("vec start is {} but was expected {}".format(self.vec.index[0], self.minute_data.index[0]))
+                logger.warning("vec start is {} but was expected {}".format(
+                    self.vec.index[0], self.minute_data.index[0]))
                 ok = False
             if self.minute_data.index[len_md-1] != self.vec.index[len_vec-1]:
-                print("unexpected last tic of minute data {} versus vec {}".format(
+                logger.warning("unexpected last tic of minute data {} versus vec {}".format(
                     self.minute_data.index[len_md-1], self.vec.index[len_vec-1]))
                 ok = False
         else:   # orignal minute data length including history that is not in vec
             hmwf = self.history()
             vec_start = self.minute_data.index[0] + pd.Timedelta(hmwf, unit='T')
             if vec_start != self.vec.index[0]:
-                print("vec start is {} but was expected {}".format(self.vec.index[0], vec_start))
+                logger.warning("vec start is {} but was expected {}".format(self.vec.index[0], vec_start))
                 ok = False
         return ok
 
@@ -230,8 +234,8 @@ class TargetsFeatures:
         fname = self.path + sym + "_" + self.feature_str() + "_DataFrame.h5"
         try:
             self.vec = pd.read_hdf(fname, sym)  # targets and features
-            print("{}: loaded {}({}) {} tics ({} - {})".format(
-                datetime.now().strftime(Env.dt_format), self.feature_str(), env.sym_of_base(self.base),
+            logger.debug("loaded {}({}) {} tics ({} - {})".format(
+                self.feature_str(), env.sym_of_base(self.base),
                 len(self.vec), self.vec.index[0].strftime(Env.dt_format),
                 self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
             if self.index_ok():
@@ -251,15 +255,15 @@ class TargetsFeatures:
         if self.path is None:
             return
         if self.index_ok():
-            print("{}: writing {}({}) {} tics ({} - {})".format(
-                datetime.now().strftime(Env.dt_format), self.feature_str(), env.sym_of_base(self.base),
+            logger.debug("writing {}({}) {} tics ({} - {})".format(
+                self.feature_str(), env.sym_of_base(self.base),
                 len(self.vec), self.vec.index[0].strftime(Env.dt_format),
                 self.vec.index[len(self.vec)-1].strftime(Env.dt_format)))
             sym = env.sym_of_base(self.base)
             fname = self.path + sym + "_" + self.feature_str() + "_DataFrame.h5"
             self.vec.to_hdf(fname, sym, mode="w")
         else:
-            print(f"feature cache save of {self.base} failed due to index check")
+            logger.error(f"feature cache save of {self.base} failed due to index check")
 
     def enforce_target_recalculation(self):
         """ repair action to use new target algorithm
@@ -268,7 +272,7 @@ class TargetsFeatures:
             self.vec = self.vec.drop(columns="target")
         if "target" in self.minute_data:
             self.minute_data = self.minute_data.drop(columns="target")
-            print("enforce_target_recalculation")
+            logger.info("enforce_target_recalculation")
             self.crypto_targets()  # recalculate all targets from scratch
             smd = self.minute_data.loc[self.minute_data.index >= self.vec.index[0]]
             self.vec["target"] = smd["target"]
@@ -299,7 +303,7 @@ class TargetsFeatures:
                     # if self.path is not None:
                     #     self.save_cache()
                 else:
-                    print(f"ERROR: feature calculation failed")
+                    logger.error("feature calculation failed")
         # if self.minute_data is not None:  # disabled to not loose history data
         #     self.minute_data = self.minute_data[self.minute_data.index >= self.vec.index[0]]
 
@@ -323,4 +327,4 @@ def target_labels(target_id):
 
 
 if __name__ == "__main__":
-    print("probably launched wrong python file")
+    logger.info("probably launched wrong python file")

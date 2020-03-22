@@ -1,9 +1,12 @@
 import pandas as pd
+import logging
 import env_config as env
 # from env_config import Env
 import cached_crypto_data as ccd
 # import crypto_features as cf
 from crypto_features import TargetsFeatures
+
+logger = logging.getLogger(__name__)
 
 VOL_BASE_PERIOD = "1D"
 TARGET_KEY = 5
@@ -133,7 +136,7 @@ def calc_aggregation(minute_df, time_aggregations):
         raise env.MissingHistoryData("History data has {} samples but should have >= {}".format(
                 len(df.index), maxmin))
     for time_agg in time_aggregations:
-        # print(f"{datetime.now()}: time_aggregation {time_agg}")
+        # logger.debug(f"time_aggregation {time_agg}")
         if time_agg > 1:
             df = pd.DataFrame()
             df["open"] = mdf.open.shift(time_agg-1)
@@ -224,4 +227,4 @@ class F1agg110(ccd.Features):
 
 
 if __name__ == "__main__":
-    print(AggregatedFeatures.feature_str())
+    logger.info(AggregatedFeatures.feature_str())

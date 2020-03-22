@@ -1,8 +1,10 @@
 import pandas as pd
+import logging
 import numpy as np
 from env_config import Env
 import cached_crypto_data as ccd
 
+logger = logging.getLogger(__name__)
 
 FEE = 1/1000  # in per mille, transaction fee is 0.1%
 TRADE_SLIP = 0  # 1/1000  # in per mille, 0.1% trade slip
@@ -33,7 +35,7 @@ def trade_signals(close):
         - else HOLD.
     """
     if close.ndim > 1:
-        print("unexpected close array dimension {close.ndim}")
+        logger.warning("unexpected close array dimension {close.ndim}")
     maxdistance = min(close.size, 8*60)
     dt = np.dtype([("target", "i4"), ("nowdelta", "f8"), ("fardelta", "f8"),
                    ("flag", "bool")])
@@ -96,7 +98,7 @@ def trade_target_performance(target_df):
         'target_df' shall be a pandas DataFrame with at least
         the columns 'close' and 'target'.
     """
-    # print(f"{datetime.now()}: calculate target_performance")
+    # logger.debug(f"calculate target_performance")
     perf = 0.
     ta_holding = False
     lix = target_df.columns.get_loc("target")  # lix == label index
@@ -178,10 +180,10 @@ if __name__ == "__main__":
         close = np.array([1., 1.02, 1.015, 1.016, 1.03, 1.024, 1.025, 1.026, 1.025, 1.024,
                           1.023, 1.022, 1.021, 1.02, 1.016, 1.014, 1.012, 1.022], np.dtype(np.float))
         trade_targets = trade_signals(close)
-        print(trade_targets)
+        logger.debug(str(trade_targets))
     else:
         cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=100)
         trade_targets = trade_signals(cdf["close"].values)
         cdf["target"] = trade_targets
-        print(cdf.head(5))
-        print(cdf.tail(5))
+        logger.debug(str(cdf.head(5)))
+        logger.debug(str(cdf.tail(5)))

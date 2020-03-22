@@ -1,4 +1,5 @@
 import math
+import logging
 import pandas as pd
 from datetime import datetime  # , timedelta  # , timezone
 from env_config import nowstr
@@ -8,13 +9,14 @@ import cached_crypto_data as ccd
 from local_xch import Xch
 import crypto_history_sets as chs
 
+logger = logging.getLogger(__name__)
 
-# logging.basicConfig(level=logging.DEBUG)
+# logger.basicConfig(level=logging.DEBUG)
 RETRIES = 5  # number of ccxt retry attempts before proceeding without success
 BASES = ["BTC", "XRP", "ETH", "BNB", "EOS", "LTC", "NEO", "TRX", "USDT"]
 # TODO can this BASES be replaced by bases from env that is equal but missing USDT?
 
-print("local_xch init")
+logger.info("local_xch init")
 
 
 class Bk():
@@ -49,8 +51,8 @@ class Bk():
                                    "side", "price", "amount"])
     book = None
 
-    def __init__(self, exchange):
-        Bk.exch = exchange.__class__
+    def __init__(self):
+        Bk.exch = Xch()  # exchange.__class__
         tickers = Xch.myfetch_tickers("__init__")
         assert tickers is not None
         Bk.__update_bookkeeping(tickers)
@@ -67,7 +69,7 @@ class Bk():
                 else:
                     bval = mybalance[base]["free"] + mybalance[base]["used"]
                     if bval > 0.01:  # whatever USDT value
-                        #  print(f"balance value of {bval} {base} not traded in USDT")
+                        #  logger.debug(f"balance value of {bval} {base} not traded in USDT")
                         pass
         return bases
 
@@ -110,7 +112,7 @@ class Bk():
         bases = bases + Bk.__all_symbols_with_volume(tickers)
         Bk.__init_book_entries(bases, mybalance, tickers)
         bdf = Bk.book[["free", "used", "USDT", "dayUSDT"]]
-        print(bdf)
+        logger.info(str(bdf))
         for base in Bk.book.index:
             adf = None
             if base not in Bk.black_bases:
@@ -199,14 +201,14 @@ class Bk():
         return df
 
     def create_limit_sell_order(sym, amount, price, *params):
-        print(f"sell_limit_order: {amount}{sym} at {price} {Env.quote.upper()} params:", params)
+        logger.info(f"sell_limit_order: {amount}{sym} at {price} {Env.quote.upper()} params:", params)
         my_order = None
         # my_order = Bk.exch.create_limit_sell_order(sym, amount, price, *params)
         Bk.__log_action("create_limit_sell_order")
         return my_order
 
     def create_limit_buy_order(base, amount, price, *params):
-        print(f"buy_limit_order: {amount}{base} at {price} {Env.quote.upper()} params:", params)
+        logger.info(f"buy_limit_order: {amount}{base} at {price} {Env.quote.upper()} params:", params)
         my_order = None
         # my_order = Bk.exch.create_limit_buy_order(base, amount, price, params)
         if my_order is not None:

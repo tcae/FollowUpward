@@ -1,4 +1,5 @@
 import pandas as pd
+import logging
 from env_config import Env
 import env_config as env
 import cached_crypto_data as ccd
@@ -8,6 +9,8 @@ from local_xch import Xch
 import crypto_targets as ct
 import condensed_features as cof
 import aggregated_features as agf
+
+logger = logging.getLogger(__name__)
 
 
 def check_labels_of_df(df):
@@ -28,17 +31,17 @@ def check_labels_of_df(df):
         time_udf = unknown_df.loc[
             unknown_df.index[(unknown_df.index[1:] - unknown_df.index.shift(periods=1, freq="T")[:-1]) !=
                              pd.Timedelta(1, unit='T')], "target"]
-        print(time_udf.head(10))
-        print("unknown_df: {}, time ranges: {}".format(len(unknown_df), len(time_udf)))
+        logger.info(time_udf.head(10))
+        logger.info("unknown_df: {}, time ranges: {}".format(len(unknown_df), len(time_udf)))
     return target_str
 
 
 def check_labels(tf):
     rmd = tf.minute_data.loc[tf.minute_data.index >= tf.vec.index[0]]
     target_str = check_labels_of_df(rmd)
-    print("{} {} {} {}".format(env.timestr(), tf.base, "ohlcv", target_str))
+    logger.info("{} {} {}".format(tf.base, "ohlcv", target_str))
     target_str = check_labels_of_df(tf.vec)
-    print("{} {} {} {}".format(env.timestr(), tf.base, tf.feature_str(), target_str))
+    logger.info("{} {} {}".format(tf.base, tf.feature_str(), target_str))
 
 
 def calc_targets_features_and_concat(stored_tf, downloaded_df, fclass):
@@ -63,7 +66,7 @@ def calc_targets_features_and_concat(stored_tf, downloaded_df, fclass):
         if (subset_tf.vec.index[0] - stored_tf.vec.index[-1]) == pd.Timedelta(1, unit='T'):
             new_df_vec = pd.concat([stored_tf.vec, subset_tf.vec], sort=False)
         else:
-            print("unexpected gap: vec last stored: {} / first loaded: {}".format(
+            logger.warning("unexpected gap: vec last stored: {} / first loaded: {}".format(
                 stored_tf.vec.index[-1], subset_tf.vec.index[0]))
             return None, None
 
@@ -73,7 +76,7 @@ def calc_targets_features_and_concat(stored_tf, downloaded_df, fclass):
         new_minute_data = pd.concat([stored_tf.minute_data, subset_tf.minute_data], sort=False)
         ok2save = env.check_df(new_minute_data)
         if not ok2save:
-            print(f"merged df.minute_data checked: {ok2save} - dataframe not saved")
+            logger.info(f"merged df.minute_data checked: {ok2save} - dataframe not saved")
             return None, None
     else:  # no new data and vec up to date
         new_df_vec = stored_tf.vec
@@ -83,9 +86,9 @@ def calc_targets_features_and_concat(stored_tf, downloaded_df, fclass):
 def load_assets(bases, lastdatetime, feature_classes):
     """ Loads the cached history data as well as live data from the xch
     """
-    print(bases)  # Env.usage.bases)
+    logger.info(bases)  # Env.usage.bases)
     for base in bases:
-        print(f"supplementing {base}")
+        logger.info(f"supplementing {base}")
 
         for fclass in feature_classes:
             stored_tf = fclass(base, path=Env.data_path)
@@ -97,20 +100,20 @@ def load_assets(bases, lastdatetime, feature_classes):
                 if diffmin > 0:
                     downloaded_df = Xch.get_ohlcv(base, diffmin, lastdatetime)
                     if downloaded_df is None:
-                        print("skipping {}".format(base))
+                        logger.info("skipping {}".format(base))
                         continue
                     else:
                         if stored_tf.minute_data.index[-1] == downloaded_df.index[0]:
                             # the last saved sample is incomplete and needs to be updated
                             stored_tf.minute_data = stored_tf.minute_data.drop([stored_tf.minute_data.index[-1]])
                         if (downloaded_df.index[0] - stored_tf.minute_data.index[-1]) != pd.Timedelta(1, unit='T'):
-                            print("unexpected gap: minute data last stored: {} / first loaded: {}".format(
+                            logger.info("unexpected gap: minute data last stored: {} / first loaded: {}".format(
                                 stored_tf.minute_data.index[-1], downloaded_df.index[0]))
                             continue
 
             new_minute_data, new_df_vec = calc_targets_features_and_concat(stored_tf, downloaded_df, fclass)
             if (new_minute_data is None) or (new_df_vec is None):
-                print("no new data to store")
+                logger.info("no new data to store")
                 continue
             ok2save = env.check_df(new_df_vec)
             if ok2save:
@@ -121,10 +124,13 @@ def load_assets(bases, lastdatetime, feature_classes):
                 ccd.save_asset_dataframe(new_minute_data, base, path=Env.data_path)
                 stored_tf.save_cache()
             else:
-                print(f"merged df.vec checked: {ok2save} - dataframe not saved")
+                logger.info(f"merged df.vec checked: {ok2save} - dataframe not saved")
 
 
 def repair_stored_ohlcv():
+    """ Allows repair of historic ohlcv data based on the outdated format.
+        Is required when programming errors delete the database.
+    """
     df = ccd.load_asset_dataframe("xrp", Env.data_path)
     df = df.loc[df.index < pd.Timestamp("2020-01-24 10:00:00+00:00")]
     ccd.save_asset_dataframe(df, "xrp", Env.data_path)
@@ -135,22 +141,29 @@ def update_history(bases: list, last: pd.Timestamp, data_objs: list):
     """
     minutes = 0
     minimum = max([do.history() + 1 for do in data_objs])
+    df_first = last
+    df_last = last
     for base in bases:
         for do in data_objs:
             df = do.load_data(base)
-            if not df.empty:
-                minutes = int((last - df.index[-1]) / pd.Timedelta(1, unit="T")) + 1
-            minutes = max(minutes, minimum)
-            if minutes > 0:
-                first = last - pd.Timedelta(minutes, unit="T")
-                print("updating gap for {} from {} until {} = {} minutes".format(base, first, last, minutes))
-                df = do.get_data(base, first, last)
-                do.save_data(base, df)
+            if (df is not None) and (not df.empty):
+                if df_first > df.index[0]:
+                    df_first = df.index[0]
+                if df_last < df.index[-1]:
+                    df_last = df.index[-1]
+    minutes = int((df_last - df_first) / pd.Timedelta(1, unit="T")) + 1
+    if minutes < minimum:
+        df_first = df_first - pd.Timedelta(minimum, unit="T")
+    assert df_first < df_last
+    for base in bases:
+        for do in data_objs:
+            df = do.get_data(base, df_first, df_last)
+            do.save_data(base, df)
 
 
 if __name__ == "__main__":
     # env.test_mode()
-    # tee = env.Tee()
+    tee = env.Tee(log_prefix="UpdateCryptoHistory")
     ohlcv = ccd.Ohlcv()
     if False:  # base data repair
         df = ccd.load_asset_dataframe("xrp", Env.data_path)
@@ -161,7 +174,5 @@ if __name__ == "__main__":
         # load_assets(Env.bases, pd.Timestamp.utcnow(), [cof.CondensedFeatures, agf.AggregatedFeatures])
         # load_assets(Env.bases, None, [cof.CondensedFeatures, agf.AggregatedFeatures])
     else:
-        env.test_mode()
-        base = "xrp"
-        update_history([base], pd.Timestamp("2019-02-28 23:58:00+00:00"), data_objs)
+        update_history(["btc", "xrp"], pd.Timestamp("2018-01-31 23:59:00+00:00"), data_objs)
     # tee.close()

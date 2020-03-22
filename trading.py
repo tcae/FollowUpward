@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # pylama:{name1}={value1}:{name2}={value2}:...
+import logging
 import pandas as pd
 from datetime import timedelta
 # from datetime import datetime
@@ -12,14 +13,17 @@ import env_config as env
 # from env_config import Env
 import crypto_targets as ct
 # import crypto_features as cf
-import classify_keras as ck
-from classify_keras import PerfMatrix, EvalPerf  # required for pickle  # noqa
-from local_xch import Xch
+# import classify_keras as ck
+# from classify_keras import PerfMatrix, EvalPerf  # required for pickle  # noqa
+# from local_xch import Xch
 from bookkeeping import Bk
 import crypto_history_sets as chs
+import cached_crypto_data as ccd
 import condensed_features as cof
 import aggregated_features as agf
+import prediction_data as pdd
 
+logger = logging.getLogger(__name__)
 
 MAX_MINBELOW = 5  # max minutes below buy price before emergency sell
 ORDER_TIMEOUT = 45  # in seconds
@@ -56,7 +60,7 @@ class Trading():
     def __init__(self):
         # FIXME: store order with attributes in order pandas
         self.openorders = list()
-        Bk(Xch())
+        Bk()
 
     def check_order_progress(self):
         """Check fill status of open orders and adapt price if required.
@@ -98,7 +102,7 @@ class Trading():
                         ots = pd.Timestamp(order["datetime"])
                         nowts = pd.Timestamp.utcnow()
                         tsdiff = int((nowts - ots) / timedelta(seconds=1))
-                        print(f"now {env.timestr(nowts)} - ts {env.timestr(ots)} = {tsdiff}s")
+                        logger.info(f"now {env.timestr(nowts)} - ts {env.timestr(ots)} = {tsdiff}s")
                         """
                         # ! reconsider why several cancel orders commands for the same order
                         if tsdiff >= ORDER_TIMEOUT:
@@ -137,7 +141,7 @@ class Trading():
             base_amount = self._deduct_blocked_sell_amount(base, base_amount)
             base_amount *= ratio
             price = tickers[sym]["bid"]  # TODO order spread strategy
-            print(f"{env.nowstr()} SELL {base_amount} {base} x {price} {sym}")
+            logger.info(f"SELL {base_amount} {base} x {price} {sym}")
             while base_amount > 0:
                 price = tickers[sym]["bid"]  # TODO order spread strategy
                 max_chunk = MAX_USDT_ORDER / price
@@ -150,12 +154,12 @@ class Trading():
                     {"icebergQty": ice_chunk, "timeInForce": "GTC"})
                 if myorder is None:
                     return
-                print(myorder)
+                logger.info(myorder)
                 # FIXME: store order with attributes in order pandas
                 self.openorders.append(myorder)
                 base_amount -= amount
         else:
-            print(f"unsupported base {base}")
+            logger.info(f"unsupported base {base}")
 
     def buy_order(self, base, ratio=1):
         """ Buys the ratio of free quote currency with base currency. Constraint: 0 <= ratio <= 1
@@ -171,7 +175,7 @@ class Trading():
             Bk.update_balance(tickers)
             quote_amount = Bk.trade_amount(base, ratio)
             price = tickers[sym]["ask"]  # TODO order spread strategy
-            print(f"{env.nowstr()} BUY {ratio} ratio = {quote_amount} USDT / {price} {sym}")
+            logger.info(f"BUY {ratio} ratio = {quote_amount} USDT / {price} {sym}")
             while quote_amount > 0:
                 price = tickers[sym]["ask"]  # TODO order spread strategy
                 max_chunk = MAX_USDT_ORDER / price
@@ -184,12 +188,12 @@ class Trading():
                     {"icebergQty": ice_chunk, "timeInForce": "GTC"})
                 if myorder is None:
                     return
-                print(myorder)
+                logger.info(myorder)
                 # FIXME: store order with attributes in order pandas
                 self.openorders.append(myorder)
                 quote_amount -= amount * price
         else:
-            print(f"unsupported base {base}")
+            logger.info(f"unsupported base {base}")
 
     def _force_sell_check(self, base, last_close, trade_signal):
         """ Changes trade_signal into a forced sell if the classifier fails
@@ -205,8 +209,8 @@ class Trading():
                     Bk.book.loc[base, "minbelow"] = 0  # reset minute counter
                 if Bk.book.loc[base, "minbelow"] > MAX_MINBELOW:  # minutes
                     sym = Bk.xhc_sym_of_base(base)
-                    print("{} !!! Forced selling {} due to {} minutes < buy price of {}".format(
-                            env.nowstr(), sym,
+                    logger.info("!!! Forced selling {} due to {} minutes < buy price of {}".format(
+                            sym,
                             Bk.book.loc[base, "minbelow"],
                             Bk.book.loc[base, "buyprice"]))
                     trade_signal = ct.TARGETS[ct.SELL]
@@ -222,7 +226,7 @@ class Trading():
             return None, 0
         ohlcv_df = Bk.get_ohlcv(base, chs.ActiveFeatures.history(), date_time)
         if ohlcv_df is None:
-            print(f"{env.nowstr()} skipping {base} due to missing ohlcv")
+            logger.info(f"skipping {base} due to missing ohlcv")
             return None, 0
         ttf = chs.ActiveFeatures(base, minute_dataframe=ohlcv_df)
         ttf.vec = ttf.calc_features(ttf.minute_data)
@@ -250,7 +254,7 @@ class Trading():
         buylist = list()
         try:
             while True:
-                print(f"{env.nowstr()} next round")
+                logger.info(f"next round")
                 # TOD: check order progress
                 ts1 = pd.Timestamp.utcnow()
                 for base in Bk.book.index:
@@ -261,7 +265,7 @@ class Trading():
 
                     trade_signal = self._force_sell_check(base, last_close, trade_signal)
                     if trade_signal != ct.TARGETS[ct.HOLD]:
-                        print(f"{env.nowstr()} {base} {ct.TARGET_NAMES[trade_signal]}")
+                        logger.info(f"{base} {ct.TARGET_NAMES[trade_signal]}")
                     if trade_signal == ct.TARGETS[ct.SELL]:
                         self.sell_order(base, ratio=1)
                     if trade_signal == ct.TARGETS[ct.BUY]:
@@ -275,22 +279,22 @@ class Trading():
                 self.check_order_progress()
         except KeyboardInterrupt:
             Bk.safe_cache()
-            print(Bk.actions)
-            print("finish as requested by keyboard interrupt")
+            logger.info(Bk.actions)
+            logger.info("finish as requested by keyboard interrupt")
 
 
 def trading_main():
-    print("executing trading_test")
     # env.set_environment(env.Usage.test, env.Calc.ubuntu)
-    tee = env.Tee()
+    tee = env.Tee(log_prefix="Trading")
     trading = Trading()
+    ohlcv = ccd.Ohlcv()
+    targets = ct.T10up5low30min(ohlcv)
     if True:
-        chs.ActiveFeatures = agf.AggregatedFeatures
+        features = cof.F2cond20(ohlcv)
     else:
-        chs.ActiveFeatures = cof.CondensedFeatures
-    load_classifier = "MLP_l1-77_do-0.2_h-55_l3-False_opt33_Adam_5"  # "MLP-ti1-l160-h0.8-l3False-do0.8-optadam_21"
-    save_classifier = None
-    cpc = ck.Cpc(load_classifier, save_classifier)
+        features = agf.AggregatedFeatures(ohlcv)
+    classifier = pdd.Classifier(ohlcv, features, targets)
+    classifier.load("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
 
     start_time = timeit.default_timer()
     buy_trshld = 0.7
@@ -298,11 +302,11 @@ def trading_main():
 
     # trd.buy_order("ETH", ratio=22/trd.book.loc[Env.quote, "free"])
     # trd.sell_order("ETH", ratio=1)
-    trading.trade_loop(cpc, buy_trshld, sell_trshld)
+    trading.trade_loop(classifier, buy_trshld, sell_trshld)
     trading = None  # should trigger Trading destructor
 
     tdiff = (timeit.default_timer() - start_time) / (60*60)
-    print(f"total time: {tdiff:.2f} hours")
+    logger.info(f"total time: {tdiff:.2f} hours")
     tee.close()
 
 

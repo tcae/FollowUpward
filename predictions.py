@@ -1,4 +1,5 @@
 import pandas as pd
+import logging
 # import numpy as np
 # import math
 # import indicators as ind
@@ -13,6 +14,8 @@ import condensed_features as cof
 import aggregated_features as agf
 # import crypto_features as cf
 # import adaptation_data as ad
+
+logger = logging.getLogger(__name__)
 
 
 class CategoryPredictions(ccd.CryptoData):
@@ -66,13 +69,13 @@ def test_data_handling():
         trgt.check_report(base)
 
         pred.check_report(base)
-        # print(df.head(4))
-        # print(df.tail(4))
+        # logger.debug(df.head(4))
+        # logger.debug(df.tail(4))
 
     # df = ohlcv.load_data(base)
-    # print(f"got data: {len(df)} samples from {df.index[0]} until {df.index[-1]}")
+    # logger.debug(f"got data: {len(df)} samples from {df.index[0]} until {df.index[-1]}")
     # df = ohlcv.set_type_data(base, "training")
-    # print(f"ohlcv training got data: {len(df)} samples from {df.index[0]} until {df.index[-1]}")
+    # logger.debug(f"ohlcv training got data: {len(df)} samples from {df.index[0]} until {df.index[-1]}")
 
 
 def classify_saved_history(classifier, targets: ct.Targets, features: ccd.Features):
@@ -88,8 +91,8 @@ def classify_saved_history(classifier, targets: ct.Targets, features: ccd.Featur
 
         if False:  # print excerpt to check that results are there and distinct from each other
             pdf = pred.load_data(base)
-            print(f"{base} results")
-            print(pdf.iloc[[0, 1, -2, -1]])
+            logger.debug(f"{base} results")
+            logger.debug(pdf.iloc[[0, 1, -2, -1]])
 
 
 def convert_cache_files():
@@ -105,7 +108,7 @@ def convert_cache_files():
         fdf = cond.vec
         # fdf = fdf.iloc[fdf.index != fdf.index[-2]]  # provoke index gap
         # ccd.dfdescribe(f"CondensedFeatures as loaded: {base}", df)
-        # print(f"cond Diff: {len(fdf) + cond.history() - len(df)}: len(cond) + history =
+        # logger.debug(f"cond Diff: {len(fdf) + cond.history() - len(df)}: len(cond) + history =
         # {len(fdf)} + {cond.history()} = {len(fdf) + cond.history()} != {len(df)} = len(ohlcv)")
 
         tdf = fdf["target"]
@@ -124,7 +127,8 @@ def convert_cache_files():
         agg.load_cache_ok()
         fdf = agg.vec
         # ccd.dfdescribe(f"AggregatedFeatures: {base}", df)
-        # print(f"agg Diff: {len(fdf) + cond.history() - len(df)}: len(cond) + history = {len(fdf)} + {cond.history()} =
+        # logger.debug(f"agg Diff: {len(fdf) + cond.history() - len(df)}: len(cond) + history =
+        # {len(fdf)} + {cond.history()} =
         # {len(fdf) + cond.history()} != {len(df)} = len(ohlcv)")
 
         fdf = fdf.drop(columns=["close", "target"])
@@ -139,7 +143,7 @@ def convert_cache_files():
 
 
 if __name__ == "__main__":
-    # print([(a, b) for a in range(3) for b in range(2)])
+    # logger.debug([(a, b) for a in range(3) for b in range(2)])
     # env.test_mode()
     tee = env.Tee()
     # test_data_handling()  # successfully tested

@@ -1,4 +1,5 @@
 import math
+import logging
 # import datetime
 import timeit
 import pandas as pd
@@ -14,6 +15,7 @@ import crypto_targets as ct
 import condensed_features as cof
 import aggregated_features as agf
 
+logger = logging.getLogger(__name__)
 
 NA = "not assigned"
 TRAIN = "training"
@@ -88,7 +90,7 @@ class TrainingData:
                 idf = hdf.get("/index")
                 # idf = pd.read_hdf(fname, "/index")
             except IOError:
-                print(f"{env.timestr()} load data frame file ERROR: cannot load (base, timestamp) 'index' from {fname}")
+                logger.error(f"load data frame file ERROR: cannot load (base, timestamp) 'index' from {fname}")
                 idf = None
         return idf
 
@@ -101,7 +103,7 @@ class TrainingData:
                 # mdf = pd.read_hdf(fname, "/meta")
                 meta = {ix: mdf[ix] for ix in mdf.index}
             except IOError:
-                print(f"{env.timestr()} load data frame file ERROR: cannot load 'meta' from {fname}")
+                logger.error(f"load data frame file ERROR: cannot load 'meta' from {fname}")
                 meta = None
         return meta
 
@@ -117,8 +119,8 @@ class TrainingData:
                     self.fbgdf = hdf.get(f"/features_{bg_ix}")
                     self.tbgdf = hdf.get(f"/targets_{bg_ix}")
                 except IOError:
-                    print("{} load data frame file ERROR: cannot load batch_ix {} from {}".format(
-                        env.timestr(), batch_ix, self.fname()))
+                    logger.error("load data frame file ERROR: cannot load batch_ix {} from {}".format(
+                        batch_ix, self.fname()))
                     return None, None
         tdf = self.tbgdf
         fdf = self.fbgdf
@@ -143,8 +145,8 @@ class TrainingData:
             batches = int(math.ceil(len(data_df) / bs))
             meta_df = pd.Series(
                 {"batch_size": bs, "batches": batches, "samples": len(data_df)})
-            print("{}: writing {} for {} samples as {} batches".format(
-                env.timestr(), fname, len(data_df), batches))
+            logger.debug("writing {} for {} samples as {} batches".format(
+                fname, len(data_df), batches))
             hdf.put("/meta", meta_df, "fixed")
             # meta_df.to_hdf(fname, "/meta", mode="w")
             idf = data_df.index.to_frame(name=["base", "timestamp"], index=False)
@@ -156,7 +158,7 @@ class TrainingData:
             batch_groups = int(math.ceil(batches / self.bgs))
             bgs = bs * self.bgs
             check = 0
-            print(f"bgroups: {batch_groups} * bgs = {batch_groups*self.bgs}")
+            logger.debug(f"bgroups: {batch_groups} * bgs = {batch_groups*self.bgs}")
 
             for bg in range(batch_groups - 1):
                 sdf = data_df.iloc[bg * bgs: (bg + 1) * bgs]
@@ -191,7 +193,7 @@ def prepare4keras(scaler, feature_df, target_df, targets):
 class TrainingGenerator(keras.utils.Sequence):
     "Generates training data for Keras"
     def __init__(self, scaler, features: ccd.Features, targets: ct.Targets, shuffle=False):
-        # print("TrainGenerator: __init__")
+        # logger.debug("TrainGenerator: __init__")
         self.scaler = scaler
         self.shuffle = shuffle
         self.training = TrainingData(features, targets)
@@ -204,30 +206,32 @@ class TrainingGenerator(keras.utils.Sequence):
 
     def __len__(self):
         "Denotes the number of batches per epoch"
-        # print(f"TrainGenerator: __len__ :{self.batches}")
+        # logger.debug(f"TrainGenerator: __len__ :{self.batches}")
         return self.batches
 
     def __getitem__(self, index):
         "Generate one batch of data"
-        # print(f"TrainGenerator: __getitem__ ix:{index}")
+        # logger.debug(f"TrainGenerator: __getitem__ ix:{index}")
         if index >= self.batches:
-            print(f"TrainGenerator: index {index} > len {self.batches}")
+            logger.debug(f"TrainGenerator: index {index} > len {self.batches}")
             index %= self.batches
         fdf, tdf = self.training.load_data(index)
+        if (fdf is None) or fdf.empty:
+            logger.warning("TrainGenerator: missing features")
         return prepare4keras(self.scaler, fdf, tdf, self.targets)
 
     def on_epoch_end(self):
         'Updates indexes after each epoch'
-        # print("TrainGenerator: on_epoch_end")
+        # logger.debug("TrainGenerator: on_epoch_end")
         if self.shuffle is True:
             # np.random.shuffle(self.indices)
             pass
 
 
-class ValidationGenerator(keras.utils.Sequence):
+class BaseGenerator(keras.utils.Sequence):
     'Generates validation data for Keras'
     def __init__(self, set_type, scaler, features: ccd.Features, targets: ct.Targets):
-        # print("ValidationGenerator: __init__")
+        # logger.debug("BaseGenerator: __init__")
         self.set_type = set_type
         self.scaler = scaler
         self.features = features
@@ -235,26 +239,28 @@ class ValidationGenerator(keras.utils.Sequence):
 
     def __len__(self):
         'Denotes the number of batches per epoch'
-        # print(f"ValidationGenerator: __len__: {len(Env.bases)}")
+        # logger.debug(f"BaseGenerator: __len__: {len(Env.bases)}")
         return len(Env.bases)
 
     def __getitem__(self, index):
         'Generate one batch of data'
-        # print(f"ValidationGenerator: __getitem__: {index}")
+        # logger.debug(f"BaseGenerator: __getitem__: {index}")
         if index >= len(Env.bases):
-            print(f"BaseGenerator: index {index} > len {len(Env.bases)}")
+            logger.debug(f"BaseGenerator: index {index} > len {len(Env.bases)}")
             index %= len(Env.bases)
         base = Env.bases[index]
         fdf = self.features.set_type_data(base, self.set_type)
         tdf = self.targets.set_type_data(base, self.set_type)
         [fdf, tdf] = ccd.common_timerange([fdf, tdf])
+        if (fdf is None) or fdf.empty:
+            logger.warning("BaseGenerator: missing features")
         return prepare4keras(self.scaler, fdf, tdf, self.targets)
 
 
 class AssessmentGenerator(keras.utils.Sequence):
     'Generates close, features, targets dataframes - use values attribute for Keras'
     def __init__(self, set_type, scaler, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
-        # print("AssessmentGenerator: __init__")
+        logger.debug("AssessmentGenerator: __init__")
         self.set_type = set_type
         self.scaler = scaler
         self.ohlcv = ohlcv
@@ -263,14 +269,14 @@ class AssessmentGenerator(keras.utils.Sequence):
 
     def __len__(self):
         'Denotes the number of batches per epoch'
-        # print(f"AssessmentGenerator: __len__: {len(Env.bases)}")
+        logger.debug(f"AssessmentGenerator: __len__: {len(Env.bases)}")
         return len(Env.bases)
 
     def __getitem__(self, index):
         'Generate one batch of data'
-        # print(f"AssessmentGenerator: __getitem__: {index}")
+        logger.debug(f"AssessmentGenerator: __getitem__: {index}")
         if index >= len(Env.bases):
-            print(f"BaseGenerator: index {index} > len {len(Env.bases)}")
+            logger.debug(f"AssessmentGenerator: index {index} > len {len(Env.bases)}")
             index %= len(Env.bases)
         base = Env.bases[index]
         odf = self.ohlcv.set_type_data(base, self.set_type)
@@ -282,7 +288,8 @@ class AssessmentGenerator(keras.utils.Sequence):
 
 
 if __name__ == "__main__":
-    tee = env.Tee()
+    # tee = env.Tee()
+    env.test_mode()
     ohlcv = ccd.Ohlcv()
     targets = ct.T10up5low30min(ohlcv)
     if True:
@@ -292,27 +299,27 @@ if __name__ == "__main__":
     td = TrainingData(features, targets)
     if True:  # create training sets
         start_time = timeit.default_timer()
-        print(f"{env.timestr()} creating training batches")
+        logger.debug("creating training batches")
         td.create_training_datasets()
         tdiff = (timeit.default_timer() - start_time)
         meta = td.load_meta()
         cnt = meta["samples"]
-        print(f"{env.timestr()} training set retrieval time: {(tdiff / 60):.0f} min = {(tdiff / cnt):.0f}s/sample")
+        logger.info(f"training set retrieval time: {(tdiff / 60):.0f} min = {(tdiff / cnt):.0f}s/sample")
     if True:  # retrieve training sets for test purposes
         meta = td.load_meta()
-        print(meta)
+        logger.debug(str(meta))
         start_time = timeit.default_timer()
-        print(f"{env.timestr()} loading training batches")
+        logger.info("loading training batches")
         # bix = 137339
         # fdf, tdf = td.load_data(bix)
-        # print(f"ix: {bix}  len: {len(fdf)} {fdf}")
+        # logger.debug(f"ix: {bix}  len: {len(fdf)} {fdf}")
         check = 0
         for bix in range(meta["batches"]):
             fdf, tdf = td.load_data(bix)
             check += len(fdf)
-        print(f"sample sum loaded: {check}")
+        logger.debug(f"sample sum loaded: {check}")
         tdiff = (timeit.default_timer() - start_time)
-        print(f"{env.timestr()} training set retrieval time: {(tdiff):.0f} s = {tdiff/check:.0f}s/sample")
+        logger.info(f"training set retrieval time: {(tdiff):.0f} s = {tdiff/check:.0f}s/sample")
         # idf = td.load_index()
-        # print(idf.describe(percentiles=[], include='all'))
-    tee.close()
+        # logger.info(str(idf.describe(percentiles=[], include='all')))
+    # tee.close()

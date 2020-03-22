@@ -1,8 +1,11 @@
 # from enum import Enum
+import logging
 import sys
 import platform
 from datetime import datetime  # , timedelta
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 PICKLE_EXT = ".pydata"  # pickle file extension
 
@@ -25,7 +28,7 @@ class Env():
     usage = None
 
     def __init__(self, calc, usage):
-        print(f"{type(calc)}/{type(usage)}")
+        # logger.info(f"{type(calc)}/{type(usage)}")
         Env.data_path = calc.data_path_prefix + usage.data_path_suffix
         Env.conf_fname = usage.conf_fname
         Env.test_mode = usage.test_mode
@@ -94,7 +97,7 @@ class Production(Usage):
 
 class Test(Usage):
     data_path_suffix = "TestFeatures/"
-    bases = ["xrp"]
+    bases = ["btc", "xrp"]
     # conf_fname = "target_5_sets_split_unit-test.config"
     conf_fname = "target_5_sets_split.config"
     set_split_fname = "adapt_sets_split.csv"
@@ -157,43 +160,77 @@ def base_of_sym(sym):
     return b
 
 
-class Tee(object):
+class Tee_outdated(object):
     file = None
     stdout = None
+    stderr = None
+    special_log = None
 
     def __init__(self):
-        Tee.reset_path()
+        self.reset_path()
 
     @classmethod
     def reset_path(cls):
-        cls.set_path(Env.model_path)
+        cls.set_path(Env.model_path, base_log=True)
 
     @classmethod
-    def set_path(cls, log_path: str):
-        cls.close()
+    def set_path(cls, log_path: str, base_log=False):
         name = f"{log_path}Log_{timestr()}.txt"
-        cls.file = open(name, "w")
-        cls.stdout = sys.stdout
-        sys.stdout = cls
+        try:
+            new_file = open(name, "w")
+            if base_log:
+                if cls.file is not None:
+                    cls.file.close()
+                cls.file = new_file
+            else:
+                if cls.special_log is not None:
+                    cls.special_log.close()
+                cls.special_log = new_file
+            if cls.stdout is None:
+                cls.stdout = sys.stdout
+                sys.stdout = cls
+            if cls.stderr is None:
+                cls.stderr = sys.stderr
+                sys.stderr = cls
+        except IOError:
+            print(f"{timestr()} ERROR: cannot redirect stdout and stderr to {name}")
 
     @classmethod
     def close(cls):
         if cls.stdout is not None:
             sys.stdout = cls.stdout
             cls.stdout = None
+        if cls.stderr is not None:
+            sys.stderr = cls.stderr
+            cls.stderr = None
         if cls.file is not None:
             cls.file.close()
             cls.file = None
+        if cls.special_log is not None:
+            cls.special_log.close()
+            cls.special_log = None
 
     @classmethod
     def write(cls, data):
-        cls.file.write(data)
-        cls.stdout.write(data)
+        if cls.file is not None:
+            cls.file.write(data)
+        if cls.special_log is not None:
+            cls.special_log.write(data)
+        if cls.stdout is not None:
+            cls.stdout.write(data)
+        if cls.stderr is not None:
+            cls.stderr.write(data)
 
     @classmethod
     def flush(cls):
-        cls.file.flush()
-        cls.stdout.flush()
+        if cls.file is not None:
+            cls.file.flush()
+        if cls.special_log is not None:
+            cls.special_log.flush()
+        if cls.stdout is not None:
+            cls.stdout.flush()
+        if cls.stderr is not None:
+            cls.stderr.flush()
 
     @classmethod
     def __del__(cls):
@@ -208,14 +245,14 @@ def test_mode():
 
 
 def check_df(df):
-    # print(df.head())
+    # logger.debug(str(df.head()))
     diff = pd.Timedelta(value=1, unit="T")
     last = this = df.index[0]
     ok = True
     ix = 0
     for tix in df.index:
         if this != tix:
-            print(f"ix: {ix} last: {last} tix: {tix} this: {this}")
+            logger.debug(f"ix: {ix} last: {last} tix: {tix} this: {this}")
             ok = False
             this = tix
         last = tix
@@ -224,21 +261,67 @@ def check_df(df):
     return ok
 
 
+class Tee(object):
+    logger = None  # will be root logger
+    formatter = None
+    streamhandler = None
+    filehandler = None
+    filehandler2 = None
+
+    def __init__(self, log_prefix="Log"):
+        self.init_tee(log_prefix)
+
+    @classmethod
+    def init_tee(cls, log_prefix="Log"):
+        fname = f"{Env.model_path}{log_prefix}_{timestr()}.txt"
+        cls.logger = logging.getLogger()
+        cls.formatter = logging.Formatter(
+            fmt="%(asctime)s %(levelname)s %(name)s/%(funcName)s: %(message)s",
+            datefmt="%Y-%m-%d_%H:%M:%S")
+        cls.streamhandler = logging.StreamHandler(sys.stderr)
+        cls.streamhandler.setFormatter(cls.formatter)
+        cls.filehandler = logging.FileHandler(filename=fname, mode="w")
+        cls.filehandler.setFormatter(cls.formatter)
+        cls.logger.addHandler(cls.streamhandler)
+        cls.logger.addHandler(cls.filehandler)
+        cls.logger.setLevel(level=logging.DEBUG)
+
+    @classmethod
+    def reset_path(cls):
+        if cls.filehandler2 is not None:
+            cls.logger.removeHandler(cls.filehandler2)
+            cls.filehandler2 = None
+
+    @classmethod
+    def set_path(cls, log_path: str, log_prefix="Log"):
+        fname = f"{log_path}{log_prefix}_{timestr()}.txt"
+        if cls.filehandler2 is not None:
+            cls.logger.removeHandler(cls.filehandler2)
+        cls.filehandler2 = logging.FileHandler(filename=fname, mode="w")
+        if cls.filehandler2 is not None:
+            cls.filehandler2.setFormatter(cls.formatter)
+            cls.logger.addHandler(cls.filehandler2)
+
+    @classmethod
+    def close(cls):  # only present for backward compatibility
+        pass
+
+
 # TODO the following is a Stackoverflow monkey patch to catch warnings. to be beatified
-old_f = sys.stderr
+# old_f = sys.stderr
 
 
-class F:
-    def write(self, x):
-        if "A value is trying to be set on a copy of a slice from a DataFrame." in x:
-            print("To be investigated")
-        old_f.write(x)
+# class F:
+#     def write(self, x):
+#         if "A value is trying to be set on a copy of a slice from a DataFrame." in x:
+#             print("To be investigated")
+#         old_f.write(x)
 
-    def flush(self):
-        old_f.flush()
+#     def flush(self):
+#         old_f.flush()
 
 
-sys.stderr = F()
+# sys.stderr = F()
 
 if platform.node() == "iMac.local":
     Env(Osx(), Production())

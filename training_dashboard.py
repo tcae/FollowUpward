@@ -1,4 +1,5 @@
 import json
+import logging
 from textwrap import dedent
 
 import plotly.graph_objects as go
@@ -9,16 +10,16 @@ from dash.dependencies import Input, Output
 # import plotly.graph_objs as go
 import pandas as pd
 from env_config import Env
-# import env_config as env
+import env_config as env
 import crypto_targets as ct
 import condensed_features as cof
 import cached_crypto_data as ccd
 import indicators as ind
 import crypto_history_sets as chs
 
+logger = logging.getLogger(__name__)
+
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-
-
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 ohlcv_df_dict = None  # ohlcv minute data
 features = None
@@ -123,11 +124,11 @@ app.layout = html.Div([
 
 def df_check(df, timerange):
     if timerange is not None:
-        print(f"timerange: {timerange} len(df): {len(df)}")
+        logger.debug(f"timerange: {timerange} len(df): {len(df)}")
     else:
-        print(f"timerange: all len(df): {len(df)}")
-    print(df.head(1))
-    print(df.tail(1))
+        logger.debug(f"timerange: all len(df): {len(df)}")
+    logger.debug(str(df.head(1)))
+    logger.debug(str(df.tail(1)))
 
 
 @app.callback(
@@ -419,7 +420,7 @@ def update_full_day_by_click(click_data, bases, regression_base, indicators):
 
 def target_list(base, start, end, bmd):
     # labels1 = [i for i in range(241)]
-    # print(len(labels1), labels1)
+    # logger.debug(f"{len(labels1)}, {labels1}")
     # return labels1, None
     colormap = {ct.TARGETS[ct.HOLD]: 0, ct.TARGETS[ct.BUY]: 1, ct.TARGETS[ct.SELL]: -1}
 
@@ -444,8 +445,8 @@ def target_list(base, start, end, bmd):
     target_dict["target1"] = {"targets": target_colors, "labels": labels}
 
     # labels2 = [ct.TARGET_NAMES[t] for t in bmd["target2"]]
-    # print(len(labels1), labels1, len(targets1), targets1)
-    # print(len(labels2), labels2)
+    # logger.debug(f"{len(labels1)}, {labels1}, {len(targets1)}, {targets1}")
+    # logger.debug(f"{len(labels2)}, {labels2}")
     return target_dict
 
 
@@ -494,7 +495,7 @@ def update_detail_graph_by_click(zoom_click, day_click, base, indicators):
     start = end - pd.Timedelta(zoom_in_time, "m")
 
     nbmd = normalize_ohlc(bmd, start, end, aggregation)
-    # print(f"update_detail_graph_by_click: len(nbmd): {len(nbmd)}, len(labels): {len(labels1)}")
+    # logger.debug(f"update_detail_graph_by_click: len(nbmd): {len(nbmd)}, len(labels): {len(labels1)}")
     if "targets" in indicators:
         target_dict = target_list(base, start, end, bmd)
         graph_bases.append(
@@ -519,7 +520,7 @@ def update_detail_graph_by_click(zoom_click, day_click, base, indicators):
     if ("features" in indicators) and (zoom_click is not None):
         clicked_time = pd.Timestamp(zoom_click['points'][0]['x'], tz='UTC')
         for graph in show_condensed_features(base, start, clicked_time):
-            # print(graph)
+            # logger.debug(str(graph))
             graph_bases.append(graph)
 
     timeinfo = aggregation + ": " + start.strftime(Env.dt_format) + " - " + end.strftime(Env.dt_format)
@@ -546,6 +547,7 @@ def update_detail_graph_by_click(zoom_click, day_click, base, indicators):
 if __name__ == '__main__':
     # load_crypto_data()
     # env.test_mode()
+    tee = env.Tee(log_prefix="TrainEval")
     ohlcv = ccd.Ohlcv()
     features = cof.F2cond20(ohlcv)
     targets = ct.T10up5low30min(ohlcv)

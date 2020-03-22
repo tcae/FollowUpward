@@ -1,14 +1,16 @@
 import pandas as pd
 import numpy as np
 import math
+import logging
 # import indicators as ind
-import env_config as env
+# import env_config as env
 from env_config import Env
 import cached_crypto_data as ccd
 import crypto_features as cf
 from crypto_features import TargetsFeatures
 from sklearn.linear_model import LinearRegression
 
+logger = logging.getLogger(__name__)
 
 """ Alternative feature set. Approach: less features and closer to intuitive performance correlation
     (what would I look at?).
@@ -45,26 +47,26 @@ def check_input_consistency(df):
     rlen = len(rng)
     diff = rng.difference(df.index)
     if len(diff) > 0:
-        print(f"{env.nowstr()}: Warning: unexpected index differences: len(df)={len(df)} vs range={rlen}")
-        # print(diff)
+        logger.warning(f"unexpected index differences: len(df)={len(df)} vs range={rlen}")
+        # logger.debug(f"{diff}")
         ok = False
     # if "open" not in df:
-    #     print(f"{env.nowstr()} ERROR: missing 'open' column")
+    #     logger.debug("missing 'open' column")
     #     ok = False
     # if "high" not in df:
-    #     print(f"{env.nowstr()} ERROR: missing 'high' column")
+    #     logger.debug("missing 'high' column")
     #     ok = False
     # if "low" not in df:
-    #     print(f"{env.nowstr()} ERROR: missing 'low' column")
+    #     logger.debug("missing 'low' column")
     #     ok = False
     if "close" not in df:
-        print(f"{env.nowstr()} ERROR: missing 'close' column")
+        logger.error("missing 'close' column")
         ok = False
     if "volume" not in df:
-        print(f"{env.nowstr()} ERROR: missing 'volume' column")
+        logger.error("missing 'volume' column")
         ok = False
     if len(df) <= HMWF:
-        print(f"len(df) = {len(df)} <= len for required history data elements {HMWF+1}")
+        logger.warning(f"len(df) = {len(df)} <= len for required history data elements {HMWF+1}")
         ok = False
     return ok
 
@@ -260,15 +262,15 @@ if __name__ == "__main__":
     if True:
         cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=HMWF+10)
         features = cal_features(cdf)
-        print(cdf.head(5))
-        print(cdf.tail(5))
-        print(features.head(5))
-        print(features.tail(5))
+        logger.debug(str(cdf.head(5)))
+        logger.debug(str(cdf.tail(5)))
+        logger.debug(str(features.head(5)))
+        logger.debug(str(features.tail(5)))
     else:
         cols = [
             COL_PREFIX[ix] + ext
             for regr_only, offset, minutes, ext in REGRESSION_KPI
             for ix in range(4) if ((ix < 2) or (not regr_only))]
         cols = cols + [COL_PREFIX[4] + ext for (svol, lvol, ext) in VOL_KPI]
-        print(cols)
+        logger.debug(str(cols))
 """

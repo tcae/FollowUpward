@@ -9,6 +9,7 @@ to classify crypto sell/buy actions.
 
 """
 import os
+import logging
 # import pandas as pd
 import numpy as np
 import timeit
@@ -27,9 +28,9 @@ import tensorflow.keras.metrics as km
 # import keras
 # import keras.metrics as km
 # import tensorflow.compat.v1 as tf1
-import talos as ta
+# import talos as ta
 
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 # from sklearn.model_selection import learning_curve
 # from sklearn.model_selection import ShuffleSplit
 # from sklearn.utils import Bunch
@@ -42,10 +43,11 @@ import crypto_history_sets as chs
 import condensed_features as cof
 import aggregated_features as agf
 
+logger = logging.getLogger(__name__)
 
-print(f"Tensorflow version: {tf.version.VERSION}")
-print(f"Keras version: {keras.__version__}")
-print(__doc__)
+logger.debug(f"Tensorflow version: {tf.version.VERSION}")
+logger.debug(f"Keras version: {keras.__version__}")
+logger.debug(__doc__)
 
 
 class EvalPerf:
@@ -110,6 +112,7 @@ class PerfMatrix:
             for sp in self.p_range:
                 print(self.pix(bp, sp))
 
+    """
     def plot_result_distribution(self):
         dtype = [("bpt", float), ("spt", float), ("performance", float), ("transactions", int)]
         values = list()
@@ -132,6 +135,7 @@ class PerfMatrix:
                  label="performance")
         plt.legend(loc="best")
         plt.show()
+    """
 
     def best(self):
         """Returns a tuple of (best-performance-factor, at-buy-probability-threshold,
@@ -157,13 +161,13 @@ class PerfMatrix:
 
     def add_signal(self, prob, close_price, signal, target):
         assert (prob >= 0) and (prob <= 1), \
-                print(f"PerfMatrix add_signal: unexpected probability {prob}")
+                logger.warning(f"PerfMatrix add_signal: unexpected probability {prob}")
         if signal in ct.TARGETS.values():
             for bp in self.p_range:
                 for sp in self.p_range:
                     self.pix(bp, sp).add_trade_signal(prob, close_price, signal)
             if target not in ct.TARGETS.values():
-                print(f"PerfMatrix add_signal: unexpected target result {target}")
+                logger.error(f"PerfMatrix add_signal: unexpected target result {target}")
                 return
             self.confusion[signal, target] += 1
         else:
@@ -199,11 +203,11 @@ class PerfMatrix:
             if (sample + 1) >= pred_cnt:
                 self.add_signal(1, skl_close[sample], ct.TARGETS[ct.SELL], ct.TARGETS[ct.SELL])
                 # end = env.timestr(skl_tics[sample])
-                # print("assessment between {} and {}".format(begin, end))
+                # logger.debug("assessment between {} and {}".format(begin, end))
             elif (skl_tics[sample+1] - skl_tics[sample]) > np.timedelta64(1, "m"):
                 self.add_signal(1, skl_close[sample], ct.TARGETS[ct.SELL], ct.TARGETS[ct.SELL])
                 # end = env.timestr(skl_tics[sample])
-                # print("assessment between {} and {}".format(begin, end))
+                # logger.debug("assessment between {} and {}".format(begin, end))
                 # begin = env.timestr(skl_tics[sample+1])
             else:
                 high_prob_cl = 0
@@ -227,8 +231,7 @@ class PerfMatrix:
     def report_assessment(self):
         self.end_ts = timeit.default_timer()
         tdiff = (self.end_ts - self.start_ts) / 60
-        print("")
-        print(f"{env.timestr()} {self.set_type} performance assessment time: {tdiff:.1f}min")
+        print(f"{self.set_type} performance assessment time: {tdiff:.1f}min")
 
         def pt(bp, sp): return (self.pix(bp, sp).performance, self.pix(bp, sp).transactions)
 
@@ -278,8 +281,8 @@ class EpochPerformance(keras.callbacks.Callback):
         self.cpc.epoch = epoch
 
     def on_epoch_end(self, epoch, logs=None):
-        print("{} epoch end ==> talos iteration: {} epoch: {} classifier config: {}".format(
-                env.timestr(), self.cpc.talos_iter, epoch, self.cpc.save_classifier))
+        logger.info("epoch end ==> talos iteration: {} epoch: {} classifier config: {}".format(
+            self.cpc.talos_iter, epoch, self.cpc.save_classifier))
         (best, bpt, spt, transactions) = self.cpc.performance_assessment(chs.TRAIN, epoch)
         (best, bpt, spt, transactions) = self.cpc.performance_assessment(chs.VAL, epoch)
         if best > self.best_perf:
@@ -290,12 +293,12 @@ class EpochPerformance(keras.callbacks.Callback):
             self.missing_improvements += 1
 #        if self.missing_improvements >= self.patience_mistake_focus:
 #            self.cpc.hs.use_mistakes(chs.TRAIN)
-#            print("Using training mistakes")
+#            logger.debug("Using training mistakes")
         if self.missing_improvements >= self.patience_stop:
             self.cpc.classifier.stop_training = True
-            print("Stop training due to missing val_perf improvement since {} epochs".format(
+            logger.info("Stop training due to missing val_perf improvement since {} epochs".format(
                   self.missing_improvements))
-        print(f"on_epoch_end logs:{logs}")
+        logger.info(f"on_epoch_end logs:{logs}")
 #        test_loss, test_acc = self.cpc.classifier.evaluate_generator(
 #            base_generator(self.cpc, self.cpc.hs, chs.VAL, 2),
 #            steps=len(self.cpc.hs.bases),
@@ -303,7 +306,7 @@ class EpochPerformance(keras.callbacks.Callback):
 #            workers=1,
 #            use_multiprocessing=False,
 #            verbose=1 )
-#        print(f"validation loss: {test_loss} validation acc: {test_acc}")
+#        logger.info(f"validation loss: {test_loss} validation acc: {test_acc}")
 
 
 class Cpc:
@@ -338,9 +341,9 @@ class Cpc:
                 df_f.close()
 
                 self.__dict__.update(tmp_dict)
-                print(f"classifier loaded from {fname}")
+                logger.info(f"classifier loaded from {fname}")
         except IOError:
-            print(f"IO-error when loading classifier from {fname}")
+            logger.error(f"IO-error when loading classifier from {fname}")
 
         self.load_classifier = load_clname
         self.save_classifier = save_clname
@@ -354,9 +357,9 @@ class Cpc:
                 df_f.close()
 
                 self.classifier = keras.models.load_model(fname, custom_objects=None, compile=True)
-                print(f"classifier loaded from {fname}")
+                logger.info(f"classifier loaded from {fname}")
         except IOError:
-            print(f"IO-error when loading classifier from {fname}")
+            logger.error(f"IO-error when loading classifier from {fname}")
 
     def save(self):
         """Saves the Cpc object without hs. The classifier is stored in a seperate file
@@ -369,11 +372,11 @@ class Cpc:
         if not os.path.isdir(self.model_path):
             try:
                 os.mkdir(self.model_path)
-                print(f"created {self.model_path}")
+                logger.debug(f"created {self.model_path}")
             except OSError:
-                print(f"Creation of the directory {self.model_path} failed")
+                logger.error(f"Creation of the directory {self.model_path} failed")
             else:
-                print(f"Successfully created the directory {self.model_path}")
+                logger.debug(f"Successfully created the directory {self.model_path}")
         if classifier is not None:
             fname = str("{}{}_{}{}".format(self.model_path, self.save_classifier,
                         self.epoch, ".h5"))
@@ -390,7 +393,7 @@ class Cpc:
 
         self.classifier = classifier
         self.hs = hs
-        print(f"{env.timestr()} classifier saved in {fname}")
+        logger.debug(f"classifier saved in {fname}")
 
     def class_predict_of_features(self, tfv, base):
         """Classifies the tfv features.
@@ -400,7 +403,7 @@ class Cpc:
         for each sample.
         """
         if tfv.empty:
-            print("class_predict_of_features: empty feature vector ==> 0 probs")
+            logger.debug("class_predict_of_features: empty feature vector ==> 0 probs")
             return None
         sample = cf.to_scikitlearn(tfv, np_data=None, descr=base)
         if self.scaler is not None:
@@ -417,7 +420,7 @@ class Cpc:
         targets_features.TARGETS[HOLD] is returned.
         """
         if tfv.empty:
-            print("class_of_features: empty feature vector ==> HOLD signal")
+            logger.debug("class_of_features: empty feature vector ==> HOLD signal")
             return ct.TARGETS[ct.HOLD]
         pred = self.class_predict_of_features(tfv, base)
         probs = pred[len(pred) - 1]
@@ -448,7 +451,7 @@ class Cpc:
             cf.report_setsize(set_type, tfv)
             descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
                                                       bix, cf.str_setsize(tfv))
-            # print(descr)
+            # logger.debug(descr)
             samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
             if self.scaler is not None:
                 samples.data = self.scaler.transform(samples.data)
@@ -474,7 +477,7 @@ class Cpc:
                     descr = "{} iteration_gen {} {} set step {} (of {}): {}".format(
                         env.timestr(), ig_base, chs.TRAIN, ig_bstep,
                         hs.max_steps[ig_base]["max"], cf.str_setsize(tfv))
-                    print(descr)
+                    logger.debug(descr)
                     samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
                     if samples is None:
                         return None, None
@@ -494,7 +497,7 @@ class Cpc:
                 tfv = hs.features_from_targets(df)
                 descr = "{} base_gen {} {} set, {}".format(
                     env.timestr(), bg_base, set_type, cf.str_setsize(tfv))
-                print(descr)
+                logger.debug(descr)
                 samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
                 if samples is None:
                     return None, None
@@ -509,7 +512,7 @@ class Cpc:
         def MLP1(x, y, x_val, y_val, params):
             keras.backend.clear_session()  # done by switch in talos Scan command
             self.talos_iter += 1
-            print(f"talos iteration: {self.talos_iter}")
+            logger.debug(f"talos iteration: {self.talos_iter}")
             model = keras.models.Sequential()
             model.add(keras.layers.Dense(
                 params["l1_neurons"], input_dim=samples.shape[1],
@@ -553,7 +556,7 @@ class Cpc:
             epochs = params["epochs"]
             gen_epochs = epochs * 2  # due to max_queue_size more step data is requested than needed
 
-            # print(model.summary())
+            # logger.debug(model.summary())
             out = self.classifier.fit_generator(
                     self.iteration_generator(self.hs, gen_epochs),
                     steps_per_epoch=steps_per_epoch,
@@ -573,18 +576,19 @@ class Cpc:
             return out, model
 
         start_time = timeit.default_timer()
-        print(f"{env.timestr()} loading history sets")
+        logger.info("loading history sets")
         self.hs = chs.CryptoHistorySets(env.sets_config_fname())
         self.talos_iter = 0
 
-        print(f"{env.timestr()} adapting scaler")
+        logger.info("adapting scaler")
         scaler = preprocessing.StandardScaler(copy=False)
         for (samples, targets) in self.base_generator(self.hs, chs.TRAIN, 1):
-            # print("scaler fit")
+            # logger.debug("scaler fit")
             scaler.partial_fit(samples)
         self.scaler = scaler
-        print(f"{env.timestr()} scaler adapted")
+        logger.info("scaler adapted")
 
+        """
         dummy_x = np.empty((1, samples.shape[1]))
         dummy_y = np.empty((1, targets.shape[1]))
 
@@ -628,11 +632,11 @@ class Cpc:
                 # dataset_name="xrp_eos",
                 # grid_downsample=1,
                 experiment_name=f"talos_{env.timestr()}")
-
+        """
         # ta.Deploy(scan, "talos_lstm_x", metric="val_loss", asc=True)
 
         tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
+        logger.info(f"MLP adaptation time: {tdiff:.0f} min")
 
         self.hs = None
 
@@ -644,7 +648,7 @@ class Cpc:
         self.performance_assessment(chs.VAL, 0)
 
         tdiff = (timeit.default_timer() - start_time) / 60
-        print(f"{env.timestr()} MLP performance assessment bulk time: {tdiff:.0f} min")
+        logger.info(f"MLP performance assessment bulk time: {tdiff:.0f} min")
 
     def use_keras(self):
         self.classify_batch()
