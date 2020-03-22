@@ -17,18 +17,18 @@ from local_xch import Xch
 logger = logging.getLogger(__name__)
 
 
-def show_verbose(df, verbose=True, lines=5):
+def show_verbose(df, verbose=True, lines=2):
     if verbose:
         logger.debug(f"entries: {len(df)}")
         if len(df) <= (2*lines):
-            logger.debug(f"{df}\n")
+            logger.debug(f"\n{df}\n")
         else:
-            logger.debug(f"{df.head(lines)} \n{df.tail(lines)} \n")
+            logger.debug(f"\n{df.head(lines)} \n{df.tail(lines)} \n")
 
 
 def dfdescribe(desc, df):
-    logger.debug(str(desc))
-    logger.debug(str(df.describe(percentiles=[], include='all')))
+    logger.debug(desc)
+    logger.debug(f"\n{df.describe(percentiles=[], include='all')}\n")
     show_verbose(verbose=True, lines=2)
     if no_index_gaps(df):
         logger.debug("no index gaps")

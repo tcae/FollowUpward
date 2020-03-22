@@ -4,6 +4,8 @@ import sys
 import platform
 from datetime import datetime  # , timedelta
 import pandas as pd
+# import tensorflow as tf
+
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,7 @@ class Env():
 
     def __init__(self, calc, usage):
         # logger.info(f"{type(calc)}/{type(usage)}")
+        # first initialize environment then configure logging and then start logging
         Env.data_path = calc.data_path_prefix + usage.data_path_suffix
         Env.conf_fname = usage.conf_fname
         Env.test_mode = usage.test_mode
@@ -267,24 +270,53 @@ class Tee(object):
     streamhandler = None
     filehandler = None
     filehandler2 = None
+    stderr = None
 
     def __init__(self, log_prefix="Log"):
         self.init_tee(log_prefix)
 
     @classmethod
     def init_tee(cls, log_prefix="Log"):
-        fname = f"{Env.model_path}{log_prefix}_{timestr()}.txt"
+        cls.stderr = sys.stderr
+        sys.stderr = Tee  # intercept stderr messages in write method
+
+        fname = f"{Env.model_path}{log_prefix}_{timestr()}.csv"
         cls.logger = logging.getLogger()
         cls.formatter = logging.Formatter(
-            fmt="%(asctime)s %(levelname)s %(name)s/%(funcName)s: %(message)s",
+            fmt="%(asctime)s \t%(levelname)s \t%(name)s \t%(funcName)s: \t%(message)s",
             datefmt="%Y-%m-%d_%H:%M:%S")
+        if cls.streamhandler is not None:
+            cls.logger.removeHandler(cls.streamhandler)
         cls.streamhandler = logging.StreamHandler(sys.stderr)
         cls.streamhandler.setFormatter(cls.formatter)
+        if cls.filehandler is not None:
+            cls.logger.removeHandler(cls.filehandler)
         cls.filehandler = logging.FileHandler(filename=fname, mode="w")
         cls.filehandler.setFormatter(cls.formatter)
         cls.logger.addHandler(cls.streamhandler)
         cls.logger.addHandler(cls.filehandler)
         cls.logger.setLevel(level=logging.DEBUG)
+        cls.logger.info("message")
+        tf_logger = logging.getLogger("tensorflow")  # tf.get_logger()
+        if tf_logger is not None:
+            tf_logger.addHandler(cls.filehandler)
+        else:
+            logger.info("no tensorflow logger")
+        ccxt_logger = logging.getLogger("ccxt")
+        if ccxt_logger is not None:
+            ccxt_logger.setLevel(level=logging.INFO)
+        else:
+            logger.info("no ccxt logger")
+        urllib3_logger = logging.getLogger("urllib3")
+        if urllib3_logger is not None:
+            urllib3_logger.setLevel(level=logging.WARNING)
+        else:
+            logger.info("no urllib3 logger")
+        numexpr_logger = logging.getLogger("numexpr")
+        if numexpr_logger is not None:
+            numexpr_logger.setLevel(level=logging.WARNING)
+        else:
+            logger.info("no numexpr logger")
 
     @classmethod
     def reset_path(cls):
@@ -294,7 +326,7 @@ class Tee(object):
 
     @classmethod
     def set_path(cls, log_path: str, log_prefix="Log"):
-        fname = f"{log_path}{log_prefix}_{timestr()}.txt"
+        fname = f"{log_path}{log_prefix}_{timestr()}.csv"
         if cls.filehandler2 is not None:
             cls.logger.removeHandler(cls.filehandler2)
         cls.filehandler2 = logging.FileHandler(filename=fname, mode="w")
@@ -303,27 +335,24 @@ class Tee(object):
             cls.logger.addHandler(cls.filehandler2)
 
     @classmethod
+    def write(cls, x):
+        intercept_str = "Passing (type, 1) or '1type' as a synonym of type is deprecated"
+        # intercept_str = "A value is trying to be set on a copy of a slice from a DataFrame."
+        if intercept_str in x:
+            print(f"Detected intercept str: {intercept_str}")
+        cls.stderr.write(x)
+
+    @classmethod
+    def flush(cls):
+        cls.stderr.flush()
+
+    @classmethod
     def close(cls):  # only present for backward compatibility
         pass
 
-
-# TODO the following is a Stackoverflow monkey patch to catch warnings. to be beatified
-# old_f = sys.stderr
-
-
-# class F:
-#     def write(self, x):
-#         if "A value is trying to be set on a copy of a slice from a DataFrame." in x:
-#             print("To be investigated")
-#         old_f.write(x)
-
-#     def flush(self):
-#         old_f.flush()
-
-
-# sys.stderr = F()
 
 if platform.node() == "iMac.local":
     Env(Osx(), Production())
 elif platform.node() == "tor-XPS-13-9380":
     Env(Ubuntu(), Production())
+Tee()

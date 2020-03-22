@@ -1,3 +1,9 @@
+import logging
+# logging.getLogger("tensorflow").setLevel(logging.ERROR)  # before importing tensorflow.
+
+import env_config as env
+from env_config import Env
+
 import os
 import pandas as pd
 import numpy as np
@@ -12,9 +18,6 @@ import pickle
 from sklearn import preprocessing
 # from sklearn.neural_network import MLPClassifier
 
-import logging
-# logging.getLogger("tensorflow").setLevel(logging.ERROR)  # before importing tensorflow.
-
 import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow.keras.metrics as km
@@ -27,8 +30,6 @@ import tensorflow.keras.metrics as km
 # from sklearn.model_selection import ShuffleSplit
 # from sklearn.utils import Bunch
 
-import env_config as env
-from env_config import Env
 import crypto_targets as ct
 import cached_crypto_data as ccd
 import condensed_features as cof
@@ -157,14 +158,16 @@ class PerformanceData(ccd.CryptoData):
         super().__init__()
         self.predictions = prediction_obj
         self.path = self.predictions.predictor.path_with_epoch()
+        self.btl = [0.3, 0.4]  # buy threshold list
+        self.stl = [0.5, 0.6]  # sell threshold list
 
     def history(self):
         "no history minutes are requires to calculate prediction data"
         return 0
 
     def keyiter(self):
-        for bt in np.linspace(0.3, 0.5, num=3):  # bt = lower bound buy signal bucket
-            for st in np.linspace(0.4, 0.6, num=3):  # st = lower bound sell signal bucket
+        for bt in self.btl:  # bt = lower bound buy signal bucket
+            for st in self.stl:  # st = lower bound sell signal bucket
                 yield (f"bt{bt:1.1f}/st{st:1.1f}", (round(bt, 1), round(st, 1)))
 
     def keys(self):
@@ -227,7 +230,7 @@ class PerformanceData(ccd.CryptoData):
         df = df.set_index("buy_tic")
         return df
 
-    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+    def new_data_deprecated(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
@@ -238,13 +241,86 @@ class PerformanceData(ccd.CryptoData):
         cdf = pd.concat([ohlcv_df.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
         # mix = pd.MultiIndex.from_tuples(self.keys(), names=["bt", "st"])
         # perf_df = pd.DataFrame(data=float(0.0), index=cdf.index, columns=mix)
+        ccd.show_verbose(cdf)
         rdf_list = list()
         for (lbl, (bt, st)) in self.keyiter():  # (bt, st) = signal thresholds
             logger.debug(f"performance_calculation with {base} {lbl} from {first} to {last}")
             rdf = self.performance_calculation(cdf, bt, st, ct.FEE, verbose=False)
             # perf_df.loc[[tic for tic in rdf.index], (round(rdf.buy_trhld, 1), round(rdf.sell_trhld, 1))] = rdf.perf
-            rdf_list.append(rdf)
-        rdf = pd.concat(rdf_list, join="outer", axis=0, keys=self.keys(), sort=True)
+            if not rdf.empty:
+                rdf_list.append(rdf)
+        if len(rdf_list) > 0:
+            rdf = pd.concat(rdf_list, join="outer", axis=0, keys=self.keys(), sort=True)
+        ccd.show_verbose(rdf)
+        return rdf
+
+    def perfcalc(self, in_df, btl: list, stl: list, fee_factor: float):
+        """ Expect a DataFrame with columns 'close', 'buy', 'sell' and a Timerange index.
+            'buy', 'sell' are predictions likelihoods of these trade signals.
+            'bt' and 'st' are lists of buy / sell threshold values.
+            Returns a DataFrame with a % performance column 'perf', buy_tic and sell_tic.
+            The returned DataFrame has an int range index not compatible with in_df.
+        """
+
+        in_df.index.rename("btic", inplace=True)  # debug candy
+        df = in_df.reset_index().copy()  # preserve tics as data but use one numbers as index
+        df.index.rename("bix", inplace=True)
+        df = df.reset_index()  # preserve ix line numbers as unique reference of buy lines
+        df = df.rename(columns={"close": "bprice"})
+        df.at[df.index[-1], "buy"] = 0  # no buy at last tic
+        df.at[df.index[-1], "sell"] = 1  # forced sell at last tic
+        # show_verbose(df, lines=9)
+        mix = pd.MultiIndex.from_product([btl, stl, ["sell", "six", "sprice", "stic", "perf"]])
+        rdf = pd.DataFrame(index=df.index, columns=mix)
+        tmix = pd.MultiIndex.from_product([btl, stl, ["perf", "count"]], names=['bt', 'st', 'KPI'])
+        tix = in_df.index[:1]
+        tdf = pd.DataFrame(index=tix, columns=tmix)
+        tdf.loc[in_df.index[0], :] = 0
+        # show_verbose(rdf, lines=9)
+        for bt in btl:
+            for st in stl:
+                rdf[bt, st, "six"] = pd.Series(dtype=pd.Int32Dtype())
+                rdf[bt, st, "stic"] = pd.Series(dtype='datetime64[ns, UTC]')
+                rdf[bt, st, "sell"] = pd.Series(dtype=float)
+                rdf[bt, st, "sprice"] = pd.Series(dtype=float)
+                rdf[bt, st, "perf"] = pd.Series(dtype=float)
+                rdf.loc[df.sell >= st, (bt, st, "six")] = df["bix"]
+                rdf.loc[df.sell >= st, (bt, st, "sprice")] = df["bprice"]
+                rdf.loc[df.sell >= st, (bt, st, "sell")] = df["sell"]
+                rdf.loc[df.sell >= st, (bt, st, "stic")] = df["btic"]
+                rdf.loc[df.sell >= st, (bt, st, "perf")] = np.nan
+        # show_verbose(rdf, lines=9)
+        rdf = rdf.fillna(axis=0, method="backfill")
+        # show_verbose(rdf, lines=9)
+        for bt in btl:
+            for st in stl:
+                df_mask = (df.buy >= bt) & (rdf[bt, st, "sell"] >= st)
+                # print(f"df_mask threshold reduced\n{df_mask}")
+                df_mask = ~rdf.loc[df_mask].duplicated((bt, st, "six"), keep="first")
+                df_mask = df_mask.index[df_mask]
+                # print(f"df_mask duplication reduced\n{df_mask}")
+                # show_verbose(rdf.loc[df_mask], lines=9)
+                rdf.loc[df_mask, (bt, st, "perf")] = \
+                    rdf[bt, st, "sprice"] * (1 - fee_factor) - df["bprice"] * (1 + fee_factor)
+                tdf.loc[tdf.index[0], (bt, st, "count")] = rdf[bt, st, "perf"].count()
+                tdf.loc[tdf.index[0], (bt, st, "perf")] = rdf[bt, st, "perf"].sum()
+        # show_verbose(rdf, lines=9)
+        # df = pd.concat([df, rdf], axis=1, join="inner")  # combi df
+        # show_verbose(df, lines=9)
+        # print(tdf)
+        return tdf
+
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Predicts all samples and returns the result.
+            set_type specific evaluations can be done using the saved prediction data.
+        """
+        ohlcv_df = self.predictions.predictor.ohlcv.get_data(base, first, last, use_cache=True)
+        pred_df = self.predictions.get_data(base, first, last, use_cache=False)  # enforce recalculation
+        if (ohlcv_df is None) or ohlcv_df.empty or (pred_df is None) or pred_df.empty:
+            return None
+        cdf = pd.concat([ohlcv_df.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
+        rdf = self.perfcalc(cdf, self.btl, self.stl, ct.FEE)
+        logger.debug(f"performance assessment\n{rdf}")
         return rdf
 
     def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=False):
@@ -429,6 +505,7 @@ class Classifier(Predictor):
         start_time = timeit.default_timer()
         perf = PerformanceData(PredictionData(self))
         df_list = list()
+        df_bases = list()
         # https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ProcessPoolExecutor
         # https://www.blog.pythonlibrary.org/2016/08/03/python-3-concurrency-the-concurrent-futures-module/
         # with ProcessPoolExecutor() as executor:
@@ -437,19 +514,23 @@ class Classifier(Predictor):
             perf_df = perf.set_type_data(base, set_type)
             if (perf_df is not None) and (not perf_df.empty):
                 df_list.append(perf_df)
-        if len(df_list) > 1:
-            set_type_df = pd.concat(df_list, join="outer", axis=0, keys=bases)
-        elif len(df_list) == 1:
-            set_type_df = df_list[0]
+                df_bases.append(base)
+        if len(df_list) > 0:
+            set_type_df = pd.concat(df_list, join="outer", axis=0, keys=df_bases)
+            # elif len(df_list) == 1:
+            #     set_type_df = df_list[0]
         else:
             logger.warning(f"assess_performance: no {set_type} dataset available")
             return (0, 0)
+        ccd.show_verbose(set_type_df)
         mix = pd.MultiIndex.from_tuples(perf.keys(), names=["bt", "st"])
         total = pd.DataFrame(index=mix, columns=["perf", "count"], dtype=int)
         idx = pd.IndexSlice  # requird for multilevel slicing
+        ccd.show_verbose(total)
         for (lbl, (bt, st)) in perf.keyiter():  # (bt, st) = signal thresholds
             total.loc[(bt, st), "perf"] = set_type_df.loc[idx[:, bt, st], "perf"].sum().round(0)
             total.loc[(bt, st), "count"] = set_type_df.loc[idx[:, bt, st], "perf"].count().round(0)
+        ccd.show_verbose(total)
         max_ix = total.perf.idxmax()
         res = (total.at[max_ix, "perf"],
                total.at[max_ix, "count"])
@@ -495,7 +576,7 @@ class Classifier(Predictor):
             out = None
 
             try:
-                env.Tee.set_path(self.path_without_epoch())
+                env.Tee.set_path(self.path_without_epoch(), log_prefix="TrainEval")
                 callbacks = [
                     EpochPerformance(self, patience_mistake_focus=5, patience_stop=10),
                     # Interrupt training if `val_loss` stops improving for over 2 epochs
@@ -505,7 +586,7 @@ class Classifier(Predictor):
                 training_gen = ad.TrainingGenerator(self.scaler, self.features, self.targets, shuffle=False)
                 validation_gen = ad.BaseGenerator(ad.VAL, self.scaler, self.features, self.targets)
 
-                logger.debug(model.summary())
+                model.summary(print_fn=logger.debug)
                 out = self.kerasmodel.fit(
                         x=training_gen,
                         steps_per_epoch=len(training_gen),
@@ -523,7 +604,7 @@ class Classifier(Predictor):
                 assert out is not None
                 env.Tee.reset_path()
             except KeyboardInterrupt:
-                env.Tee.close()
+                logger.info("keyboard interrupt")
 
             return out, model
 
@@ -574,7 +655,6 @@ class Classifier(Predictor):
 
 if __name__ == "__main__":
     env.test_mode()
-    tee = env.Tee(log_prefix="TrainEval")
     start_time = timeit.default_timer()
     ohlcv = ccd.Ohlcv()
     targets = ct.T10up5low30min(ohlcv)
@@ -590,7 +670,7 @@ if __name__ == "__main__":
         # classifier.load_classifier_file_collection(
         #     "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
         classifier.load("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
-        env.Tee.set_path(classifier.path_without_epoch())
+        env.Tee.set_path(classifier.path_without_epoch(), log_prefix="TrainEval")
         # classifier.save()
         # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
         # perf = PerformanceData(PredictionData(classifier))
@@ -605,4 +685,3 @@ if __name__ == "__main__":
         env.Tee.reset_path()
     tdiff = (timeit.default_timer() - start_time) / 60
     logger.info(f"total script time: {tdiff:.0f} min")
-    tee.close()

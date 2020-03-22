@@ -297,7 +297,7 @@ if __name__ == "__main__":
     else:
         features = agf.F1agg110(ohlcv)
     td = TrainingData(features, targets)
-    if True:  # create training sets
+    if False:  # create training sets
         start_time = timeit.default_timer()
         logger.debug("creating training batches")
         td.create_training_datasets()
