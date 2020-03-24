@@ -34,7 +34,7 @@ import crypto_targets as ct
 import cached_crypto_data as ccd
 import condensed_features as cof
 import aggregated_features as agf
-# import classify_keras as ck
+import classify_keras as ck
 import adaptation_data as ad
 
 """
@@ -144,7 +144,9 @@ class PredictionData(ccd.CryptoData):
 
         if self.predictor.scaler is not None:
             fdf_scaled = self.predictor.scaler.transform(fdf.values)
-        pred = self.predictor.kerasmodel.predict_on_batch(fdf_scaled)
+            pred = self.predictor.kerasmodel.predict_on_batch(fdf_scaled)
+        else:
+            pred = self.predictor.kerasmodel.predict_on_batch(fdf.values)
         pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
         return self.check_timerange(pdf, first, last)
 
@@ -320,7 +322,7 @@ class PerformanceData(ccd.CryptoData):
             return None
         cdf = pd.concat([ohlcv_df.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
         rdf = self.perfcalc(cdf, self.btl, self.stl, ct.FEE)
-        logger.debug(f"performance assessment\n{rdf}")
+        logger.debug(f"performance assessment of {base} from {first} to {last}\n{rdf}")
         return rdf
 
     def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=False):
@@ -346,9 +348,11 @@ class EpochPerformance(keras.callbacks.Callback):
               epoch, self.classifier.mnemonic_with_epoch()))
 
         logger.debug(f"on_epoch_end {ad.TRAIN}")
-        (best, transactions) = self.classifier.assess_performance(Env.bases, ad.TRAIN, epoch)
+        (best, transactions, buy_thrsld, sell_thrsld) = self.classifier.assess_performance(Env.bases, ad.TRAIN, epoch)
+        logger.infof(f"{ad.TRAIN} perf: {best}  count: {transactions}")
         logger.debug(f"on_epoch_end {ad.VAL}")
-        (best, transactions) = self.classifier.assess_performance(Env.bases, ad.VAL, epoch)
+        (best, transactions, buy_thrsld, sell_thrsld) = self.classifier.assess_performance(Env.bases, ad.VAL, epoch)
+        logger.infof(f"{ad.VAL} perf: {best}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
         logger.debug(f"on_epoch_end assessment done")
         if best > self.best_perf:
             self.best_perf = best
@@ -511,7 +515,7 @@ class Classifier(Predictor):
         # with ProcessPoolExecutor() as executor:
         #     for perf_df in executor.map((lambda base: perf.set_type_data(base, set_type)), bases):
         for base in bases:
-            perf_df = perf.set_type_data(base, set_type)
+            perf_df = perf.set_type_data(base, set_type)  # here performance calculatioin happens
             if (perf_df is not None) and (not perf_df.empty):
                 df_list.append(perf_df)
                 df_bases.append(base)
@@ -523,19 +527,14 @@ class Classifier(Predictor):
             logger.warning(f"assess_performance: no {set_type} dataset available")
             return (0, 0)
         ccd.show_verbose(set_type_df)
-        mix = pd.MultiIndex.from_tuples(perf.keys(), names=["bt", "st"])
-        total = pd.DataFrame(index=mix, columns=["perf", "count"], dtype=int)
-        idx = pd.IndexSlice  # requird for multilevel slicing
-        ccd.show_verbose(total)
-        for (lbl, (bt, st)) in perf.keyiter():  # (bt, st) = signal thresholds
-            total.loc[(bt, st), "perf"] = set_type_df.loc[idx[:, bt, st], "perf"].sum().round(0)
-            total.loc[(bt, st), "count"] = set_type_df.loc[idx[:, bt, st], "perf"].count().round(0)
-        ccd.show_verbose(total)
-        max_ix = total.perf.idxmax()
-        res = (total.at[max_ix, "perf"],
-               total.at[max_ix, "count"])
-        total = total.unstack(level=0)
-        print(total)
+        total_df = set_type_df.sum()
+        total_df = total_df.unstack(level=["KPI"])
+        max_ix = total_df.perf.idxmax()
+        res = (total_df.loc[max_ix, 'perf'], total_df.loc[max_ix, 'count'], *max_ix)
+        logger.debug(f"perf, count, buy threshold, sell threshold: {res}")
+
+        total_df = total_df.unstack(level=["st"])
+        logger.info(f"performances: \n{total_df}")
         tdiff = (timeit.default_timer() - start_time) / 60
         logger.info(f"assess_performance set type {set_type} time: {tdiff:.0f} min")
         return res
@@ -639,18 +638,27 @@ class Classifier(Predictor):
         logger.info(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
 
 
-# def convert_cpc_classifier():
-#     load_classifier = "MLP_l1-16_do-0.2_h-19_no-l3_optAdam_F2cond24_0"
-#     cpc = ck.Cpc(load_classifier, None)
-#     classifier.kerasmodel = cpc.classifier
-#     classifier.scaler = cpc.scaler
-#     classifier.params["l1"] = 16
-#     classifier.params["do"] = 0.2
-#     classifier.params["h"] = 19
-#     classifier.params["no"] = "l3"
-#     classifier.params["opt"] = "optAdam"
-#     classifier.epoch = 0
-#     classifier.save()
+def convert_cpc_classifier():
+    load_classifier = "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min"
+    # "MLP_l1-16_do-0.2_h-19_no-l3_optAdam_F2cond24_0"
+    cpc = ck.Cpc(load_classifier, None)
+    ohlcv = ccd.Ohlcv()
+    targets = ct.T10up5low30min(ohlcv)
+    if True:
+        features = cof.F2cond20(ohlcv)
+    else:
+        features = agf.AggregatedFeatures(ohlcv)
+    clsfer = Classifier(ohlcv, features, targets)
+    clsfer.kerasmodel = cpc.classifier
+    clsfer.scaler = cpc.scaler
+    clsfer.params["l1"] = 14
+    clsfer.params["do"] = 0.2
+    clsfer.params["l2"] = 16
+    clsfer.params["l3"] = "no"
+    clsfer.params["opt"] = "Adam"
+    clsfer.epoch = 15
+    clsfer.save()
+    return clsfer
 
 
 if __name__ == "__main__":
@@ -666,12 +674,12 @@ if __name__ == "__main__":
     if True:
         classifier.adapt_keras()
     else:
-        # convert_cpc_classifier()
-        # classifier.load_classifier_file_collection(
-        #     "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
-        classifier.load("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
+        # classifier = convert_cpc_classifier()
+        classifier.load_classifier_file_collection(
+            "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
+        # classifier.load("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
         env.Tee.set_path(classifier.path_without_epoch(), log_prefix="TrainEval")
-        # classifier.save()
+        classifier.save()
         # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
         # perf = PerformanceData(PredictionData(classifier))
         # for base in Env.bases:
