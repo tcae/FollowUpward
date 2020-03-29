@@ -1,7 +1,7 @@
 # import sys
 import logging
 # from datetime import datetime  # , timedelta
-import timeit
+# import timeit
 import pandas as pd
 import env_config as env
 from env_config import Env
@@ -232,43 +232,33 @@ class CryptoData:
         except IOError:
             logger.error(f"cannot save {self.fname(base)}")
 
-    def set_type_data(self, base: str, set_type: str):
-        logger.debug(f"{type(self)} set type {set_type} of {base}")
-        start_time = timeit.default_timer()
-        if self.sets_split is None:
-            try:
-                self.sets_split = pd.read_csv(env.sets_split_fname(), skipinitialspace=True, sep="\t")
-            except IOError:
-                logger.error(f"pd.read_csv({env.sets_split_fname()}) IO error")
-                return None
-            # logger.debug(str(self.sets_split))
+        # def set_type_data(self, base: str, set_type: str):
+        #     logger.debug(f"{type(self)} set type {set_type} of {base}")
+        #     start_time = timeit.default_timer()
+        #     if self.sets_split is None:
+        #         try:
+        #             self.sets_split = pd.read_csv(env.sets_split_fname(), skipinitialspace=True, sep="\t")
+        #         except IOError:
+        #             logger.error(f"pd.read_csv({env.sets_split_fname()}) IO error")
+        #             return None
+        #         # logger.debug(str(self.sets_split))
 
-        sdf = self.sets_split.loc[self.sets_split.set_type == set_type]
-        all = list()
-        set_type_df = None
-        for ix in sdf.index:
-            last = pd.Timestamp(sdf.loc[ix, "end"])
-            first = pd.Timestamp(sdf.loc[ix, "start"])
-            df = self.get_data(base, first, last, use_cache=True)
-            if (df is not None) and (not df.empty):
-                all.append(df)
-        if len(all) > 1:
-            set_type_df = pd.concat(all, join="outer", axis=0)
-        elif len(all) == 1:
-            set_type_df = all[0]
-        tdiff = (timeit.default_timer() - start_time) / 60
-        logger.debug(f"{type(self)} set type {set_type} of {base} time: {tdiff:.0f} min")
-        return set_type_df
-
-    def check_report_obsolete(self, base):
-        """ request data that crosses the boundry of to be downloaded and cached ohlcv data.
-            Reports check results.
-        """
-        df = self.get_data(base, pd.Timestamp("2019-02-28 01:00:00+00:00"), 1000)
-        logger.debug("{} {} history: {}, {} keys: {}, fname: {}".format(
-            self.mnemonic(), base, self.history(), len(self.keys()), self.keys(), self.fname(base)))
-        logger.debug(f"{self.mnemonic()} {base} got data: {len(df)} samples from {df.index[0]} until {df.index[-1]}")
-        no_index_gaps(df)
+        #     sdf = self.sets_split.loc[self.sets_split.set_type == set_type]
+        #     all = list()
+        #     set_type_df = None
+        #     for ix in sdf.index:
+        #         last = pd.Timestamp(sdf.loc[ix, "end"])
+        #         first = pd.Timestamp(sdf.loc[ix, "start"])
+        #         df = self.get_data(base, first, last, use_cache=True)
+        #         if (df is not None) and (not df.empty):
+        #             all.append(df)
+        #     if len(all) > 1:
+        #         set_type_df = pd.concat(all, join="outer", axis=0)
+        #     elif len(all) == 1:
+        #         set_type_df = all[0]
+        #     tdiff = (timeit.default_timer() - start_time) / 60
+        #     logger.debug(f"{type(self)} set type {set_type} of {base} time: {tdiff:.0f} min")
+        #     return set_type_df
 
 
 class Ohlcv(CryptoData):

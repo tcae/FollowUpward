@@ -23,6 +23,56 @@ VAL = "validation"
 TEST = "test"
 
 
+class SplitSets:
+    sets_split = None
+
+    @classmethod
+    def set_type_datetime_ranges(cls, set_type: str):
+        """ Returns a data frame with 'start' and 'end' column of given set_type.
+        """
+        if cls.sets_split is None:
+            try:
+                cls.sets_split = pd.read_csv(env.sets_split_fname(), skipinitialspace=True, sep="\t")
+            except IOError:
+                logger.error(f"pd.read_csv({env.sets_split_fname()}) IO error")
+                return None
+            # logger.debug(str(cls.sets_split))
+
+        sdf = cls.sets_split.loc[cls.sets_split.set_type == set_type]
+        logger.debug(f"split set time ranges \n{sdf}")
+        return sdf
+
+    @classmethod
+    def split_sets(cls, set_type: str, df: pd.DataFrame):
+        sdf = cls.set_type_datetime_ranges(set_type)
+        df_list = [df.loc[(df.index >= pd.Timestamp(sdf.loc[ix, "start"])) &
+                          (df.index <= pd.Timestamp(sdf.loc[ix, "end"]))] for ix in sdf.index]
+        return df_list
+
+    @classmethod
+    def set_type_data(self, bases: list, set_type: str, data_objs):
+        if (data_objs is None) or (len(data_objs) == 0):
+            logger.warning("missing data objects")
+            return None
+        if (bases is None) or (len(bases) == 0):
+            logger.warning("missing bases")
+            return None
+        all_bases = list()
+        for base in bases:
+            sdf = SplitSets.set_type_datetime_ranges(set_type)
+            start = sdf.start.min()
+            end = sdf.end.max()
+            all_types = list()
+            for do in data_objs:
+                df_list = SplitSets.split_sets(set_type, do.get_data(base, start, end))
+                df = pd.concat(df_list, join="outer", axis=0)
+                all_types.append(df)
+            df = pd.concat(all_types, axis=1, join="inner", keys=[do.mnemonic() for do in data_objs])
+            all_bases.append(df)
+        data_df = pd.concat(all_bases, join="outer", axis=0, keys=bases)
+        return data_df
+
+
 class TrainingData:
 
     def __init__(self, features: ccd.Features, targets: ct.Targets):
@@ -63,13 +113,8 @@ class TrainingData:
             Features and targets are distinguished via a multiindex level.
             Return value: tuple of (data df, counter df)
         """
-        all = list()
-        for base in Env.bases:
-            fbdf = self.features.set_type_data(base, "training")
-            tbdf = self.targets.set_type_data(base, "training")
-            bdf = pd.concat([fbdf, tbdf], axis=1, join="inner", keys=["features", "targets"])
-            all.append(bdf)
-        data_df = pd.concat(all, join="outer", axis=0, keys=Env.bases)
+
+        data_df = SplitSets.set_type_data(Env.bases, TRAIN, [self.features, self.targets])
 
         ixl = np.arange(len(data_df))
         np.random.shuffle(ixl)  # shuffle training samples across bases
@@ -249,8 +294,8 @@ class BaseGenerator(keras.utils.Sequence):
             logger.debug(f"BaseGenerator: index {index} > len {len(Env.bases)}")
             index %= len(Env.bases)
         base = Env.bases[index]
-        fdf = self.features.set_type_data(base, self.set_type)
-        tdf = self.targets.set_type_data(base, self.set_type)
+        fdf = SplitSets.set_type_data([base], self.set_type, [self.features])
+        tdf = SplitSets.set_type_data([base], self.set_type, [self.targets])
         [fdf, tdf] = ccd.common_timerange([fdf, tdf])
         if (fdf is None) or fdf.empty:
             logger.warning("BaseGenerator: missing features")
@@ -279,9 +324,9 @@ class AssessmentGenerator(keras.utils.Sequence):
             logger.debug(f"AssessmentGenerator: index {index} > len {len(Env.bases)}")
             index %= len(Env.bases)
         base = Env.bases[index]
-        odf = self.ohlcv.set_type_data(base, self.set_type)
-        fdf = self.features.set_type_data(base, self.set_type)
-        tdf = self.targets.set_type_data(base, self.set_type)
+        odf = SplitSets.set_type_data([base], self.set_type, [self.ohlcv])
+        fdf = SplitSets.set_type_data([base], self.set_type, [self.features])
+        tdf = SplitSets.set_type_data([base], self.set_type, [self.targets])
         [odf, fdf, tdf] = ccd.common_timerange([odf, fdf, tdf])
         # features, targets =  prepare4keras(self.scaler, fdf, tdf, self.tcls)
         return odf, fdf, tdf
@@ -305,7 +350,7 @@ if __name__ == "__main__":
         meta = td.load_meta()
         cnt = meta["samples"]
         logger.info(f"training set retrieval time: {(tdiff / 60):.0f} min = {(tdiff / cnt):.0f}s/sample")
-    if True:  # retrieve training sets for test purposes
+    if False:  # retrieve training sets for test purposes
         meta = td.load_meta()
         logger.debug(str(meta))
         start_time = timeit.default_timer()
@@ -323,3 +368,4 @@ if __name__ == "__main__":
         # idf = td.load_index()
         # logger.info(str(idf.describe(percentiles=[], include='all')))
     # tee.close()
+    # SplitSets.set_type_datetime_ranges(TRAIN)
