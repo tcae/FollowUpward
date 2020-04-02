@@ -19,8 +19,8 @@ import pandas as pd
 # from sklearn import preprocessing
 # from sklearn.neural_network import MLPClassifier
 
-import tensorflow as tf
-import tensorflow.keras as keras
+# import tensorflow as tf
+# import tensorflow.keras as keras
 # import tensorflow.keras.metrics as km
 # import keras
 # import keras.metrics as km
@@ -54,9 +54,6 @@ os.environ["KMP_SETTINGS"] = "1"
 os.environ["KMP_AFFINITY"] = "granularity=fine,verbose,compact,1,0"
 """
 logger = logging.getLogger(__name__)
-logger.debug(f"Tensorflow version: {tf.version.VERSION}")
-logger.debug(f"Keras version: {keras.__version__}")
-logger.debug(__doc__)
 
 
 class PredictionData(ccd.CryptoData):
@@ -78,7 +75,6 @@ class PredictionData(ccd.CryptoData):
         "no history minutes are requires to calculate prediction data"
         return 0
 
-    @classmethod
     def keys(self):
         "returns the list of element keys"
         return self.predictor.targets.target_dict().keys()
@@ -88,6 +84,21 @@ class PredictionData(ccd.CryptoData):
         mem = self.predictor.mnemonic_with_epoch() + "_predictions"
         return mem
 
+    def predict_batch(self, features_df):
+        """ Predicts all samples and returns the result as numpy array.
+            set_type specific evaluations can be done using the saved prediction data.
+        """
+        if (features_df is None) or features_df.empty:
+            return None
+
+        if self.predictor.scaler is not None:
+            fdf_scaled = self.predictor.scaler.transform(features_df.values)
+            pred = self.predictor.kerasmodel.predict_on_batch(fdf_scaled)
+        else:
+            pred = self.predictor.kerasmodel.predict_on_batch(features_df.values)
+        # pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
+        return pred
+
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=False):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
@@ -95,16 +106,9 @@ class PredictionData(ccd.CryptoData):
         ohlcv = self.predictor.ohlcv.get_data(base, first, last, use_cache=True)
         fdf = self.predictor.features.get_data(base, first, last, use_cache=True)
         tdf = self.predictor.targets.get_data(base, first, last, use_cache=True)
-        if (fdf is None) or fdf.empty or (tdf is None) or tdf.empty:
+        if (tdf is None) or tdf.empty:
             return None
-        [fdf, tdf] = ccd.common_timerange([fdf, tdf])
-        # ohlcv_df = pd.Series(ohlcv_df.close, name="close")
-
-        if self.predictor.scaler is not None:
-            fdf_scaled = self.predictor.scaler.transform(fdf.values)
-            pred = self.predictor.kerasmodel.predict_on_batch(fdf_scaled)
-        else:
-            pred = self.predictor.kerasmodel.predict_on_batch(fdf.values)
+        pred = self.predict_batch(fdf)
         pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
         pdf = pd.concat([ohlcv.close, tdf.target, pdf], axis=1, join="inner")
         return self.check_timerange(pdf, first, last)
@@ -140,11 +144,11 @@ class PredictionData(ccd.CryptoData):
             for st in self.stl:
                 if row[ct.BUY] > bt:
                     if self.note[bt, st, "bprice"] <= 0:
-                        self.note[bt, st, "bprice"] = row["close"]
-                        self.note[bt, st, "btic"] = row["tic"]
+                        self.note.loc[bt, st, "bprice"] = row["close"]
+                        self.note.loc[bt, st, "btic"] = row["tic"]
                     self.confusion.loc[row["target"], (bt, st, ct.TARGETS[ct.BUY])] += 1
                 else:
-                    row = self.process_hold_signal(row)
+                    row = self.process_hold_signal(row, bt, st)
         return row
 
     def calc_perf_row(self, row):
@@ -180,10 +184,11 @@ class PredictionData(ccd.CryptoData):
         idx = pd.IndexSlice
         self.note.loc[idx[:, :, "bprice"]] = 0
         self.total.loc[idx[:, :, "perf"]] = 0
+        self.total.loc[idx[:, :, "count"]] = 0
         mix3 = pd.MultiIndex.from_product([self.btl, self.stl, ct.TARGETS.values()])
         self.confusion = pd.DataFrame(data=0, index=ct.TARGETS.values(), columns=mix3, dtype=int)
         self.confusion.index.rename("target", inplace=True)
-        self.confusion.columns.rename("actual", inplace=True)
+        self.confusion.columns.rename(["bt", "st", "actual"], inplace=True)
 
     def find_best(self):
         """ find best result in self.total and return result
@@ -199,7 +204,7 @@ class PredictionData(ccd.CryptoData):
                     best_bt = bt
         return (best_perf, self.total[best_bt, best_st, "count"], best_bt, best_st)
 
-    def assess_perf(self, bases: list, set_type):
+    def assess_perf(self, bases: list, set_type, epoch):
         """Evaluates the performance on the given set and prints the confusion and
         performance matrix.
 
@@ -210,9 +215,9 @@ class PredictionData(ccd.CryptoData):
         self.base_dfl = dict()  # base dict of lists with prediction data frames
         for base in bases:
             self.base_dfl[base] = list()
-            ohlcv_list = ad.SplitSets.split_sets(set_type, self.ohlcv.load_data(base))
-            features_list = ad.SplitSets.split_sets(set_type, self.features.load_data(base))
-            targets_list = ad.SplitSets.split_sets(set_type, self.targets.load_data(base))
+            ohlcv_list = ad.SplitSets.split_sets(set_type, self.predictor.ohlcv.load_data(base))
+            features_list = ad.SplitSets.split_sets(set_type, self.predictor.features.load_data(base))
+            targets_list = ad.SplitSets.split_sets(set_type, self.predictor.targets.load_data(base))
             assert len(ohlcv_list) == len(features_list)
             assert len(ohlcv_list) == len(targets_list)
             for ix in range(len(ohlcv_list)):
@@ -224,21 +229,22 @@ class PredictionData(ccd.CryptoData):
                     continue
                 [fdf, tdf] = ccd.common_timerange([fdf, tdf])
 
-                if self.scaler is not None:
-                    fdf_scaled = self.scaler.transform(fdf.values)
-                    pred = self.kerasmodel.predict_on_batch(fdf_scaled)
+                if self.predictor.scaler is not None:
+                    fdf_scaled = self.predictor.scaler.transform(fdf.values)
+                    pred = self.predictor.kerasmodel.predict_on_batch(fdf_scaled)
                 else:
                     logger.error("missing scaler")
-                    pred = self.kerasmodel.predict_on_batch(fdf.values)
+                    pred = self.predictor.kerasmodel.predict_on_batch(fdf.values)
                 if pred is None:
                     logger.warning(f"no prediction data for {base} between {odf.index[0]} and {odf.index[-1]}")
                     continue
-                pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.targets.target_dict().keys())
+                pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.predictor.targets.target_dict().keys())
                 pdf.loc[pdf.index[-1], ct.SELL] = 1  # force sell at end of data range
                 if pdf.empty:
                     logger.warning(f"empty prediction data for {base} between {odf.index[0]} and {odf.index[-1]}")
                     continue
                 pdf = pd.concat([odf.close, tdf.target, pdf], axis=1, join="inner")
                 self.base_dfl[base].append(self.calc_performance(pdf))
-
+        logger.info(f"\n performance results \n{self.total}\n")
+        logger.info(f"\n precision results \n{self.confusion}\n")
         return self.find_best()

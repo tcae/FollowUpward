@@ -32,14 +32,15 @@ class SplitSets:
         """
         if cls.sets_split is None:
             try:
-                cls.sets_split = pd.read_csv(env.sets_split_fname(), skipinitialspace=True, sep="\t")
+                cls.sets_split = pd.read_csv(env.sets_split_fname(), skipinitialspace=True, sep="\t",
+                                             parse_dates=["start", "end"])
             except IOError:
                 logger.error(f"pd.read_csv({env.sets_split_fname()}) IO error")
                 return None
             # logger.debug(str(cls.sets_split))
 
         sdf = cls.sets_split.loc[cls.sets_split.set_type == set_type]
-        logger.debug(f"split set time ranges \n{sdf}")
+        # logger.debug(f"split set time ranges \n{sdf}")
         return sdf
 
     @classmethod
@@ -67,9 +68,9 @@ class SplitSets:
                 df_list = SplitSets.split_sets(set_type, do.get_data(base, start, end))
                 df = pd.concat(df_list, join="outer", axis=0)
                 all_types.append(df)
-            df = pd.concat(all_types, axis=1, join="inner", keys=[do.mnemonic() for do in data_objs])
+            df = pd.concat(all_types, axis=1, join="inner")  # , keys=[do.mnemonic() for do in data_objs])
             all_bases.append(df)
-        data_df = pd.concat(all_bases, join="outer", axis=0, keys=bases)
+        data_df = pd.concat(all_bases, join="outer", axis=0)  # , keys=bases)
         return data_df
 
 

@@ -1,3 +1,5 @@
+""" main docstring
+"""
 import logging
 # logging.getLogger("tensorflow").setLevel(logging.ERROR)  # before importing tensorflow.
 
@@ -19,8 +21,8 @@ import timeit
 # from sklearn import preprocessing
 # from sklearn.neural_network import MLPClassifier
 
-import tensorflow as tf
-import tensorflow.keras as keras
+# import tensorflow as tf
+# import tensorflow.keras as keras
 # import tensorflow.keras.metrics as km
 # import keras
 # import keras.metrics as km
@@ -54,9 +56,6 @@ os.environ["KMP_SETTINGS"] = "1"
 os.environ["KMP_AFFINITY"] = "granularity=fine,verbose,compact,1,0"
 """
 logger = logging.getLogger(__name__)
-logger.debug(f"Tensorflow version: {tf.version.VERSION}")
-logger.debug(f"Keras version: {keras.__version__}")
-logger.debug(__doc__)
 
 
 def pinfo(title):
@@ -89,7 +88,7 @@ def pinfo(title):
 
 
 if __name__ == "__main__":
-    env.test_mode()
+    # env.test_mode()
     start_time = timeit.default_timer()
     ohlcv = ccd.Ohlcv()
     targets = ct.T10up5low30min(ohlcv)

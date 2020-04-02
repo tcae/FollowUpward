@@ -2,9 +2,8 @@ import timeit
 import numpy as np
 import pandas as pd
 import logging
-import cached_crypto_data as ccd
+# import cached_crypto_data as ccd
 import crypto_targets as ct
-import prediction_data as preddat
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +60,15 @@ class PerfMatrix:
         self.set_type = set_type
         self.start_ts = timeit.default_timer()
         self.end_ts = None
+
+        self.BUY = ct.TARGETS[ct.BUY]
+        self.SELL = ct.TARGETS[ct.SELL]
+        self.HOLD = ct.TARGETS[ct.HOLD]
+        self.track = [self.PERF, self.COUNT, self.BUY_IX, self.BUY_PRICE] = [ix for ix in range(4)]
+        self.btl = [0.6, 0.7, 0.8, 0.9]
+        self.stl = [0.6, 0.7, 0.8, 0.9]
+        self.perf2 = np.zeros((len(self.btl), len(self.stl), len(self.track)))
+        self.conf2 = np.zeros((len(ct.TARGETS), len(ct.TARGETS)))  # (target, actual)
 
     def pix(self, bp, sp):
         return self.perf[bp - self.p_range[0], sp - self.p_range[0]]
@@ -146,7 +154,7 @@ class PerfMatrix:
             self.add_signal(pred[sample, high_prob_cl], skl_close[sample],
                             high_prob_cl, skl_target[sample])
 
-    def assess_prediction(self, pred_df):
+    def assess_prediction(self, pred_np, close_df, target_df):
         """Assess the highest probability of a class prediction
         to find the optimum buy/sell threshold.
         pred_df has a datetime index and columns close, buy and sell.
@@ -159,15 +167,10 @@ class PerfMatrix:
         to close any open transaction
 
         """
-        pred_cnt = len(pred_df)
-        pred_df.index.rename("tic", inplace=True)
-        df = pred_df.reset_index()  # index compare of tics more complex than int
-        tic_arr = df.tic.values
-        close_arr = df.close.values
-        target_arr = df.target.values
-        buy_arr = df.buy.values
-        sell_arr = df.sell.values
-        hold_arr = df.hold.values
+        pred_cnt = len(pred_np)
+        tic_arr = close_df.index.values
+        close_arr = close_df["close"].values
+        target_arr = target_df["target"].values
         # begin = env.timestr(skl_tics[0])
         for sample in range(pred_cnt):
             if (sample + 1) >= pred_cnt:
@@ -180,20 +183,127 @@ class PerfMatrix:
                 # logger.debug("assessment between {} and {}".format(begin, end))
                 # begin = env.timestr(skl_tics[sample+1])
             else:
-                if hold_arr[sample] > buy_arr[sample]:
-                    if hold_arr[sample] > sell_arr[sample]:
-                        self.add_signal(hold_arr[sample], close_arr[sample],
+                if pred_np[sample, ct.TARGETS[ct.HOLD]] > pred_np[sample, ct.TARGETS[ct.BUY]]:
+                    if pred_np[sample, ct.TARGETS[ct.HOLD]] > pred_np[sample, ct.TARGETS[ct.SELL]]:
+                        self.add_signal(pred_np[sample, ct.TARGETS[ct.HOLD]], close_arr[sample],
                                         ct.TARGETS[ct.HOLD], target_arr[sample])
                     else:
-                        self.add_signal(sell_arr[sample], close_arr[sample],
+                        self.add_signal(pred_np[sample, ct.TARGETS[ct.SELL]], close_arr[sample],
                                         ct.TARGETS[ct.SELL], target_arr[sample])
                 else:
-                    if buy_arr[sample] > sell_arr[sample]:
-                        self.add_signal(buy_arr[sample], close_arr[sample],
+                    if pred_np[sample, ct.TARGETS[ct.BUY]] > pred_np[sample, ct.TARGETS[ct.SELL]]:
+                        self.add_signal(pred_np[sample, ct.TARGETS[ct.BUY]], close_arr[sample],
                                         ct.TARGETS[ct.BUY], target_arr[sample])
                     else:
-                        self.add_signal(sell_arr[sample], close_arr[sample],
+                        self.add_signal(pred_np[sample, ct.TARGETS[ct.SELL]], close_arr[sample],
                                         ct.TARGETS[ct.SELL], target_arr[sample])
+
+    def assess_prediction_np(self, pred_np, close_df, target_df):  # noqa
+        """Assess the highest probability of a class prediction
+        to find the optimum buy/sell threshold.
+        pred_df has a datetime index and columns close, buy and sell.
+
+        - close = close price
+        - buy = buy likelihood
+        - sell = sell likelihood
+
+        handling of time gaps: in case of a time gap the last value of the time slice is taken
+        to close any open transaction
+
+        """
+        pred_cnt = len(pred_np)
+        # tic_arr = close_df.index.values
+        close_arr = close_df["close"].values
+        target_arr = target_df["target"].values
+        btl_len = len(self.btl)
+        stl_len = len(self.stl)
+        BUY = self.BUY
+        SELL = self.SELL
+        HOLD = self.HOLD
+        # begin = env.timestr(skl_tics[0])
+        for sample in range(pred_cnt):
+            pred_sell = pred_np[sample, SELL]
+            pred_buy = pred_np[sample, BUY]
+            pred_hold = pred_np[sample, HOLD]
+            if pred_sell >= pred_buy:
+                if pred_sell > pred_hold:
+                    # SELL
+                    for bt in range(btl_len):
+                        for st in range(stl_len):
+                            buy_price = self.perf2[bt, st, self.BUY_PRICE]
+                            if pred_sell > self.stl[st]:
+                                if buy_price > 0:
+                                    # add here the transaction tracking shall be inserted
+                                    transaction_perf = \
+                                        (close_arr[sample] * (1 - ct.FEE) -
+                                         buy_price * (1 + ct.FEE)) \
+                                        / buy_price
+                                    self.perf2[bt, st, self.PERF] += transaction_perf
+                                    self.perf2[bt, st, self.COUNT] += 1
+                                    self.perf2[bt, st, self.BUY_PRICE] = 0
+                    self.conf2[target_arr[sample], SELL] += 1
+                else:
+                    # HOLD
+                    self.conf2[target_arr[sample], HOLD] += 1
+            else:  # SELL < BUY
+                if pred_buy > pred_hold:
+                    # BUY
+                    for bt in range(btl_len):
+                        for st in range(stl_len):
+                            if pred_buy > self.btl[bt]:
+                                self.perf2[bt, st, self.BUY_PRICE] = close_arr[sample]
+                                # self.perf2[bt, st, self.BUY_IX] = sample
+                    self.conf2[target_arr[sample], BUY] += 1
+                else:
+                    # HOLD
+                    self.conf2[target_arr[sample], HOLD] += 1
+
+    def close_open_transactions_np(self, close_df):
+        close_arr = close_df["close"].values
+        for bt in range(len(self.btl)):
+            for st in range(len(self.stl)):
+                buy_price = self.perf2[bt, st, self.BUY_PRICE]
+                if buy_price > 0:
+                    # add here the transaction tracking
+                    transaction_perf = \
+                        (close_arr[-1] * (1 - ct.FEE) -
+                            buy_price * (1 + ct.FEE)) \
+                        / buy_price
+                    self.perf2[bt, st, self.PERF] += transaction_perf
+                    self.perf2[bt, st, self.COUNT] += 1
+                    self.perf2[bt, st, self.BUY_PRICE] = 0
+
+    def best_np(self):
+        bp = -999999.9
+        bc = bbt = bst = 0
+        for bt in range(len(self.btl)):
+            for st in range(len(self.stl)):
+                if self.perf2[bt, st, self.PERF] > bp:
+                    (bp, bc, bbt, bst) = (self.perf2[bt, st, self.PERF],
+                                          self.perf2[bt, st, self.COUNT], self.btl[bt], self.stl[st])
+        return (bp, bbt, bst, bc)
+
+    def report_assessment_np(self):
+        perf_mat = pd.DataFrame(index=self.btl, columns=pd.MultiIndex.from_product([self.stl, ["perf", "count"]]))
+        perf_mat.index.rename("bt", inplace=True)
+        perf_mat.columns.rename(["st", "kpi"], inplace=True)
+        conf_mat = pd.DataFrame(index=ct.TARGETS.keys(), columns=ct.TARGETS.keys(), dtype=int)
+        conf_mat.index.rename("target", inplace=True)
+        conf_mat.columns.rename("actual", inplace=True)
+        for bt in range(len(self.btl)):
+            for st in range(len(self.stl)):
+                perf_mat.loc[self.btl[bt], (self.stl[st], "perf")] = "{:>5.0%}".format(self.perf2[bt, st, self.PERF])
+                perf_mat.loc[self.btl[bt], (self.stl[st], "count")] = int(self.perf2[bt, st, self.COUNT])
+        for target_label in ct.TARGETS:
+            for actual_label in ct.TARGETS:
+                conf_mat.loc[target_label, actual_label] = \
+                    int(self.conf2[ct.TARGETS[target_label], ct.TARGETS[actual_label]])
+        (bp, bbt, bst, bc) = self.best_np()
+        logger. info(f"best performance {bp} at bt/st {bbt}/{bst} with {bc} transactions")
+        # logger.info(f"performance matrix np: \n{self.perf2}")
+        logger.info(f"performance matrix np df: \n{perf_mat}")
+        # logger.info(f"confusion matrix np: \n{self.conf2}")
+        logger.info(f"confusion matrix np df: \n{conf_mat}")
 
     def conf(self, estimate_class, target_class):
         elem = self.confusion[estimate_class, target_class]
@@ -244,55 +354,10 @@ class PerfMatrix:
         print("^bpt")
 
 
-class PerformanceData2(ccd.CryptoData):
-
-    def __init__(self, prediction_obj: preddat.PredictionData):
-        super().__init__()
-        self.predictions = prediction_obj
-        self.path = self.predictions.predictor.path_with_epoch()
-        self.btl = [0.3, 0.4]  # buy threshold list
-        self.stl = [0.5, 0.6]  # sell threshold list
-        self.set_type = None
-
-    def history(self):
-        "no history minutes are requires to calculate prediction data"
-        return 0
-
-    def keyiter(self):
-        for bt in self.btl:  # bt = lower bound buy signal bucket
-            for st in self.stl:  # st = lower bound sell signal bucket
-                yield (f"bt{bt:1.1f}/st{st:1.1f}", (round(bt, 1), round(st, 1)))
-
-    def keys(self):
-        "returns the list of element keys"
-        keyl = list()
-        [keyl.append((bt, st)) for (lbl, (bt, st)) in self.keyiter()]
-        return keyl
-
-    def indexlist(self):
-        "returns the list of element keys"
-        ixl = list()
-        [ixl.append(ix) for (_, ix) in self.keyiter()]
-        return ixl
-
-    def mnemonic(self):
-        "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
-        mem = self.predictions.predictor.mnemonic_with_epoch() + "_performances2"
-        return mem
-
-    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
-        """ Predicts all samples and returns the result.
-            set_type specific evaluations can be done using the saved prediction data.
-        """
-        logger.debug(f"start performance assessment of {base} from {first} to {last}")
-        ohlcv_df = self.predictions.predictor.ohlcv.get_data(base, first, last, use_cache=True)
-        pred_df = self.predictions.get_data(base, first, last, use_cache=False)  # enforce recalculation
-        if (ohlcv_df is None) or ohlcv_df.empty or (pred_df is None) or pred_df.empty:
-            return None
-        cdf = pd.concat([ohlcv_df.close, pred_df.buy, pred_df.sell], axis=1, join="inner")  # combi df
-        rdf = self.perfcalc(cdf, self.btl, self.stl, ct.FEE)
-        logger.debug(f"end performance assessment of {base} from {first} to {last}\n{rdf}")
-        return rdf
-
-    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=False):
-        return self.new_data(base, first, last, use_cache)
+if __name__ == "__main__":
+    track = [PERF, COUNT, BUY_IX, BUY_PRICE] = [ix for ix in range(4)]
+    print(track)
+    btl = [0.61, 0.7]
+    stl = [0.5, 0.6]
+    x = [(bt, st) for bt in btl for st in stl]
+    print(f"bt/st {x}")
