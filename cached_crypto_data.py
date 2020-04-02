@@ -38,6 +38,9 @@ def common_timerange(df_list):
     """ limits the datetimerange of the list of given data frames to the common range.
         Returns a data frame list in the same sequence with limited ranges.
     """
+    if any([(df is None) or (len(df) == 0) for df in df_list]):
+        logger.warning("no common timerange for empty data frame")
+        return [None for df in df_list]
     first = max([df.index[0] for df in df_list])
     last = min([df.index[-1] for df in df_list])
     return [df.loc[(df.index >= first) & (df.index <= last)] for df in df_list]

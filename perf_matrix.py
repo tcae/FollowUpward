@@ -199,17 +199,13 @@ class PerfMatrix:
                                         ct.TARGETS[ct.SELL], target_arr[sample])
 
     def assess_prediction_np(self, pred_np, close_df, target_df):  # noqa
-        """Assess the highest probability of a class prediction
-        to find the optimum buy/sell threshold.
-        pred_df has a datetime index and columns close, buy and sell.
+        """ Assesses the performance with different buy/sell thresholds. This method can be called multiple times,
+            which accumulates the performance results in the class attributes perf2 and conf2
 
-        - close = close price
-        - buy = buy likelihood
-        - sell = sell likelihood
-
-        handling of time gaps: in case of a time gap the last value of the time slice is taken
-        to close any open transaction
-
+            - pred_np is a tensor with numpy data returning the predictions per class
+              with class index == ct.TARGETS[BUY|SELL|HOLD]
+            - close_df is a data frame with a 'close' column containing close prices
+            - target_df is a data frame with a 'target' column containing the target class index
         """
         pred_cnt = len(pred_np)
         # tic_arr = close_df.index.values
@@ -281,7 +277,7 @@ class PerfMatrix:
                 if self.perf2[bt, st, self.PERF] > bp:
                     (bp, bc, bbt, bst) = (self.perf2[bt, st, self.PERF],
                                           self.perf2[bt, st, self.COUNT], self.btl[bt], self.stl[st])
-        return (bp, bbt, bst, bc)
+        return (bp, bbt, bst, int(bc))
 
     def report_assessment_np(self):
         perf_mat = pd.DataFrame(index=self.btl, columns=pd.MultiIndex.from_product([self.stl, ["perf", "count"]]))
@@ -299,7 +295,7 @@ class PerfMatrix:
                 conf_mat.loc[target_label, actual_label] = \
                     int(self.conf2[ct.TARGETS[target_label], ct.TARGETS[actual_label]])
         (bp, bbt, bst, bc) = self.best_np()
-        logger. info(f"best performance {bp} at bt/st {bbt}/{bst} with {bc} transactions")
+        logger. info(f"best performance {bp:>5.0%} at bt/st {bbt}/{bst} with {bc} transactions")
         # logger.info(f"performance matrix np: \n{self.perf2}")
         logger.info(f"performance matrix np df: \n{perf_mat}")
         # logger.info(f"confusion matrix np: \n{self.conf2}")

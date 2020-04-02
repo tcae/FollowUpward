@@ -1,4 +1,4 @@
-""" is this the docstring?
+""" tensorflow2 keras classifier
 """
 import logging
 # logging.getLogger("tensorflow").setLevel(logging.ERROR)  # before importing tensorflow.
@@ -132,16 +132,16 @@ class EpochPerformance(keras.callbacks.Callback):
             epoch, self.classifier.mnemonic_with_epoch()))
 
         logger.debug(f"on_epoch_end {ad.TRAIN}")
-        (best, transactions, buy_thrsld, sell_thrsld) = self.classifier.assess_performance(Env.bases, ad.TRAIN, epoch)
-        logger.info(f"{ad.TRAIN} perf: {best}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
+        (best, buy_thrsld, sell_thrsld, transactions) = self.classifier.assess_performance(Env.bases, ad.TRAIN, epoch)
+        logger.info(f"{ad.TRAIN} perf: {best:5.0%}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
         logger.debug(f"on_epoch_end {ad.VAL}")
         # logger.debug(f"assess_performance III {ad.VAL}")
         # pred = preddat.PredictionData(self.classifier)
         # (best, transactions, buy_thrsld, sell_thrsld) = pred.assess_perf(Env.bases, ad.VAL, epoch)
         # logger.info(f"{ad.VAL} perf: {best}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
         # logger.debug(f"assess_performance I {ad.VAL}")
-        (best, transactions, buy_thrsld, sell_thrsld) = self.classifier.assess_performance(Env.bases, ad.VAL, epoch)
-        logger.info(f"{ad.VAL} perf: {best}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
+        (best, buy_thrsld, sell_thrsld, transactions) = self.classifier.assess_performance(Env.bases, ad.VAL, epoch)
+        logger.info(f"{ad.VAL} perf: {best:5.0%}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
 
         logger.debug(f"on_epoch_end assessment done")
         if best > self.best_perf:
@@ -289,44 +289,6 @@ class Classifier(Predictor):
         else:
             logger.warning(f"missing classifier - cannot save it")
 
-    # def assess_performance_too_slow(self, bases: list, set_type, epoch=0):
-    #     """ Evaluates the performance on the given set and prints the confusion and
-    #         performance matrix.
-
-    #         Returns a tuple of (best-performance, at-buy-probability-threshold,
-    #         at-sell-probability-threshold, with-number-of-transactions)
-    #     """
-    #     logger.debug(f"assess_performance {set_type}")
-    #     start_time = timeit.default_timer()
-    #     perf = perfdat.PerformanceData(preddat.PredictionData(self))
-    #     df_list = list()
-    #     df_bases = list()
-    #     logger.debug("start performance assessment")
-    #     for base in bases:
-    #         perf_df = ad.SplitSets.set_type_data([base], set_type, [perf])
-    #         if (perf_df is not None) and (not perf_df.empty):
-    #             df_list.append(perf_df)
-    #             df_bases.append(base)
-    #     if len(df_list) > 0:
-    #         set_type_df = pd.concat(df_list, join="outer", axis=0, keys=df_bases)
-    #         # elif len(df_list) == 1:
-    #         #     set_type_df = df_list[0]
-    #     else:
-    #         logger.warning(f"assess_performance: no {set_type} dataset available")
-    #         return (0, 0)
-    #     ccd.show_verbose(set_type_df)
-    #     total_df = set_type_df.sum()
-    #     total_df = total_df.unstack(level=["KPI"])
-    #     max_ix = total_df.perf.idxmax()
-    #     res = (total_df.loc[max_ix, 'perf'], total_df.loc[max_ix, 'count'], *max_ix)
-    #     logger.debug(f"perf, count, buy threshold, sell threshold: {res}")
-    #     total_df = total_df.unstack(level=["st"])
-    #     logger.info(f"performances: \n{total_df}")
-    #     tdiff = (timeit.default_timer() - start_time) / 60
-    #     logger.info(f"assess_performance set type {set_type} time: {tdiff:.0f} min")
-
-    #     return res
-
     def assess_performance(self, bases: list, set_type, epoch=0):
         """Evaluates the performance on the given set and prints the confusion and
         performance matrix.
@@ -350,6 +312,11 @@ class Classifier(Predictor):
             odfl = ad.SplitSets.split_sets(set_type, odf)
             fdfl = ad.SplitSets.split_sets(set_type, fdf)
             tdfl = ad.SplitSets.split_sets(set_type, tdf)
+            for ix in range(len(fdfl)):
+                [odf, fdf, tdf] = ccd.common_timerange([odfl[ix], fdfl[ix], tdfl[ix]])
+                if (fdf is None) and (len(fdf) == 0):
+                    logger.info(f"no performance data for subset {ix} of {base}")
+                    continue
             # tdiff = (timeit.default_timer() - start_time2) / 60
             # logger.debug(f"split set {base} time: {tdiff:.1f} min")
 
@@ -359,19 +326,11 @@ class Classifier(Predictor):
             # logger.debug(f"prediction data {base} time: {tdiff:.1f} min")
 
             # start_time2 = timeit.default_timer()
-            for ix in range(len(fdfl)):
-                [odf, fdf, tdf] = ccd.common_timerange([odfl[ix], fdfl[ix], tdfl[ix]])
-                pm.assess_prediction_np(pred_np_list[ix], odfl[ix], tdfl[ix])
-                pm.close_open_transactions_np(odfl[ix])
+            pm.assess_prediction_np(pred_np_list[ix], odfl[ix], tdfl[ix])
+            pm.close_open_transactions_np(odfl[ix])
+
             # tdiff = (timeit.default_timer() - start_time2) / 60
             # logger.debug(f"assess prediction np {base} time: {tdiff:.1f} min")
-
-            # start_time2 = timeit.default_timer()
-            # for ix in range(len(fdfl)):
-            #     [odf, fdf, tdf] = ccd.common_timerange([odfl[ix], fdfl[ix], tdfl[ix]])
-            #     pm.assess_prediction_np2(pred_np_list[ix], odfl[ix], tdfl[ix])
-            # tdiff = (timeit.default_timer() - start_time2)
-            # logger.debug(f"assess prediction np2 {base} time: {tdiff:.1f} s")
 
             # start_time2 = timeit.default_timer()
             # for ix in range(len(fdfl)):
@@ -385,25 +344,7 @@ class Classifier(Predictor):
         # pm.report_assessment()
         tdiff = (timeit.default_timer() - start_time) / 60
         logger.info(f"performance assessment set type {set_type} time: {tdiff:.1f} min")
-        return pm.best()
-
-    # def assess_performance3(self, bases: list, set_type, epoch=0):
-    #     """Evaluates the performance on the given set and prints the confusion and
-    #     performance matrix.
-
-    #     Returns a tuple of (best-performance-factor, at-buy-probability-threshold,
-    #     at-sell-probability-threshold, with-number-of-transactions)
-    #     """
-    #     logger.debug(f"assess_performance II {set_type}")
-    #     start_time = timeit.default_timer()
-    #     pred = preddat.PredictionData(self)
-    #     res = pred.assess_perf(bases, set_type)
-    #     (best, count, bt, st) = res
-    #     logger.debug(f"best perf {best}  with {count} transactions at bt/st {bt}/{st}")
-
-    #     tdiff = (timeit.default_timer() - start_time) / 60
-    #     logger.info(f"performance assessment II set type {set_type} time: {tdiff:.0f} min")
-    #     return res
+        return pm.best_np()
 
     def adapt_keras(self):
 

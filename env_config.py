@@ -245,6 +245,7 @@ def test_mode():
         Env(Osx(), Test())
     elif platform.node() == "tor-XPS-13-9380":
         Env(Ubuntu(), Test())
+    logger.info(">>> test mode <<<")
 
 
 def check_df(df):
