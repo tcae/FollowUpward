@@ -549,7 +549,7 @@ if __name__ == '__main__':
     # env.test_mode()
     tee = env.Tee(log_prefix="TrainEval")
     ohlcv = ccd.Ohlcv()
-    features = cof.F2cond20(ohlcv)
+    features = cof.F3cond14(ohlcv)
     targets = ct.T10up5low30min(ohlcv)
     ohlcv_df_dict = {base: ohlcv.load_data(base) for base in Env.bases}
     app.run_server(debug=True)

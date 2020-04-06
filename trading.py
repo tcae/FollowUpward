@@ -290,7 +290,7 @@ def trading_main():
     ohlcv = ccd.Ohlcv()
     targets = ct.T10up5low30min(ohlcv)
     if True:
-        features = cof.F2cond20(ohlcv)
+        features = cof.F3cond14(ohlcv)
     else:
         features = agf.AggregatedFeatures(ohlcv)
     classifier = pdd.Classifier(ohlcv, features, targets)

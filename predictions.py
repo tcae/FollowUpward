@@ -57,7 +57,7 @@ class CategoryPredictions(ccd.CryptoData):
 
 def test_data_handling():
     ohlcv = ccd.Ohlcv()
-    cond = cof.F2cond20(ohlcv)
+    cond = cof.F3cond14(ohlcv)
     # agg = agf.F1agg110(ohlcv)
     trgt = ct.T10up5low30min(ohlcv)
     cpc = ck.Cpc(load_classifier="MLP_l1-16_do-0.2_h-19_no-l3_optAdam_F2cond24_0", save_classifier=None)
@@ -118,7 +118,7 @@ def convert_cache_files():
         ccd.dfdescribe(f"CondensedFeatures without target: {base}", fdf)
 
         if (fdf is not None) and ccd.no_index_gaps(fdf):
-            cond = cof.F2cond20(ohlcv)
+            cond = cof.F3cond14(ohlcv)
             cond.save_data(base, fdf)
             trgt = ct.T10up5low30min(ohlcv)
             trgt.save_data(base, tdf)
@@ -148,5 +148,5 @@ if __name__ == "__main__":
     tee = env.Tee()
     # test_data_handling()  # successfully tested
     # convert_cache_files()  # successfully done
-    classify_saved_history("MLP_l1-16_do-0.2_h-19_no-l3_optAdam_F2cond24_0", ct.T10up5low30min, cof.F2cond20)
+    classify_saved_history("MLP_l1-16_do-0.2_h-19_no-l3_optAdam_F2cond24_0", ct.T10up5low30min, cof.F3cond14)
     tee.close()

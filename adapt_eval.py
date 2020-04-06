@@ -88,14 +88,14 @@ def pinfo(title):
 
 
 if __name__ == "__main__":
-    # env.test_mode()
+    env.test_mode()
     start_time = timeit.default_timer()
     ohlcv = ccd.Ohlcv()
     targets = ct.T10up5low30min(ohlcv)
     try:
 
         if True:
-            features = cof.F2cond20(ohlcv)
+            features = cof.F3cond14(ohlcv)
         else:
             features = agf.AggregatedFeatures(ohlcv)
         classifier = class_pred.Classifier(ohlcv, features, targets)

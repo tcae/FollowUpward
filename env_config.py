@@ -297,7 +297,10 @@ class Tee(object):
         cls.logger.addHandler(cls.streamhandler)
         cls.logger.addHandler(cls.filehandler)
         cls.logger.setLevel(level=logging.DEBUG)
-        cls.logger.info("message")
+        if Env.test_mode:
+            cls.logger.info("test mode")
+        else:
+            cls.logger.info("production mode")
         tf_logger = logging.getLogger("tensorflow")  # tf.get_logger()
         if tf_logger is not None:
             tf_logger.addHandler(cls.filehandler)

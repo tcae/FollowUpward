@@ -48,6 +48,7 @@ class SplitSets:
         sdf = cls.set_type_datetime_ranges(set_type)
         df_list = [df.loc[(df.index >= pd.Timestamp(sdf.loc[ix, "start"])) &
                           (df.index <= pd.Timestamp(sdf.loc[ix, "end"]))] for ix in sdf.index]
+        df_list = [df for df in df_list if (df is not None) and (not df.empty)]  # remove None and empty df
         return df_list
 
     @classmethod
@@ -223,6 +224,113 @@ class TrainingData:
         assert check == len(data_df)
 
 
+def subset_check(base: str, ix: int, acd: ccd.CryptoData, acdf: pd.DataFrame, bcd: ccd.CryptoData, bcdf: pd.DataFrame):
+    if (acdf is None) or (len(acdf) == 0):
+        logger.warning(f"no {acd.mnemonic()} data for subset {ix} of {base}")
+        return
+    if (bcdf is None) or (len(bcdf) == 0):
+        logger.warning(f"no {bcd.mnemonic()} data for subset {ix} of {base}")
+        return
+    if acdf.index[-1] != bcdf.index[-1]:
+        logger.warning("unexpected {}/{} last timestamp difference {} {} vs. {} {}".format(
+                        base, ix, acd.mnemonic(), acdf.index[-1], bcd.mnemonic(), bcdf.index[-1]))
+    if (acdf.index[0] != bcdf.index[0]) and \
+       (acdf.index[0] != (bcdf.index[0] - pd.Timedelta(bcd.history(), unit="T"))):
+        logger.warning(
+            "unexpected {}/{} first timestamp difference {} {} vs. {} {} - history {}".format(
+                base, ix, acd.mnemonic(), acdf.index[0], bcd.mnemonic(), bcdf.index[0],
+                (bcdf.index[0] - pd.Timedelta(bcd.history(), unit="T"))))
+    if (len(acdf) != len(bcdf)) and (len(acdf) != (len(bcdf) + bcd.history())):
+        logger.warning(
+            "unexpected {}/{} length {} {} vs. {}  {} + history {}".format(
+                base, ix, acd.mnemonic(), len(acdf), bcd.mnemonic(), len(bcdf), len(bcdf) + bcd.history()))
+
+
+def set_type_check(ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets, bases: list, set_type: str):
+    logger.info(f"split set timeranges \n{SplitSets.set_type_datetime_ranges(set_type).reset_index()}")
+    for base in bases:
+        odf = ohlcv.load_data(base)
+        fdf = features.load_data(base)
+        tdf = targets.load_data(base)
+        logger.info(
+            "{} {} first {}, {} first {}, {} first {}, last {}".format(
+                base, ohlcv.mnemonic(), odf.index[0],
+                features.mnemonic(), fdf.index[0], targets.mnemonic(), tdf.index[0], odf.index[-1]))
+        if ((odf.index[-1]-odf.index[0])/pd.Timedelta(1, unit="T") + 1 - len(odf)) != 0:
+            logger.warning(
+                "{} {} gap detected: min diff = {} vs len = {}".format(
+                    base, ohlcv.mnemonic(), (odf.index[-1]-odf.index[0])/pd.Timedelta(1, unit="T")+1, len(odf)))
+        if ((fdf.index[-1]-fdf.index[0])/pd.Timedelta(1, unit="T") + 1 - len(fdf)) != 0:
+            logger.warning(
+                "{} {} gap detected: min diff = {} vs len = {}".format(
+                    base, features.mnemonic(), (fdf.index[-1]-fdf.index[0])/pd.Timedelta(1, unit="T")+1, len(fdf)))
+        if ((tdf.index[-1]-tdf.index[0])/pd.Timedelta(1, unit="T") + 1 - len(tdf)) != 0:
+            logger.warning(
+                "{} {} gap detected: min diff = {} vs len = {}".format(
+                    base, targets.mnemonic(), (tdf.index[-1]-tdf.index[0])/pd.Timedelta(1, unit="T")+1, len(tdf)))
+        # tdiff = (timeit.default_timer() - start_time2) / 60
+        # logger.debug(f"prediction data {base} time: {tdiff:.1f} min")
+
+        # start_time2 = timeit.default_timer()
+        odfl = SplitSets.split_sets(set_type, odf)
+        fdfl = SplitSets.split_sets(set_type, fdf)
+        tdfl = SplitSets.split_sets(set_type, tdf)
+        if len(odfl) != len(fdfl):
+            logger.warning("unexpected {} subset differnce ohlcv {} vs. features {}".format(
+                base, len(odfl), len(fdfl)))
+        if len(odfl) != len(tdfl):
+            logger.warning("unexpected {} subset differnce ohlcv {} vs. targets {}".format(
+                base, len(odfl), len(tdfl)))
+        logger.info(f"checking {len(odfl)} {set_type} subsets of {base}")
+        for ix in range(len(odfl)):
+            [odf, fdf, tdf] = [odfl[ix], fdfl[ix], tdfl[ix]]
+            if (odf is None) or (len(odf) == 0):
+                logger.info(f"no ohlcv data for subset {ix} of {base}")
+                continue
+            subset_check(base, ix, ohlcv, odf, features, fdf)
+            subset_check(base, ix, ohlcv, odf, targets, tdf)
+
+
+def set_check(ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets, bases: list):
+    for base in bases:
+        odf = ohlcv.load_data(base)
+        logger.info(
+            "{} {} first {} last {}\n{}".format(
+                base, ohlcv.mnemonic(), odf.index[0], odf.index[-1], odf.describe(percentiles=[], include='all')))
+        if ((odf.index[-1]-odf.index[0])/pd.Timedelta(1, unit="T") + 1 - len(odf)) != 0:
+            logger.warning(
+                "{} {} gap detected: min diff = {} vs len = {}".format(
+                    base, ohlcv.mnemonic(), (odf.index[-1]-odf.index[0])/pd.Timedelta(1, unit="T")+1, len(odf)))
+        fdf = features.load_data(base)
+        logger.info(
+            "{} {} first {} last {}\n{}".format(
+                base, features.mnemonic(), fdf.index[0], fdf.index[-1], fdf.describe(percentiles=[], include='all')))
+        if ((fdf.index[-1]-fdf.index[0])/pd.Timedelta(1, unit="T") + 1 - len(fdf)) != 0:
+            logger.warning(
+                "{} {} gap detected: min diff = {} vs len = {}".format(
+                    base, features.mnemonic(), (fdf.index[-1]-fdf.index[0])/pd.Timedelta(1, unit="T")+1, len(fdf)))
+        if ((odf.index[0]-fdf.index[0])/pd.Timedelta(1, unit="T") != 0) and \
+           ((odf.index[0]-fdf.index[0])/pd.Timedelta(1, unit="T") != features.history()):
+            logger.warning(
+                "{} {}/{} start diff {} != history {}".format(
+                    base, ohlcv.mnemonic(), features.mnemonic(), (odf.index[-1]-fdf.index[0])/pd.Timedelta(1, unit="T"),
+                    features.history()))
+        tdf = targets.load_data(base)
+        logger.info(
+            "{} {} first {} last {}\n{}".format(
+                base, targets.mnemonic(), tdf.index[0], tdf.index[-1], tdf.describe(percentiles=[], include='all')))
+        if ((tdf.index[-1]-tdf.index[0])/pd.Timedelta(1, unit="T") + 1 - len(tdf)) != 0:
+            logger.warning(
+                "{} {} gap detected: min diff = {} vs len = {}".format(
+                    base, targets.mnemonic(), (tdf.index[-1]-tdf.index[0])/pd.Timedelta(1, unit="T")+1, len(tdf)))
+        if ((odf.index[0]-tdf.index[0])/pd.Timedelta(1, unit="T") != 0) and \
+           ((odf.index[0]-tdf.index[0])/pd.Timedelta(1, unit="T") != targets.history()):
+            logger.warning(
+                "{} {}/{} start diff {} != history {}".format(
+                    base, ohlcv.mnemonic(), targets.mnemonic(), (odf.index[-1]-tdf.index[0])/pd.Timedelta(1, unit="T"),
+                    targets.history()))
+
+
 def prepare4keras(scaler, feature_df, target_df, targets):
     samples = Bunch(
         data=feature_df.values,
@@ -335,11 +443,11 @@ class AssessmentGenerator(keras.utils.Sequence):
 
 if __name__ == "__main__":
     # tee = env.Tee()
-    env.test_mode()
+    # env.test_mode()
     ohlcv = ccd.Ohlcv()
     targets = ct.T10up5low30min(ohlcv)
     if True:
-        features = cof.F2cond20(ohlcv)
+        features = cof.F3cond14(ohlcv)
     else:
         features = agf.F1agg110(ohlcv)
     td = TrainingData(features, targets)
@@ -370,3 +478,7 @@ if __name__ == "__main__":
         # logger.info(str(idf.describe(percentiles=[], include='all')))
     # tee.close()
     # SplitSets.set_type_datetime_ranges(TRAIN)
+    set_check(ohlcv, features, targets, Env.bases)
+    set_type_check(ohlcv, features, targets, Env.bases, TRAIN)
+    set_type_check(ohlcv, features, targets, Env.bases, VAL)
+    set_type_check(ohlcv, features, targets, Env.bases, TEST)

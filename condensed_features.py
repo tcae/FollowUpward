@@ -33,12 +33,12 @@ logger = logging.getLogger(__name__)
 REGRESSION_KPI = [(1, 0, 5, "5m_0"), (1, 5, 5, "5m_5"),
                   (0, 0, 30, "30m"), (0, 0, 4*60, "4h"),
                   (0, 0, 12*60, "12h"), (1, 0, 10*24*60, "10d")]
-FEATURE_COUNT = 3 * 2 + 3 * 4 + 2  # 18 + 2 vol (see below) = 20 features per sample
+FEATURE_COUNT = 3 * 1 + 3 * 3 + 2  # 12 + 2 vol (see below) = 14 features per sample
 HMWF = max([offset+minutes for (regr_only, offset, minutes, ext) in REGRESSION_KPI]) - 1
 # HMWF == history minutes required without features
 # VOL_KPI = [(5, 60, "5m1h")]
 VOL_KPI = [(5, 60, "5m1h"), (5, 12*60, "5m12h")]
-COL_PREFIX = ["price", "gain", "chance", "risk", "vol"]
+COL_PREFIX = ["gain", "chance", "risk", "vol"]
 
 
 def check_input_consistency(df):
@@ -89,7 +89,8 @@ def __linregr_gain_price(linregr, x_vec, y_vec, regr_period, offset=0):
     delta = y_pred[-1] - y_pred[0]
     timediff_factor = 60 / (regr_period - 1)  # constraint: y_vec values have consecutive 1 minute distance
     delta = delta * timediff_factor
-    return (delta, y_pred[-1])
+    delta = delta / y_pred[-1]
+    return (delta)
 
 
 def __linregr_gain_price_chance_risk(linregr, x_vec, y_vec, regr_period, offset=0):
@@ -129,7 +130,10 @@ def __linregr_gain_price_chance_risk(linregr, x_vec, y_vec, regr_period, offset=
     delta = y_pred[-1] - y_pred[0]
     timediff_factor = 60 / (regr_period - 1)  # constraint: y_vec values have consecutive 1 minute distance
     delta = delta * timediff_factor
-    return (delta, y_pred[-1], chance, risk)
+    delta = delta / y_pred[-1]
+    chance = chance / y_pred[-1]
+    risk = risk / y_pred[-1]
+    return (delta, chance, risk)
 
 
 def __vol_rel(volumes, long_period, short_period=5):
@@ -149,8 +153,8 @@ def cal_features(ohlcv):
     cols = [
         COL_PREFIX[ix] + ext
         for regr_only, offset, minutes, ext in REGRESSION_KPI
-        for ix in range(4) if ((ix < 2) or (not regr_only))]
-    cols = cols + [COL_PREFIX[4] + ext for (svol, lvol, ext) in VOL_KPI]
+        for ix in range(3) if ((ix < 1) or (not regr_only))]
+    cols = cols + [COL_PREFIX[3] + ext for (svol, lvol, ext) in VOL_KPI]
     prices = ohlcv["close"]
     volumes = ohlcv["volume"].values
     df = pd.DataFrame(columns=cols, index=prices.index[HMWF:], dtype=np.double)
@@ -161,10 +165,10 @@ def cal_features(ohlcv):
         tic = df.index[pix - HMWF]
         for (regr_only, offset, minutes, ext) in REGRESSION_KPI:
             if regr_only:
-                df.loc[tic, ["gain"+ext, "price"+ext]] = \
+                df.loc[tic, ["gain"+ext]] = \
                     __linregr_gain_price(linregr, xfull, prices[:pix+1], minutes, offset)
             else:
-                df.loc[tic, ["gain"+ext, "price"+ext, "chance"+ext, "risk"+ext]] = \
+                df.loc[tic, ["gain"+ext, "chance"+ext, "risk"+ext]] = \
                     __linregr_gain_price_chance_risk(linregr, xfull, prices[:pix+1], minutes, offset)
         for (svol, lvol, ext) in VOL_KPI:
             df["vol"+ext][tic] = __vol_rel(volumes, lvol, svol)
@@ -222,7 +226,7 @@ class CondensedFeatures(TargetsFeatures):
         return cal_features(minute_data)
 
 
-class F2cond20(ccd.Features):
+class F3cond14(ccd.Features):
 
     def history(self):
         """ Returns the number of history sample minutes
@@ -235,13 +239,13 @@ class F2cond20(ccd.Features):
         cols = [
             COL_PREFIX[ix] + ext
             for regr_only, offset, minutes, ext in REGRESSION_KPI
-            for ix in range(4) if ((ix < 2) or (not regr_only))]
-        cols = cols + [COL_PREFIX[4] + ext for (svol, lvol, ext) in VOL_KPI]
+            for ix in range(3) if ((ix < 1) or (not regr_only))]
+        cols = cols + [COL_PREFIX[3] + ext for (svol, lvol, ext) in VOL_KPI]
         return cols
 
     def mnemonic(self):
         "returns a string that represents this class as mnemonic, e.g. to use it in file names"
-        return "F2cond{}".format(FEATURE_COUNT)
+        return "F3cond{}".format(FEATURE_COUNT)
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Downloads or calculates new data from 'first' sample up to and including 'last'.
@@ -270,7 +274,7 @@ if __name__ == "__main__":
         cols = [
             COL_PREFIX[ix] + ext
             for regr_only, offset, minutes, ext in REGRESSION_KPI
-            for ix in range(4) if ((ix < 2) or (not regr_only))]
-        cols = cols + [COL_PREFIX[4] + ext for (svol, lvol, ext) in VOL_KPI]
+            for ix in range(3) if ((ix < 1) or (not regr_only))]
+        cols = cols + [COL_PREFIX[3] + ext for (svol, lvol, ext) in VOL_KPI]
         logger.debug(str(cols))
 """

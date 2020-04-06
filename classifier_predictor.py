@@ -312,36 +312,36 @@ class Classifier(Predictor):
             odfl = ad.SplitSets.split_sets(set_type, odf)
             fdfl = ad.SplitSets.split_sets(set_type, fdf)
             tdfl = ad.SplitSets.split_sets(set_type, tdf)
-            for ix in range(len(fdfl)):
-                [odf, fdf, tdf] = ccd.common_timerange([odfl[ix], fdfl[ix], tdfl[ix]])
-                if (fdf is None) and (len(fdf) == 0):
-                    logger.info(f"no performance data for subset {ix} of {base}")
-                    continue
             # tdiff = (timeit.default_timer() - start_time2) / 60
             # logger.debug(f"split set {base} time: {tdiff:.1f} min")
 
             # start_time2 = timeit.default_timer()
             pred_np_list = [pred.predict_batch(fdf) for fdf in fdfl]
+            assert len(pred_np_list) == len(odfl) == len(fdfl) == len(tdfl)
             # tdiff = (timeit.default_timer() - start_time2) / 60
             # logger.debug(f"prediction data {base} time: {tdiff:.1f} min")
 
-            # start_time2 = timeit.default_timer()
-            pm.assess_prediction_np(pred_np_list[ix], odfl[ix], tdfl[ix])
-            pm.close_open_transactions_np(odfl[ix])
+            start_time2 = timeit.default_timer()
+            for ix in range(len(fdfl)):
+                [odf, fdf, tdf] = ccd.common_timerange([odfl[ix], fdfl[ix], tdfl[ix]])
+                pm.assess_prediction_np(pred_np_list[ix], odfl[ix], tdfl[ix])
+                pm.close_open_transactions_np(odfl[ix], tdfl[ix])
 
-            # tdiff = (timeit.default_timer() - start_time2) / 60
-            # logger.debug(f"assess prediction np {base} time: {tdiff:.1f} min")
+            tdiff = (timeit.default_timer() - start_time2) / 60
+            logger.debug(f"assess prediction np {base} time: {tdiff:.1f} min")
 
-            # start_time2 = timeit.default_timer()
-            # for ix in range(len(fdfl)):
-            #     [odf, fdf, tdf] = ccd.common_timerange([odfl[ix], fdfl[ix], tdfl[ix]])
-            #     pm.assess_prediction(pred_np_list[ix], odfl[ix], tdfl[ix])
-            # tdiff2 = (timeit.default_timer() - start_time2)
-            # imp = (tdiff2 - tdiff) / tdiff2
-            # logger.debug(f"assess prediction {base} time: {tdiff2:.1f} s imrpovement: {imp}")
+            start_time2 = timeit.default_timer()
+            for ix in range(len(fdfl)):
+                [odf, fdf, tdf] = ccd.common_timerange([odfl[ix], fdfl[ix], tdfl[ix]])
+                pm.assess_prediction(pred_np_list[ix], odfl[ix], tdfl[ix])
+            tdiff2 = (timeit.default_timer() - start_time2) / 60
+            imp = (tdiff2 - tdiff) / tdiff2
+            logger.debug(f"assess prediction {base} time: {tdiff2:.1f} min -> np improvement: {imp:.0%}")
+            pm.diff(base)
 
         pm.report_assessment_np()
-        # pm.report_assessment()
+        pm.report_assessment()
+        pm.diff()
         tdiff = (timeit.default_timer() - start_time) / 60
         logger.info(f"performance assessment set type {set_type} time: {tdiff:.1f} min")
         return pm.best_np()
