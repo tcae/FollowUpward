@@ -19,8 +19,8 @@ TARGET_CLASS_COUNT = len(TARGETS)
 TARGET_NAMES = {0: HOLD, 1: BUY, 2: SELL}  # dict with int encoding of targets
 
 
-def trade_signal_history():
-    return 30  # max look back: 8 hours
+def max_look_back_minutes():
+    return 30  # max look back in minutes
 
 
 def trade_signals(close):
@@ -36,7 +36,7 @@ def trade_signals(close):
     """
     if close.ndim > 1:
         logger.warning("unexpected close array dimension {close.ndim}")
-    maxdistance = min(close.size, 8*60)
+    maxdistance = min(close.size, max_look_back_minutes())
     dt = np.dtype([("target", "i4"), ("nowdelta", "f8"), ("fardelta", "f8"),
                    ("flag", "bool")])
     notes = np.zeros(close.size, dt)
@@ -78,6 +78,62 @@ def trade_signals(close):
     notes["target"][notes["flag"]] = TARGETS[HOLD]
 
     assert ~(notes["target"] == UNDETERMINED).any()
+    return notes["target"]
+
+
+def target_prices(close):
+    """ Receives a numpy array of close prices starting with the oldest.
+        Returns a numpy array of signals.
+
+        algorithm:
+
+        - SELL if fardelta < sell threshold within max distance reach and minute delta negative.
+        - BUY if fardelta > buy threshold within max distance reach and minute delta positive.
+        - HOLD if fardelta and minute delta have different leading sign.
+        - else HOLD.
+    """
+    if close.ndim > 1:
+        logger.warning("unexpected close array dimension {close.ndim}")
+    maxdistance = min(close.size, max_look_back_minutes())
+    dt = np.dtype([("target", "i4"), ("nowdelta", "f8"), ("fardelta", "f8"),
+                   ("prices", "f8"), ("flag", "bool")])
+    notes = np.zeros(close.size, dt)
+    notes["target"] = UNDETERMINED
+    notes[-1]["nowdelta"] = 0.
+    subnotes = notes[:-1]
+    subnotes["nowdelta"] = (close[1:] - close[:-1]) / close[:-1]
+    notes[-1]["fardelta"] = 0.
+    notes[-1]["target"] = TARGETS[HOLD]
+
+    for ix in range(1, maxdistance):
+        subnotes = notes[0:-ix]
+        subnotes["fardelta"] = (close[ix:] - close[:-ix]) / close[:-ix]
+
+        subnotes["flag"] = (
+            (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
+            (subnotes["target"] == UNDETERMINED))
+        subnotes[subnotes["flag"]]["target"] = TARGETS[SELL]
+        subnotes[subnotes["flag"]]["prices"] = subnotes["fardelta"]
+
+        subnotes["flag"] = (
+            (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
+            (subnotes["target"] == UNDETERMINED))
+        subnotes[subnotes["flag"]]["target"] = TARGETS[BUY]
+        subnotes[subnotes["flag"]]["prices"] = subnotes["fardelta"]
+
+    notes["flag"] = (notes["target"] == UNDETERMINED)
+    # ! while any undetermined ...
+    notes[notes["flag"]]["target"] = TARGETS[HOLD]
+
+    last_target = UNDETERMINED
+    notes[-1]["prices"] = 0.
+    perf = 0.
+    for ix in range(1, close.size):
+        if notes[-ix]["target"] != last_target:
+            last_target = notes[-ix]["target"]
+            perf = 0.
+        perf += notes[-ix]["nowdelta"]
+        notes[-ix]["prices"] = perf
     return notes["target"]
 
 
@@ -152,7 +208,7 @@ class T10up5low30min(Targets):
         """ Returns the number of history sample minutes
             excluding the minute under consideration required to calculate a new sample data.
         """
-        return trade_signal_history()
+        return max_look_back_minutes()
 
     def keys(self):
         "returns the list of element keys"

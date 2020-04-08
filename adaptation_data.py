@@ -52,27 +52,27 @@ class SplitSets:
         return df_list
 
     @classmethod
-    def set_type_data(self, bases: list, set_type: str, data_objs):
-        if (data_objs is None) or (len(data_objs) == 0):
-            logger.warning("missing data objects")
-            return None
-        if (bases is None) or (len(bases) == 0):
-            logger.warning("missing bases")
-            return None
-        all_bases = list()
-        for base in bases:
-            sdf = SplitSets.set_type_datetime_ranges(set_type)
-            start = sdf.start.min()
-            end = sdf.end.max()
-            all_types = list()
-            for do in data_objs:
-                df_list = SplitSets.split_sets(set_type, do.get_data(base, start, end))
-                df = pd.concat(df_list, join="outer", axis=0)
-                all_types.append(df)
-            df = pd.concat(all_types, axis=1, join="inner")  # , keys=[do.mnemonic() for do in data_objs])
-            all_bases.append(df)
-        data_df = pd.concat(all_bases, join="outer", axis=0)  # , keys=bases)
-        return data_df
+    def set_type_data(self, base: str, set_type: str, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
+        sdf = SplitSets.set_type_datetime_ranges(set_type)
+        start = sdf.start.min()
+        end = sdf.end.max()
+        ohlcv_df = features_df = targets_df = None
+        if ohlcv is not None:
+            df_list = SplitSets.split_sets(set_type, ohlcv.get_data(base, start, end))
+            ohlcv_df = pd.concat(df_list, join="outer", axis=0)
+            if (ohlcv_df is None) or ohlcv_df.empty:
+                logger.warning(f"unexpected missing {base} ohlcv {set_type} data")
+        if features is not None:
+            df_list = SplitSets.split_sets(set_type, features.get_data(base, start, end))
+            features_df = pd.concat(df_list, join="outer", axis=0)
+            if (features_df is None) or features_df.empty:
+                logger.warning(f"unexpected missing {base} features {set_type} data")
+        if targets is not None:
+            df_list = SplitSets.split_sets(set_type, targets.get_data(base, start, end))
+            targets_df = pd.concat(df_list, join="outer", axis=0)
+            if (targets_df is None) or targets_df.empty:
+                logger.warning(f"unexpected missing {base} targets {set_type} data")
+        return ohlcv_df, features_df, targets_df
 
 
 class TrainingData:
@@ -105,41 +105,33 @@ class TrainingData:
     #     return cdf
 
     def create_training_datasets(self):
-        data_df = self.prepare_data()
-        self.save_data(data_df)
-
-    def prepare_data(self):
-        """ Loads target and feature data per base and returns a data frame
+        """ Loads target and feature data per base and stores data frames
             with all features and targets that is shuffled across bases
-            as well as a corresponding counter data frame.
-            Features and targets are distinguished via a multiindex level.
-            Return value: tuple of (data df, counter df)
+            as well as a corresponding meta data frame with counter info.
         """
+        fdfl = list()
+        tdfl = list()
+        for base in Env.bases:
+            _, fdf, tdf = SplitSets.set_type_data(base, TRAIN, None, self.features, self.targets)
+            fdfl.append(fdf)
+            tdfl.append(tdf)
+        fdf = pd.concat(fdfl, join="outer", axis=0, ignore_index=True)
+        tdf = pd.concat(tdfl, join="outer", axis=0, ignore_index=True)
+        [fdf, tdf] = ccd.common_timerange([fdf, tdf])
+        assert len(fdf) == len(tdf)
 
-        data_df = SplitSets.set_type_data(Env.bases, TRAIN, [self.features, self.targets])
-
-        ixl = np.arange(len(data_df))
+        ixl = np.arange(len(fdf))
         np.random.shuffle(ixl)  # shuffle training samples across bases
-        data_df = data_df.iloc[ixl]
-        return data_df
+        fdf = fdf.iloc[ixl]
+        tdf = tdf.iloc[ixl]
+        fdf.index.set_names("idx", inplace=True)
+        tdf.index.set_names("idx", inplace=True)
+        self.save_data(fdf, tdf)
 
     def fname(self):
         fname = self.targets.path + self.features.mnemonic() + "_" \
                 + self.targets.mnemonic() + "_training.h5"
         return fname
-
-    def load_index(self):
-        """ Returns the complete shuffled index with the columns "base" and "timestamp"
-        """
-        fname = self.fname()
-        with pd.HDFStore(fname, "r") as hdf:
-            try:
-                idf = hdf.get("/index")
-                # idf = pd.read_hdf(fname, "/index")
-            except IOError:
-                logger.error(f"load data frame file ERROR: cannot load (base, timestamp) 'index' from {fname}")
-                idf = None
-        return idf
 
     def load_meta(self):
         "Returns the metadata batch_size, batches, samples as a dictionary"
@@ -181,47 +173,47 @@ class TrainingData:
             tdf = tdf.iloc[ix:ix+bs]
         return fdf, tdf
 
-    def save_data(self, data_df):
+    def save_data(self, features_df, targets_df):
         """ Saves a training data frame independent of base as well as the corresponding counters and metadata.
             This provides the means to shuffle across bases and load it in batches as needed.
         """
         fname = self.fname()
-
+        assert len(features_df) == len(targets_df)
         with pd.HDFStore(fname, "w") as hdf:
             bs = self.training_batch_size()
-            batches = int(math.ceil(len(data_df) / bs))
+            batches = int(math.ceil(len(features_df) / bs))
             meta_df = pd.Series(
-                {"batch_size": bs, "batches": batches, "samples": len(data_df)})
+                {"batch_size": bs, "batches": batches, "samples": len(features_df)})
             logger.debug("writing {} for {} samples as {} batches".format(
-                fname, len(data_df), batches))
+                fname, len(features_df), batches))
             hdf.put("/meta", meta_df, "fixed")
             # meta_df.to_hdf(fname, "/meta", mode="w")
-            idf = data_df.index.to_frame(name=["base", "timestamp"], index=False)
-            idf.index.set_names("idx", inplace=True)
-            hdf.put("/index", idf, "fixed")
-            # idf.to_hdf(fname, "/index", mode="a")
-            data_df = data_df.reset_index(drop=True)
-            data_df.index.set_names("idx", inplace=True)
             batch_groups = int(math.ceil(batches / self.bgs))
             bgs = bs * self.bgs
-            check = 0
+            fcheck = 0
+            tcheck = 0
             logger.debug(f"bgroups: {batch_groups} * bgs = {batch_groups*self.bgs}")
 
             for bg in range(batch_groups - 1):
-                sdf = data_df.iloc[bg * bgs: (bg + 1) * bgs]
-                check += len(sdf)
-                hdf.put(f"/features_{bg}", sdf["features"], "fixed")
-                # sdf["features"].to_hdf(fname, f"/features_{bg}", mode="a")
-                hdf.put(f"/targets_{bg}", sdf["targets"], "fixed")
-                # sdf["targets"].to_hdf(fname, f"/targets_{bg}", mode="a")
+                sfdf = features_df.iloc[bg * bgs: (bg + 1) * bgs]
+                stdf = targets_df.iloc[bg * bgs: (bg + 1) * bgs]
+                fcheck += len(sfdf)
+                tcheck += len(stdf)
+                hdf.put(f"/features_{bg}", sfdf, "fixed")
+                # sfdf.to_hdf(fname, f"/features_{bg}", mode="a")
+                hdf.put(f"/targets_{bg}", stdf, "fixed")
+                # stdf.to_hdf(fname, f"/targets_{bg}", mode="a")
             bg = batch_groups - 1
-            sdf = data_df.iloc[bg * bgs:]
-            check += len(sdf)
-            hdf.put(f"/features_{bg}", sdf["features"], "fixed")
-            # sdf["features"].to_hdf(fname, f"/features_{bg}", mode="a")
-            hdf.put(f"/targets_{bg}", sdf["targets"], "fixed")
-            # sdf["targets"].to_hdf(fname, f"/targets_{bg}", mode="a")
-        assert check == len(data_df)
+            sfdf = features_df.iloc[bg * bgs:]
+            stdf = targets_df.iloc[bg * bgs:]
+            fcheck += len(sfdf)
+            tcheck += len(stdf)
+            hdf.put(f"/features_{bg}", sfdf, "fixed")
+            # sfdf.to_hdf(fname, f"/features_{bg}", mode="a")
+            hdf.put(f"/targets_{bg}", stdf, "fixed")
+            # stdf.to_hdf(fname, f"/targets_{bg}", mode="a")
+        assert fcheck == len(features_df)
+        assert tcheck == len(targets_df)
 
 
 def subset_check(base: str, ix: int, acd: ccd.CryptoData, acdf: pd.DataFrame, bcd: ccd.CryptoData, bcdf: pd.DataFrame):
@@ -403,9 +395,7 @@ class BaseGenerator(keras.utils.Sequence):
             logger.debug(f"BaseGenerator: index {index} > len {len(Env.bases)}")
             index %= len(Env.bases)
         base = Env.bases[index]
-        fdf = SplitSets.set_type_data([base], self.set_type, [self.features])
-        tdf = SplitSets.set_type_data([base], self.set_type, [self.targets])
-        [fdf, tdf] = ccd.common_timerange([fdf, tdf])
+        _, fdf, tdf = SplitSets.set_type_data(base, self.set_type, None, self.features, self.targets)
         if (fdf is None) or fdf.empty:
             logger.warning("BaseGenerator: missing features")
         return prepare4keras(self.scaler, fdf, tdf, self.targets)
@@ -433,17 +423,14 @@ class AssessmentGenerator(keras.utils.Sequence):
             logger.debug(f"AssessmentGenerator: index {index} > len {len(Env.bases)}")
             index %= len(Env.bases)
         base = Env.bases[index]
-        odf = SplitSets.set_type_data([base], self.set_type, [self.ohlcv])
-        fdf = SplitSets.set_type_data([base], self.set_type, [self.features])
-        tdf = SplitSets.set_type_data([base], self.set_type, [self.targets])
-        [odf, fdf, tdf] = ccd.common_timerange([odf, fdf, tdf])
+        odf, fdf, tdf = SplitSets.set_type_data(base, self.set_type, self.ohlcv, self.features, self.targets)
         # features, targets =  prepare4keras(self.scaler, fdf, tdf, self.tcls)
         return odf, fdf, tdf
 
 
 if __name__ == "__main__":
     # tee = env.Tee()
-    # env.test_mode()
+    env.test_mode()
     ohlcv = ccd.Ohlcv()
     targets = ct.T10up5low30min(ohlcv)
     if True:
@@ -451,7 +438,7 @@ if __name__ == "__main__":
     else:
         features = agf.F1agg110(ohlcv)
     td = TrainingData(features, targets)
-    if False:  # create training sets
+    if True:  # create training sets
         start_time = timeit.default_timer()
         logger.debug("creating training batches")
         td.create_training_datasets()
@@ -459,7 +446,7 @@ if __name__ == "__main__":
         meta = td.load_meta()
         cnt = meta["samples"]
         logger.info(f"training set retrieval time: {(tdiff / 60):.0f} min = {(tdiff / cnt):.0f}s/sample")
-    if False:  # retrieve training sets for test purposes
+    if True:  # retrieve training sets for test purposes
         meta = td.load_meta()
         logger.debug(str(meta))
         start_time = timeit.default_timer()
@@ -476,9 +463,10 @@ if __name__ == "__main__":
         logger.info(f"training set retrieval time: {(tdiff):.0f} s = {tdiff/check:.0f}s/sample")
         # idf = td.load_index()
         # logger.info(str(idf.describe(percentiles=[], include='all')))
+    if True:
+        set_check(ohlcv, features, targets, Env.bases)
+        set_type_check(ohlcv, features, targets, Env.bases, TRAIN)
+        set_type_check(ohlcv, features, targets, Env.bases, VAL)
+        set_type_check(ohlcv, features, targets, Env.bases, TEST)
     # tee.close()
     # SplitSets.set_type_datetime_ranges(TRAIN)
-    set_check(ohlcv, features, targets, Env.bases)
-    set_type_check(ohlcv, features, targets, Env.bases, TRAIN)
-    set_type_check(ohlcv, features, targets, Env.bases, VAL)
-    set_type_check(ohlcv, features, targets, Env.bases, TEST)

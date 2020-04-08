@@ -162,7 +162,7 @@ def update_history(bases: list, last: pd.Timestamp, data_objs: list):
 
 
 if __name__ == "__main__":
-    # env.test_mode()
+    env.test_mode()
     # tee = env.Tee(log_prefix="UpdateCryptoHistory")
     ohlcv = ccd.Ohlcv()
     if False:  # base data repair
@@ -170,7 +170,7 @@ if __name__ == "__main__":
         ohlcv.save_data("xrp", df)
     data_objs = [ohlcv, cof.F3cond14(ohlcv), agf.F1agg110(ohlcv), ct.T10up5low30min(ohlcv)]
     # data_objs = [ohlcv, ct.T10up5low30min(ohlcv)]  # targets repair
-    if True:
+    if False:
         # update_history(Env.bases, pd.Timestamp.utcnow(), data_objs)
         update_history(Env.bases, pd.Timestamp("2020-03-16 22:21:00+00:00"), data_objs)
         # load_assets(Env.bases, pd.Timestamp.utcnow(), [cof.CondensedFeatures, agf.AggregatedFeatures])
