@@ -6,7 +6,8 @@ import logging
 # import env_config as env
 from env_config import Env
 import cached_crypto_data as ccd
-import crypto_features as cf
+# import crypto_features as cf
+import crypto_targets as ct
 from crypto_features import TargetsFeatures
 from sklearn.linear_model import LinearRegression
 
@@ -71,7 +72,7 @@ def check_input_consistency(df):
     return ok
 
 
-def __linregr_gain_price(linregr, x_vec, y_vec, regr_period, offset=0):
+def _linregr_gain_price(linregr, x_vec, y_vec, regr_period, offset=0):
     """ Receives a linear regression object, x and y float arrays, the regression period, offset into the past.
         The array must have at least the size of the regression period.
 
@@ -89,11 +90,10 @@ def __linregr_gain_price(linregr, x_vec, y_vec, regr_period, offset=0):
     delta = y_pred[-1] - y_pred[0]
     timediff_factor = 60 / (regr_period - 1)  # constraint: y_vec values have consecutive 1 minute distance
     delta = delta * timediff_factor
-    delta = delta / y_pred[-1]
     return (delta)
 
 
-def __linregr_gain_price_chance_risk(linregr, x_vec, y_vec, regr_period, offset=0):
+def _linregr_gain_price_chance_risk(linregr, x_vec, y_vec, regr_period, offset=0):
     """ Receives a linear regression object, x and y float arrays, the regression period, offset into the past.
         The array must have at least the size of the regression period.
 
@@ -130,19 +130,19 @@ def __linregr_gain_price_chance_risk(linregr, x_vec, y_vec, regr_period, offset=
     delta = y_pred[-1] - y_pred[0]
     timediff_factor = 60 / (regr_period - 1)  # constraint: y_vec values have consecutive 1 minute distance
     delta = delta * timediff_factor
-    delta = delta / y_pred[-1]
-    chance = chance / y_pred[-1]
-    risk = risk / y_pred[-1]
     return (delta, chance, risk)
 
 
-def __vol_rel(volumes, long_period, short_period=5):
+def _vol_rel(volumes, long_period, short_period=5):
     """ Receives a float array of volumes, a short and a long period.
 
         Returns the ratio of the short period volumes mean and the long period volumes mean.
     """
     assert volumes.size > 0
-    return volumes[-short_period:].mean() / volumes[-long_period:].mean()
+    if volumes[-long_period:].mean() == 0:
+        return 0.0
+    else:
+        return volumes[-short_period:].mean() / volumes[-long_period:].mean()
 
 
 def cal_features(ohlcv):
@@ -156,22 +156,23 @@ def cal_features(ohlcv):
         for ix in range(3) if ((ix < 1) or (not regr_only))]
     cols = cols + [COL_PREFIX[3] + ext for (svol, lvol, ext) in VOL_KPI]
     prices = ohlcv["close"]
-    volumes = ohlcv["volume"].values
+    volumes = ohlcv["volume"].values.reshape(-1, 1)
     df = pd.DataFrame(columns=cols, index=prices.index[HMWF:], dtype=np.double)
     xfull = np.arange(HMWF+1).reshape(-1, 1)
     prices = prices.values.reshape(-1, 1)
     linregr = LinearRegression()  # create object for the class
     for pix in range(HMWF, prices.size):  # pix == prices index
         tic = df.index[pix - HMWF]
+        norm_prices = prices[pix-HMWF:pix+1].copy() / prices[pix]
         for (regr_only, offset, minutes, ext) in REGRESSION_KPI:
             if regr_only:
                 df.loc[tic, ["gain"+ext]] = \
-                    __linregr_gain_price(linregr, xfull, prices[:pix+1], minutes, offset)
+                    _linregr_gain_price(linregr, xfull, norm_prices, minutes, offset)
             else:
                 df.loc[tic, ["gain"+ext, "chance"+ext, "risk"+ext]] = \
-                    __linregr_gain_price_chance_risk(linregr, xfull, prices[:pix+1], minutes, offset)
+                    _linregr_gain_price_chance_risk(linregr, xfull, norm_prices, minutes, offset)
         for (svol, lvol, ext) in VOL_KPI:
-            df["vol"+ext][tic] = __vol_rel(volumes, lvol, svol)
+            df["vol"+ext][tic] = _vol_rel(volumes[:pix+1], lvol, svol)
     return df
 
 
@@ -259,9 +260,9 @@ if __name__ == "__main__":
     for base in Env.usage.bases:
         tf = CondensedFeatures(base, path=Env.data_path)
         tfv = tf.calc_features_and_targets()
-        cf.report_setsize(f"{base} tf.minute_data", tf.minute_data)
-        cf.report_setsize(f"tf.vec {base} tf.vec", tf.vec)
-        cf.report_setsize(f"tfv {base} tf.vec", tfv)
+        ct.report_setsize(f"{base} tf.minute_data", tf.minute_data)
+        ct.report_setsize(f"tf.vec {base} tf.vec", tf.vec)
+        ct.report_setsize(f"tfv {base} tf.vec", tfv)
 """
     if True:
         cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=HMWF+10)

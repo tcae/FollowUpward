@@ -405,7 +405,7 @@ class Cpc:
         if tfv.empty:
             logger.debug("class_predict_of_features: empty feature vector ==> 0 probs")
             return None
-        sample = cf.to_scikitlearn(tfv, np_data=None, descr=base)
+        sample = ct.to_scikitlearn(tfv, np_data=None, descr=base)
         if self.scaler is not None:
             sample.data = self.scaler.transform(sample.data)
         pred = self.classifier.predict_on_batch(sample.data)
@@ -450,9 +450,9 @@ class Cpc:
             tfv = self.hs.features_from_targets(df)
             cf.report_setsize(set_type, tfv)
             descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
-                                                      bix, cf.str_setsize(tfv))
+                                                      bix, ct.str_setsize(tfv))
             # logger.debug(descr)
-            samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
+            samples = ct.to_scikitlearn(tfv, np_data=None, descr=descr)
             if self.scaler is not None:
                 samples.data = self.scaler.transform(samples.data)
             pred = self.classifier.predict_on_batch(samples.data)
@@ -476,9 +476,9 @@ class Cpc:
                     tfv = hs.features_from_targets(df)
                     descr = "{} iteration_gen {} {} set step {} (of {}): {}".format(
                         env.timestr(), ig_base, chs.TRAIN, ig_bstep,
-                        hs.max_steps[ig_base]["max"], cf.str_setsize(tfv))
+                        hs.max_steps[ig_base]["max"], ct.str_setsize(tfv))
                     logger.debug(descr)
-                    samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
+                    samples = ct.to_scikitlearn(tfv, np_data=None, descr=descr)
                     if samples is None:
                         return None, None
                     if self.scaler is not None:
@@ -496,9 +496,9 @@ class Cpc:
                 df = hs.set_of_type(bg_base, set_type)
                 tfv = hs.features_from_targets(df)
                 descr = "{} base_gen {} {} set, {}".format(
-                    env.timestr(), bg_base, set_type, cf.str_setsize(tfv))
+                    env.timestr(), bg_base, set_type, ct.str_setsize(tfv))
                 logger.debug(descr)
-                samples = cf.to_scikitlearn(tfv, np_data=None, descr=descr)
+                samples = ct.to_scikitlearn(tfv, np_data=None, descr=descr)
                 if samples is None:
                     return None, None
                 if self.scaler is not None:

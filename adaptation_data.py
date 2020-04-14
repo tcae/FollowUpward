@@ -77,12 +77,13 @@ class SplitSets:
 
 class TrainingData:
 
-    def __init__(self, features: ccd.Features, targets: ct.Targets):
+    def __init__(self, scaler: dict, features: ccd.Features, targets: ct.Targets):
         self.features = features
         self.targets = targets
+        self.scaler = scaler  # dict: key == base str, value == scaler object
         self.bgs = 10000  # batch group size
-        self.tbgdf = None
-        self.fbgdf = None
+        self.tbgdf = None  # target batch group data frame
+        self.fbgdf = None  # feature batch group data frame
         self.bgdf_ix = 0
 
     def training_batch_size(self):
@@ -106,17 +107,43 @@ class TrainingData:
 
     def create_training_datasets(self):
         """ Loads target and feature data per base and stores data frames
-            with all features and targets that is shuffled across bases
+            with all features and targets that is scaled and shuffled across bases
             as well as a corresponding meta data frame with counter info.
         """
         fdfl = list()
         tdfl = list()
+        lfdf = 0
+        ltdf = 0
         for base in Env.bases:
             _, fdf, tdf = SplitSets.set_type_data(base, TRAIN, None, self.features, self.targets)
+            # logger.info(
+            #     "before scaling {} {} first {} last {}\n{}".format(
+            #         base, self.features.mnemonic(), fdf.index[0], fdf.index[-1],
+            #         fdf.describe(percentiles=[], include='all')))
+            if base in self.scaler:
+                fdf = pd.DataFrame(index=fdf.index, columns=fdf.columns, data=self.scaler[base].transform(fdf.values))
+                # logger.info(
+                #     "after scaling {} {} first {} last {}\n{}".format(
+                #         base, self.features.mnemonic(), fdf.index[0], fdf.index[-1],
+                #         fdf.describe(percentiles=[], include='all')))
+            else:
+                logger.error(f"missing scaler for {base}")
             fdfl.append(fdf)
+            lfdf += len(fdf)
             tdfl.append(tdf)
+            ltdf += len(tdf)
         fdf = pd.concat(fdfl, join="outer", axis=0, ignore_index=True)
+        if len(fdf) == lfdf:
+            logger.info(f"features concatenated {len(fdf)}")
+        else:
+            logger.error(f"features concatenated {len(fdf)} != sum of part {lfdf}")
+
         tdf = pd.concat(tdfl, join="outer", axis=0, ignore_index=True)
+        if len(tdf) == ltdf:
+            logger.info(f"targets concatenated {len(tdf)}, diff targets-features = {len(tdf) - len(fdf)}")
+        else:
+            logger.error(f"targets concatenated {len(tdf)} != sum of part {ltdf}")
+
         [fdf, tdf] = ccd.common_timerange([fdf, tdf])
         assert len(fdf) == len(tdf)
 
@@ -152,6 +179,8 @@ class TrainingData:
         """
         bg_ix = int(batch_ix / self.bgs)
         if (self.fbgdf is None) or (self.tbgdf is None) or (self.bgdf_ix != bg_ix):
+            # expensive file access is only required on batch group change;
+            # batches within the same group are already loaded in fbgdf/tbgdf
             with pd.HDFStore(self.fname(), "r") as hdf:
                 try:
                     self.bgdf_ix = bg_ix
@@ -176,6 +205,9 @@ class TrainingData:
     def save_data(self, features_df, targets_df):
         """ Saves a training data frame independent of base as well as the corresponding counters and metadata.
             This provides the means to shuffle across bases and load it in batches as needed.
+
+            groups of shuffled are used as batch to trian one weight adjustment step
+            batch groups are stored together to balance expensive file access operations against required RAM memory
         """
         fname = self.fname()
         assert len(features_df) == len(targets_df)
@@ -311,6 +343,7 @@ def set_check(ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets, bas
         logger.info(
             "{} {} first {} last {}\n{}".format(
                 base, targets.mnemonic(), tdf.index[0], tdf.index[-1], tdf.describe(percentiles=[], include='all')))
+        ct.report_setsize(base, tdf)
         if ((tdf.index[-1]-tdf.index[0])/pd.Timedelta(1, unit="T") + 1 - len(tdf)) != 0:
             logger.warning(
                 "{} {} gap detected: min diff = {} vs len = {}".format(
@@ -340,9 +373,8 @@ class TrainingGenerator(keras.utils.Sequence):
     "Generates training data for Keras"
     def __init__(self, scaler, features: ccd.Features, targets: ct.Targets, shuffle=False):
         # logger.debug("TrainGenerator: __init__")
-        self.scaler = scaler
         self.shuffle = shuffle
-        self.training = TrainingData(features, targets)
+        self.training = TrainingData(scaler, features, targets)
         meta = self.training.load_meta()
         self.features = features
         self.targets = targets
@@ -364,7 +396,7 @@ class TrainingGenerator(keras.utils.Sequence):
         fdf, tdf = self.training.load_data(index)
         if (fdf is None) or fdf.empty:
             logger.warning("TrainGenerator: missing features")
-        return prepare4keras(self.scaler, fdf, tdf, self.targets)
+        return prepare4keras(None, fdf, tdf, self.targets)  # no scaler as shuffled features are already scaled
 
     def on_epoch_end(self):
         'Updates indexes after each epoch'
@@ -377,75 +409,111 @@ class TrainingGenerator(keras.utils.Sequence):
 class BaseGenerator(keras.utils.Sequence):
     'Generates validation data for Keras'
     def __init__(self, set_type, scaler, features: ccd.Features, targets: ct.Targets):
-        # logger.debug("BaseGenerator: __init__")
+        # logger.debug(f"BaseGenerator({set_type}): __init__")
         self.set_type = set_type
-        self.scaler = scaler
+        self.scaler = scaler  # dict: key == base str, value == scaler object
         self.features = features
         self.targets = targets
+        self.ixl = list()  # list of indices refering to a (base_ix, subset_ix) tuple
 
     def __len__(self):
         'Denotes the number of batches per epoch'
-        # logger.debug(f"BaseGenerator: __len__: {len(Env.bases)}")
-        return len(Env.bases)
+        self.ixl = \
+            [(bix, six) for bix, base in enumerate(Env.bases) for six, subset_df in
+             enumerate(SplitSets.split_sets(self.set_type, self.features.load_data(base)))]
+        # features require the longest history -> use features as limiting data
+        # logger.debug(f"BaseGenerator {self.set_type}: len = {len(self.ixl)}")
+        return len(self.ixl)
 
     def __getitem__(self, index):
         'Generate one batch of data'
-        # logger.debug(f"BaseGenerator: __getitem__: {index}")
-        if index >= len(Env.bases):
-            logger.debug(f"BaseGenerator: index {index} > len {len(Env.bases)}")
+        if index >= len(self.ixl):
+            logger.debug(f"BaseGenerator {self.set_type}: index {index} >= len {len(self.ixl)}")
             index %= len(Env.bases)
-        base = Env.bases[index]
-        _, fdf, tdf = SplitSets.set_type_data(base, self.set_type, None, self.features, self.targets)
-        if (fdf is None) or fdf.empty:
-            logger.warning("BaseGenerator: missing features")
-        return prepare4keras(self.scaler, fdf, tdf, self.targets)
+        (bix, six) = self.ixl[index]
+        base = Env.bases[bix]
+        # logger.debug(
+        #     f"BaseGenerator {self.set_type}: __getitem__: index = {index} base = {base} subset index = {six}")
+        if self.features is not None:
+            df_list = SplitSets.split_sets(self.set_type, self.features.load_data(base))
+            fdf = df_list[six]
+            assert fdf is not None
+        if self.targets is not None:
+            df_list = SplitSets.split_sets(self.set_type, self.targets.load_data(base))
+            tdf = df_list[six]
+            assert tdf is not None
+        fdf, tdf = ccd.common_timerange([fdf, tdf])
+
+        if base in self.scaler:
+            return prepare4keras(self.scaler[base], fdf, tdf, self.targets)
+        else:
+            logger.error(f"BaseGenerator {self.set_type}: no scaler for {base}")
+            return prepare4keras(None, fdf, tdf, self.targets)
 
 
 class AssessmentGenerator(keras.utils.Sequence):
     'Generates close, features, targets dataframes - use values attribute for Keras'
-    def __init__(self, set_type, scaler, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
-        logger.debug("AssessmentGenerator: __init__")
+    def __init__(self, set_type, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
+        # logger.debug(f"AssessmentGenerator {set_type}: __init__")
         self.set_type = set_type
-        self.scaler = scaler
         self.ohlcv = ohlcv
         self.features = features
         self.targets = targets
 
     def __len__(self):
         'Denotes the number of batches per epoch'
-        logger.debug(f"AssessmentGenerator: __len__: {len(Env.bases)}")
-        return len(Env.bases)
+        self.ixl = \
+            [(bix, six) for bix, base in enumerate(Env.bases) for six, subset_df in
+             enumerate(SplitSets.split_sets(self.set_type, self.features.load_data(base)))]
+        # features require the longest history -> use features as limiting data
+        # logger.debug(f"AssessmentGenerator {self.set_type}: len = {len(self.ixl)}")
+        return len(self.ixl)
 
     def __getitem__(self, index):
         'Generate one batch of data'
-        logger.debug(f"AssessmentGenerator: __getitem__: {index}")
-        if index >= len(Env.bases):
-            logger.debug(f"AssessmentGenerator: index {index} > len {len(Env.bases)}")
+        if index >= len(self.ixl):
+            logger.debug(f"AssessmentGenerator {self.set_type}: index {index} >= len {len(self.ixl)}")
             index %= len(Env.bases)
-        base = Env.bases[index]
-        odf, fdf, tdf = SplitSets.set_type_data(base, self.set_type, self.ohlcv, self.features, self.targets)
-        # features, targets =  prepare4keras(self.scaler, fdf, tdf, self.tcls)
-        return odf, fdf, tdf
+        (bix, six) = self.ixl[index]
+        base = Env.bases[bix]
+        # logger.debug(
+        #     f"AssessmentGenerator {self.set_type}: __getitem__: index = {index} base = {base} subset index = {six}")
+        if self.ohlcv is not None:
+            df_list = SplitSets.split_sets(self.set_type, self.ohlcv.load_data(base))
+            odf = df_list[six]
+            assert odf is not None
+        if self.features is not None:
+            df_list = SplitSets.split_sets(self.set_type, self.features.load_data(base))
+            fdf = df_list[six]
+            assert fdf is not None
+        if self.targets is not None:
+            df_list = SplitSets.split_sets(self.set_type, self.targets.load_data(base))
+            tdf = df_list[six]
+            assert tdf is not None
+        odf, fdf, tdf = ccd.common_timerange([odf, fdf, tdf])
+        return base, odf, fdf, tdf
 
 
 if __name__ == "__main__":
     # tee = env.Tee()
     env.test_mode()
     ohlcv = ccd.Ohlcv()
-    targets = ct.T10up5low30min(ohlcv)
+    targets = ct.Gain10up5low30min(ohlcv)
+    # targets = ct.T10up5low30min(ohlcv)
     if True:
         features = cof.F3cond14(ohlcv)
     else:
         features = agf.F1agg110(ohlcv)
-    td = TrainingData(features, targets)
-    if True:  # create training sets
+    td = TrainingData(dict(), features, targets)
+    if False:  # create training sets
+        # ! don't use this part anymore because training data creation requires trained scaler
         start_time = timeit.default_timer()
         logger.debug("creating training batches")
         td.create_training_datasets()
         tdiff = (timeit.default_timer() - start_time)
         meta = td.load_meta()
         cnt = meta["samples"]
-        logger.info(f"training set retrieval time: {(tdiff / 60):.0f} min = {(tdiff / cnt):.0f}s/sample")
+        logger.info(f"training set creation time: {(tdiff / 60):.0f} min = {(tdiff / cnt):.0f}s/sample")
     if True:  # retrieve training sets for test purposes
         meta = td.load_meta()
         logger.debug(str(meta))

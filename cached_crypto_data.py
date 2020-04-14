@@ -29,7 +29,7 @@ def show_verbose(df, verbose=True, lines=2):
 def dfdescribe(desc, df):
     logger.debug(desc)
     logger.debug(f"\n{df.describe(percentiles=[], include='all')}\n")
-    show_verbose(verbose=True, lines=2)
+    show_verbose(df, verbose=True, lines=2)
     if no_index_gaps(df):
         logger.debug("no index gaps")
 
@@ -47,7 +47,7 @@ def common_timerange(df_list):
 
 
 def no_index_gaps(df: pd.DataFrame):
-    ix_check = df.index.to_series(keep_tz=True).diff().dt.seconds / 60
+    ix_check = df.index.to_series().diff().dt.seconds / 60
     ix_gaps = ix_check.loc[ix_check > 1]  # reduce time differences to those > 60 sec
     if not ix_gaps.empty:
         logger.warning("found index gaps")

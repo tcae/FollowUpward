@@ -1,7 +1,9 @@
 import pandas as pd
 import logging
 import numpy as np
+from sklearn.utils import Bunch
 from env_config import Env
+import env_config as env
 import cached_crypto_data as ccd
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,50 @@ def max_look_back_minutes():
     return 30  # max look back in minutes
 
 
+def report_setsize(setname, df):
+    logger.info(f"{str_setsize(df)} on {setname}")
+
+
+def str_setsize(df):
+    hc = len(df[df.target == TARGETS[HOLD]])
+    sc = len(df[df.target == TARGETS[SELL]])
+    bc = len(df[df.target == TARGETS[BUY]])
+    sumc = hc + sc + bc
+    return f"buy={bc} sell={sc} hold={hc} sum={sumc}; total={len(df)} diff={len(df)-sumc}"
+
+
+def to_scikitlearn(df, np_data=None, descr=None):
+    """Load and return the crypto dataset (classification).
+    """
+
+    fn_list = list(df.keys())
+    if "target" in fn_list:
+        fn_list.remove("target")
+        target = df["target"].values
+    else:
+        target = None
+    if "close" in fn_list:
+        fn_list.remove("close")
+    if np_data is None:
+        # data = df[fn_list].to_numpy(dtype=float) # incompatible with pandas 0.19.2
+        data = df[fn_list].values
+    else:
+        data = np_data
+        # target = df["target"].to_numpy(dtype=float) # incompatible with pandas 0.19.2
+        # tics = df.index.to_numpy(dtype=np.datetime64) # incompatible with pandas 0.19.2
+    tics = df.index.values  # compatible with pandas 0.19.2
+    feature_names = np.array(fn_list)
+    target_names = np.array(TARGETS.keys())
+    if descr is None:
+        descr = "missing description"
+
+    return Bunch(data=data, target=target,
+                 target_names=target_names,
+                 tics=tics,
+                 descr=descr,
+                 feature_names=feature_names)
+
+
 def trade_signals(close):
     """ Receives a numpy array of close prices starting with the oldest.
         Returns a numpy array of signals.
@@ -41,17 +87,17 @@ def trade_signals(close):
                    ("flag", "bool")])
     notes = np.zeros(close.size, dt)
     notes["target"] = UNDETERMINED
-    notes["nowdelta"][0] = 0.
+    notes[0]["nowdelta"] = 0.
     subnotes = notes[1:]
     subnotes["nowdelta"] = (close[1:] - close[:-1]) / close[:-1]
     notes[-1]["fardelta"] = notes[-1]["nowdelta"]
-    notes["target"][0] = TARGETS[HOLD]
+    notes[0]["target"] = TARGETS[HOLD]
 
     for bix in range(1, maxdistance):
         eix = close.size - bix  # bix = begin index,  eix = end index
         # slicing requires eix+1 because end of slice is excluded
         subnotes = notes[1:eix+1]
-        subnotes["fardelta"] = (close[bix:] - close[:eix]) / close[:eix]
+        subnotes["fardelta"] = (close[bix:] - close[:eix]) / close[bix:]
 
         subnotes["flag"] = (
             (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
@@ -72,6 +118,8 @@ def trade_signals(close):
             (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
             (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
+        # print(f"subnotes {bix}: \n{subnotes}")
+        # print(f"notes {bix}: \n{[(ix, notes[ix]) for ix, _ in enumerate(notes)]}")
 
     # assign all UNDETERMINED targets a HOLD signal
     notes["flag"] = (notes["target"] == UNDETERMINED)
@@ -81,7 +129,7 @@ def trade_signals(close):
     return notes["target"]
 
 
-def target_prices(close):
+def target_prices_np(close):
     """ Receives a numpy array of close prices starting with the oldest.
         Returns a numpy array of signals.
 
@@ -107,34 +155,113 @@ def target_prices(close):
 
     for ix in range(1, maxdistance):
         subnotes = notes[0:-ix]
-        subnotes["fardelta"] = (close[ix:] - close[:-ix]) / close[:-ix]
+        subnotes["fardelta"] = (close[ix:] - close[:-ix]) / close[ix:]
 
         subnotes["flag"] = (
             (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
             (subnotes["target"] == UNDETERMINED))
-        subnotes[subnotes["flag"]]["target"] = TARGETS[SELL]
+        subnotes["target"][subnotes["flag"]] = TARGETS[SELL]
         subnotes[subnotes["flag"]]["prices"] = subnotes["fardelta"]
+
+        subnotes["flag"] = (
+            (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
+            (subnotes["target"] == UNDETERMINED))
+        subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
 
         subnotes["flag"] = (
             (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
             (subnotes["target"] == UNDETERMINED))
-        subnotes[subnotes["flag"]]["target"] = TARGETS[BUY]
+        subnotes["target"][subnotes["flag"]] = TARGETS[BUY]
         subnotes[subnotes["flag"]]["prices"] = subnotes["fardelta"]
 
-    notes["flag"] = (notes["target"] == UNDETERMINED)
-    # ! while any undetermined ...
-    notes[notes["flag"]]["target"] = TARGETS[HOLD]
+        subnotes["flag"] = (
+            (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
+            (subnotes["target"] == UNDETERMINED))
+        subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
 
-    last_target = UNDETERMINED
-    notes[-1]["prices"] = 0.
-    perf = 0.
-    for ix in range(1, close.size):
-        if notes[-ix]["target"] != last_target:
-            last_target = notes[-ix]["target"]
-            perf = 0.
-        perf += notes[-ix]["nowdelta"]
-        notes[-ix]["prices"] = perf
-    return notes["target"]
+    notes["flag"] = (notes["target"] == TARGETS[HOLD])
+    notes[notes["flag"]]["target"] = UNDETERMINED
+    ix = 1
+    subnotes = notes[0:-ix]
+    subnotes["flag"] = (subnotes["target"] == UNDETERMINED)
+    while subnotes["flag"].any():
+        subnotes["fardelta"] = (close[ix:] - close[:-ix]) / close[:-ix]
+
+        subnotes["flag"] = (
+            (subnotes["target"] == UNDETERMINED) & (notes[ix:] != UNDETERMINED))
+        subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
+        subnotes[subnotes["flag"]]["prices"] = subnotes["fardelta"]
+        ix += 1
+        subnotes = notes[0:-ix]
+        subnotes["flag"] = (subnotes["target"] == UNDETERMINED)
+    return notes["prices"]
+
+
+def invalidate_all_later_entries(ix_list: list, ix: int):
+    while (len(ix_list) > 0) and (ix_list[0] >= ix):
+        del ix_list[0]
+    return ix_list
+
+
+def target_signals_gains(close):
+    """ Receives a numpy array of close prices starting with the oldest.
+        Returns a numpy array of signals.
+
+        algorithm:
+
+        - SELL if fardelta < sell threshold within max distance reach and minute delta negative.
+        - BUY if fardelta > buy threshold within max distance reach and minute delta positive.
+        - HOLD if fardelta and minute delta have different leading sign.
+        - else HOLD.
+    """
+    peak_list = list()
+    dip_list = list()
+    assert close.ndim == 1, f"unexpected close array dimension {close.ndim}"
+    maxdistance = min(close.size, max_look_back_minutes())
+    dt = np.dtype([("target", "i4"), ("gain", "f8")])
+    notes = np.zeros(close.size, dt)
+    notes[-1]["target"] = TARGETS[HOLD]
+    notes[-1]["gain"] = 0.0
+    notes[:-1]["gain"] = (close[1:] - close[:-1]) / close[:-1]  # gain of next minute in the future
+    gain_ix = close.size - 1
+    loss_ix = close.size - 1
+
+    ix = close.size - 2
+    while ix >= 0:
+        if notes[ix]["gain"] <= 0:
+            if gain_ix <= loss_ix:  # establish new loss sequence
+                loss_ix = ix + 1
+                dip_list.append(loss_ix)  # add local dip
+            sig_loss_ix = dip_list[0]
+            while (sig_loss_ix > loss_ix) and \
+                  (((sig_loss_ix - ix) > maxdistance) or (close[loss_ix] < close[sig_loss_ix])):
+                del dip_list[0]
+                sig_loss_ix = dip_list[0]
+            farloss = (close[sig_loss_ix] - close[ix]) / close[ix]
+            notes[ix]["gain"] = farloss
+            if farloss < SELL_THRESHOLD:
+                notes[ix]["target"] = TARGETS[SELL]
+                peak_list = invalidate_all_later_entries(peak_list, sig_loss_ix)
+            else:
+                notes[ix]["target"] = TARGETS[HOLD]
+        else:  # notes[ix]["gain"] > 0
+            if gain_ix >= loss_ix:  # establish new gain sequence
+                gain_ix = ix + 1
+                peak_list.append(gain_ix)  # add local dip
+            sig_gain_ix = peak_list[0]
+            while (sig_gain_ix > gain_ix) and \
+                  (((sig_gain_ix - ix) > maxdistance) or (close[gain_ix] > close[sig_gain_ix])):
+                del peak_list[0]
+                sig_gain_ix = peak_list[0]
+            fargain = (close[sig_gain_ix] - close[ix]) / close[ix]
+            notes[ix]["gain"] = fargain
+            if fargain > BUY_THRESHOLD:
+                notes[ix]["target"] = TARGETS[BUY]
+                dip_list = invalidate_all_later_entries(dip_list, sig_gain_ix)
+            else:
+                notes[ix]["target"] = TARGETS[HOLD]
+        ix -= 1
+    return notes
 
 
 def crypto_trade_targets(df):
@@ -231,12 +358,66 @@ class T10up5low30min(Targets):
         return tdf
 
 
+class Gain10up5low30min(Targets):
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        self.ohlcv = ohlcv
+        super().__init__()
+
+    def target_dict(self):
+        return TARGETS
+
+    def history(self):
+        """ Returns the number of history sample minutes
+            excluding the minute under consideration required to calculate a new sample data.
+        """
+        return 0
+
+    def keys(self):
+        "returns the list of element keys"
+        # return ["target", "gain"]
+        return ["target"]
+
+    def mnemonic(self):
+        "returns a string that represents this class as mnemonic, e.g. to use it in file names"
+        return "Gain10up5low30min"
+
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Downloads or calculates new data from 'first' sample up to and including 'last'.
+            This is the core method to be implemented by subclasses.
+        """
+        ohlc_first = first - pd.Timedelta(self.history(), unit="T")
+        df = self.ohlcv.get_data(base, ohlc_first, last)
+        signals_prices = target_signals_gains(df["close"].values)
+        df = pd.DataFrame(data=signals_prices, columns=self.keys(), index=df.index)
+        tdf = df.loc[first:]
+        tdf = tdf.loc[:, self.keys()]
+        return tdf
+
+
 if __name__ == "__main__":
+    env.test_mode()
     if True:
         close = np.array([1., 1.02, 1.015, 1.016, 1.03, 1.024, 1.025, 1.026, 1.025, 1.024,
-                          1.023, 1.022, 1.021, 1.02, 1.016, 1.014, 1.012, 1.022], np.dtype(np.float))
+                          1.035, 1.022, 1.021, 1.02, 1.016, 1.014, 1.012, 1.024], np.dtype(np.float))
+        ratio = [(close[ix]-close[ix-1])/close[ix-1] if ix > 0 else 0
+                 for ix, p in enumerate(close)]
+        perc = ["{:.1%}".format((close[ix+1]-close[ix])/close[ix]) if ix < (len(close)-1) else "{:.1%}".format(0)
+                for ix, p in enumerate(close)]
         trade_targets = trade_signals(close)
-        logger.debug(str(trade_targets))
+        signals_prices = target_signals_gains(close)
+        tuples = list(zip(close, perc, [TARGET_NAMES[ix] for ix in trade_targets],
+                      [TARGET_NAMES[tgt] for tgt in signals_prices["target"]],
+                      ["{:.1%}".format(gain) for gain in signals_prices["gain"]]))
+        [print(ix, tup) for ix, tup in enumerate(tuples)]
+
+        ohlcv = ccd.Ohlcv()
+        targets = Gain10up5low30min(ohlcv)
+        tdf = targets.load_data(Env.bases[0])
+        ccd.dfdescribe("Gain10up5low30min", tdf)
+        print(tdf.head(20))
+
+        # logger.debug(list(zip(close, perc, [TARGET_NAMES[ix] for ix in trade_targets])))
     else:
         cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=100)
         trade_targets = trade_signals(cdf["close"].values)

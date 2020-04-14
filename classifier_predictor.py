@@ -53,7 +53,10 @@ os.environ["OMP_NUM_THREADS"] = "6"
 os.environ["KMP_BLOCKTIME"] = "30"
 os.environ["KMP_SETTINGS"] = "1"
 os.environ["KMP_AFFINITY"] = "granularity=fine,verbose,compact,1,0"
-"""
+# """
+# tf.config.set_visible_devices([], 'GPU')
+# tf.config.experimental.set_visible_devices([], 'GPU')
+
 logger = logging.getLogger(__name__)
 logger.debug(f"Tensorflow version: {tf.version.VERSION}")
 logger.debug(f"Keras version: {keras.__version__}")
@@ -67,7 +70,7 @@ class Predictor:
         self.targets = targets
         self.features = features
         self.params = {}
-        self.scaler = None
+        self.scaler = dict()  # key == base str, value == scaler object
         self.kerasmodel = None
         self.path = Env.model_path
         self.mnemonic = None
@@ -118,7 +121,7 @@ class EpochPerformance(keras.callbacks.Callback):
         # logger.debug("EpochPerformance: __init__")
         self.classifier = classifier
         self.missing_improvements = 0
-        self.best_perf = 0
+        self.best_perf = -100.0
         self.patience_mistake_focus = patience_mistake_focus
         self.patience_stop = patience_stop
         super().__init__()
@@ -135,11 +138,6 @@ class EpochPerformance(keras.callbacks.Callback):
         (best, buy_thrsld, sell_thrsld, transactions) = self.classifier.assess_performance(Env.bases, ad.TRAIN, epoch)
         logger.info(f"{ad.TRAIN} perf: {best:5.0%}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
         logger.debug(f"on_epoch_end {ad.VAL}")
-        # logger.debug(f"assess_performance III {ad.VAL}")
-        # pred = preddat.PredictionData(self.classifier)
-        # (best, transactions, buy_thrsld, sell_thrsld) = pred.assess_perf(Env.bases, ad.VAL, epoch)
-        # logger.info(f"{ad.VAL} perf: {best}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
-        # logger.debug(f"assess_performance I {ad.VAL}")
         (best, buy_thrsld, sell_thrsld, transactions) = self.classifier.assess_performance(Env.bases, ad.VAL, epoch)
         logger.info(f"{ad.VAL} perf: {best:5.0%}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
 
@@ -189,46 +187,6 @@ class Classifier(Predictor):
         fname["keras"] = path_epoch + self.mnemonic_with_epoch() + "_keras.h5"
         return fname
 
-    def load_classifier_file_collection(self, classifier_file: str):
-        """ loads a classifier and the corresoonding scaler.
-            'classifier_file' shall be provided without path and suffix
-            because the path is requested as model_path from Env and
-            scaler and classifier are stored in different files with
-            different suffix.
-
-            This method is maintained for backward compatibility and is deprecated.
-        """
-        fname = str("{}{}{}".format(self.path, classifier_file, ".scaler_pydata"))
-        try:
-            with open(fname, "rb") as df_f:
-                self.scaler = pickle.load(df_f)  # requires import * to resolve Cpc attribute
-                df_f.close()
-                logger.debug(f"scaler loaded from {fname}")
-        except IOError:
-            logger.error(f"IO-error when loading scaler from {fname}")
-
-        fname = str("{}{}{}".format(self.path, classifier_file, ".params_pydata"))
-        try:
-            with open(fname, "rb") as df_f:
-                self.params = pickle.load(df_f)  # requires import * to resolve Cpc attribute
-                df_f.close()
-                logger.debug(f"{len(self.params)} params loaded from {fname}")
-        except IOError:
-            logger.error(f"IO-error when loading params from {fname}")
-
-        fname = str("{}{}{}".format(self.path, classifier_file, ".keras_h5"))
-        try:
-            with open(fname, "rb") as df_f:
-                df_f.close()
-
-                self.kerasmodel = keras.models.load_model(fname, custom_objects=None, compile=True)
-                logger.info(f"mpl2 classifier loaded from {fname}")
-        except IOError:
-            logger.error(f"IO-error when loading classifier from {fname}")
-        self.epoch = self.params["epoch"]
-        del self.params["epoch"]
-        logger.debug(self.params)
-
     def load(self, classifier_file: str, epoch: int):
         """ loads a classifier and the corresoonding scaler.
             'classifier_file' shall be provided without path and suffix
@@ -243,7 +201,7 @@ class Classifier(Predictor):
         logger.debug(f"load classifier: {classifier_file}, epoch: {epoch}")
         try:
             with open(fname["scaler"], "rb") as df_f:
-                self.scaler = pickle.load(df_f)  # requires import * to resolve Cpc attribute
+                self.scaler = pickle.load(df_f)
                 df_f.close()
                 logger.debug(f"scaler loaded from {fname['scaler']}")
         except IOError:
@@ -251,7 +209,7 @@ class Classifier(Predictor):
 
         try:
             with open(fname["params"], "rb") as df_f:
-                self.params = pickle.load(df_f)  # requires import * to resolve Cpc attribute
+                self.params = pickle.load(df_f)
                 df_f.close()
                 logger.debug(f"{len(self.params)} params loaded from {fname['params']}")
         except IOError:
@@ -300,51 +258,52 @@ class Classifier(Predictor):
         start_time = timeit.default_timer()
         pm = perfmat.PerfMatrix(epoch, set_type)
         pred = preddat.PredictionData(self)
-        for base in bases:
-            # start_time2 = timeit.default_timer()
-            odf = self.ohlcv.load_data(base)
-            fdf = self.features.load_data(base)
-            tdf = self.targets.load_data(base)
-            # tdiff = (timeit.default_timer() - start_time2) / 60
-            # logger.debug(f"prediction data {base} time: {tdiff:.1f} min")
-
-            # start_time2 = timeit.default_timer()
-            odfl = ad.SplitSets.split_sets(set_type, odf)
-            fdfl = ad.SplitSets.split_sets(set_type, fdf)
-            tdfl = ad.SplitSets.split_sets(set_type, tdf)
-            # tdiff = (timeit.default_timer() - start_time2) / 60
-            # logger.debug(f"split set {base} time: {tdiff:.1f} min")
-
-            # start_time2 = timeit.default_timer()
-            pred_np_list = [pred.predict_batch(fdf) for fdf in fdfl]
-            assert len(pred_np_list) == len(odfl) == len(fdfl) == len(tdfl)
-            # tdiff = (timeit.default_timer() - start_time2) / 60
-            # logger.debug(f"prediction data {base} time: {tdiff:.1f} min")
-
-            start_time2 = timeit.default_timer()
-            for ix in range(len(fdfl)):
-                [odf, fdf, tdf] = ccd.common_timerange([odfl[ix], fdfl[ix], tdfl[ix]])
-                pm.assess_prediction_np(pred_np_list[ix], odfl[ix], tdfl[ix])
-                pm.close_open_transactions_np(odfl[ix], tdfl[ix])
-
-            tdiff = (timeit.default_timer() - start_time2) / 60
-            logger.debug(f"assess prediction np {base} time: {tdiff:.1f} min")
-
-            start_time2 = timeit.default_timer()
-            for ix in range(len(fdfl)):
-                [odf, fdf, tdf] = ccd.common_timerange([odfl[ix], fdfl[ix], tdfl[ix]])
-                pm.assess_prediction(pred_np_list[ix], odfl[ix], tdfl[ix])
-            tdiff2 = (timeit.default_timer() - start_time2) / 60
-            imp = (tdiff2 - tdiff) / tdiff2
-            logger.debug(f"assess prediction {base} time: {tdiff2:.1f} min -> np improvement: {imp:.0%}")
-            pm.diff(base)
+        for base, odf, fdf, tdf in ad.AssessmentGenerator(set_type, self.ohlcv, self.features, self.targets):
+            pred_np = pred.predict_batch(base, fdf)
+            pm.assess_prediction_np(base, pred_np, odf, tdf)
 
         pm.report_assessment_np()
-        pm.report_assessment()
-        pm.diff()
         tdiff = (timeit.default_timer() - start_time) / 60
         logger.info(f"performance assessment set type {set_type} time: {tdiff:.1f} min")
         return pm.best_np()
+
+    def adapt_scaler(self, base, features_np):
+        """ With just one common scaler for all bases, this turned out to be suboptimal.
+            Hence, a dict of scalers is maintained per base. This is not a problem for ML
+            but a base never seen before in real trading needs to get their individual scaler
+            first before it can be used.
+        """
+        if base not in self.scaler:
+            self.scaler[base] = \
+                preprocessing.RobustScaler(
+                    with_centering=True, with_scaling=True, quantile_range=(5.0, 95.0), copy=True)
+        self.scaler[base].fit(features_np)
+
+    def adapt_scaler_training(self):
+        """ With just one common scaler for all bases, this turned out to be suboptimal.
+            Hence, a dict of scalers is maintained per base. This is not a problem for ML
+            but a base never seen before in real trading needs to get their individual scaler
+            first before it can be used.
+        """
+        logger.info(f"adapting scaler")
+        for base in Env.bases:
+            _, fdf, _ = ad.SplitSets.set_type_data(base, ad.TRAIN, None, self.features, None)
+            if (fdf is None) or fdf.empty:
+                logger.warning(f"missing {base} features")
+            features_np = fdf.values
+            self.adapt_scaler(base, features_np)
+        logger.info(f"scaler adapted")
+
+        start_time = timeit.default_timer()
+        logger.debug("creating training batches")
+        td = ad.TrainingData(self.scaler, self.features, self.targets)
+        td.create_training_datasets()
+        tdiff = (timeit.default_timer() - start_time)
+        meta = td.load_meta()
+        cnt = meta["samples"]
+        logger.info(f"training set creation time: {(tdiff / 60):.0f} min = {(tdiff / cnt):.0f}s/sample")
+
+        return features_np.shape[1]
 
     def adapt_keras(self):
 
@@ -353,7 +312,7 @@ class Classifier(Predictor):
             keras.backend.clear_session()  # done by switch in talos Scan command
             model = keras.models.Sequential()
             model.add(keras.layers.Dense(
-                params["l1_neurons"], input_dim=samples.shape[1],
+                params["l1_neurons"], input_dim=feature_elems,
                 kernel_initializer=params["kernel_initializer"], activation=params["activation"]))
             model.add(keras.layers.Dropout(params["dropout"]))
             model.add(keras.layers.Dense(
@@ -412,12 +371,7 @@ class Classifier(Predictor):
             return out, model
 
         start_time = timeit.default_timer()
-        logger.info(f"adapting scaler")
-        scaler = preprocessing.StandardScaler(copy=False)
-        for samples, targets in ad.BaseGenerator(ad.TRAIN, None, self.features, self.targets):
-            scaler.partial_fit(samples)
-        self.scaler = scaler
-        logger.info(f"scaler adapted")
+        feature_elems = self.adapt_scaler_training()
 
         fc = len(self.features.keys())
         tc = len(self.targets.target_dict())

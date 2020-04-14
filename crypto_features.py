@@ -7,9 +7,8 @@ Created on Mon Jan  7 21:43:26 2019
 """
 import logging
 # from datetime import datetime  # , timedelta
-import numpy as np
+# import numpy as np
 import pandas as pd
-from sklearn.utils import Bunch
 
 import env_config as env
 from env_config import Env
@@ -37,50 +36,6 @@ def targets_to_features(tfv_ta_df, target_df):
     if d > 0:
         raise NoSubsetWarning(f"subset({b}) with {c}/{d} rows that are/are not in superset({p})")
     return df
-
-
-def report_setsize(setname, df):
-    logger.info(f"{str_setsize(df)} on {setname}")
-
-
-def str_setsize(df):
-    hc = len(df[df.target == ct.TARGETS[ct.HOLD]])
-    sc = len(df[df.target == ct.TARGETS[ct.SELL]])
-    bc = len(df[df.target == ct.TARGETS[ct.BUY]])
-    sumc = hc + sc + bc
-    return f"buy={bc} sell={sc} hold={hc} sum={sumc}; total={len(df)} diff={len(df)-sumc}"
-
-
-def to_scikitlearn(df, np_data=None, descr=None):
-    """Load and return the crypto dataset (classification).
-    """
-
-    fn_list = list(df.keys())
-    if "target" in fn_list:
-        fn_list.remove("target")
-        target = df["target"].values
-    else:
-        target = None
-    if "close" in fn_list:
-        fn_list.remove("close")
-    if np_data is None:
-        # data = df[fn_list].to_numpy(dtype=float) # incompatible with pandas 0.19.2
-        data = df[fn_list].values
-    else:
-        data = np_data
-        # target = df["target"].to_numpy(dtype=float) # incompatible with pandas 0.19.2
-        # tics = df.index.to_numpy(dtype=np.datetime64) # incompatible with pandas 0.19.2
-    tics = df.index.values  # compatible with pandas 0.19.2
-    feature_names = np.array(fn_list)
-    target_names = np.array(ct.TARGETS.keys())
-    if descr is None:
-        descr = "missing description"
-
-    return Bunch(data=data, target=target,
-                 target_names=target_names,
-                 tics=tics,
-                 descr=descr,
-                 feature_names=feature_names)
 
 
 class TargetsFeatures:

@@ -84,17 +84,27 @@ class PredictionData(ccd.CryptoData):
         mem = self.predictor.mnemonic_with_epoch() + "_predictions"
         return mem
 
-    def predict_batch(self, features_df):
+    def predict_batch(self, base: str, features_df):
         """ Predicts all samples and returns the result as numpy array.
             set_type specific evaluations can be done using the saved prediction data.
         """
         if (features_df is None) or features_df.empty:
             return None
 
-        if self.predictor.scaler is not None:
-            fdf_scaled = self.predictor.scaler.transform(features_df.values)
+        # logger.info(
+        #     "before scaling {} first {} last {}\n{}".format(
+        #         base, features_df.index[0], features_df.index[-1],
+        #         features_df.describe(percentiles=[], include='all')))
+        if base in self.predictor.scaler:
+            fdf_scaled = self.predictor.scaler[base].transform(features_df.values)
+            # fdf = pd.DataFrame(data=fdf_scaled, index=features_df.index, columns=features_df.columns)
+            # logger.info(
+            #     "after scaling {} first {} last {}\n{}".format(
+            #         base, fdf.index[0], fdf.index[-1],
+            #         fdf.describe(percentiles=[], include='all')))
             pred = self.predictor.kerasmodel.predict_on_batch(fdf_scaled)
         else:
+            logger.warning(f"no scaler for {base}")
             pred = self.predictor.kerasmodel.predict_on_batch(features_df.values)
         # pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
         return pred
@@ -108,7 +118,7 @@ class PredictionData(ccd.CryptoData):
         tdf = self.predictor.targets.get_data(base, first, last, use_cache=True)
         if (tdf is None) or tdf.empty:
             return None
-        pred = self.predict_batch(fdf)
+        pred = self.predict_batch(base, fdf)
         pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
         pdf = pd.concat([ohlcv.close, tdf.target, pdf], axis=1, join="inner")
         return self.check_timerange(pdf, first, last)

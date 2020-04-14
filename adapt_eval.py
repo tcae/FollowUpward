@@ -7,6 +7,8 @@ import env_config as env
 from env_config import Env
 
 import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # to disable the GPU before importing tf
+
 # import pandas as pd
 # import numpy as np
 import timeit
@@ -91,7 +93,8 @@ if __name__ == "__main__":
     env.test_mode()
     start_time = timeit.default_timer()
     ohlcv = ccd.Ohlcv()
-    targets = ct.T10up5low30min(ohlcv)
+    targets = ct.Gain10up5low30min(ohlcv)
+    # targets = ct.T10up5low30min(ohlcv)
     try:
 
         if True:
@@ -103,11 +106,12 @@ if __name__ == "__main__":
             classifier.adapt_keras()
         else:
             # classifier = convert_cpc_classifier()
-            classifier.load_classifier_file_collection(
-                "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
+            # classifier.load_classifier_file_collection(
+            #     "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
             # classifier.load("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
+            classifier.load("MLP2_l1-9_do-0.2_l2-7_l3-no_opt-Adam__F3cond14__T10up5low30min", epoch=1)
             env.Tee.set_path(classifier.path_without_epoch(), log_prefix="TrainEval")
-            classifier.save()
+            # classifier.save()
             # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
             # perf = PerformanceData(PredictionData(classifier))
             # for base in Env.bases:

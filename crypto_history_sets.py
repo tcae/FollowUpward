@@ -393,5 +393,5 @@ if __name__ == "__main__":
             df = hs.set_of_type(base, set_type)
             tfv = hs.features_from_targets(df)
             descr = "{} {} {} set step {}: {}".format(env.timestr(), base, set_type,
-                                                      bix, cf.str_setsize(tfv))
+                                                      bix, ct.str_setsize(tfv))
             print(descr)
