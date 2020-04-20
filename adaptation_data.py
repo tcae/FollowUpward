@@ -77,7 +77,7 @@ class SplitSets:
 
 class TrainingData:
 
-    def __init__(self, scaler: dict, features: ccd.Features, targets: ct.Targets):
+    def __init__(self, bases: list, scaler: dict, features: ccd.Features, targets: ct.Targets):
         self.features = features
         self.targets = targets
         self.scaler = scaler  # dict: key == base str, value == scaler object
@@ -85,6 +85,7 @@ class TrainingData:
         self.tbgdf = None  # target batch group data frame
         self.fbgdf = None  # feature batch group data frame
         self.bgdf_ix = 0
+        self.bases = bases
 
     def training_batch_size(self):
         """ Return the number of training samples for one batch.
@@ -105,17 +106,16 @@ class TrainingData:
     #     cdf = pd.DataFrame(columns=ckeys)
     #     return cdf
 
-    def create_training_datasets(self):
+    def create_type_datasets(self, set_type: str):
         """ Loads target and feature data per base and stores data frames
-            with all features and targets that is scaled and shuffled across bases
-            as well as a corresponding meta data frame with counter info.
+            with all features and targets that is scaled across bases.
         """
         fdfl = list()
         tdfl = list()
         lfdf = 0
         ltdf = 0
-        for base in Env.bases:
-            _, fdf, tdf = SplitSets.set_type_data(base, TRAIN, None, self.features, self.targets)
+        for base in self.bases:
+            _, fdf, tdf = SplitSets.set_type_data(base, set_type, None, self.features, self.targets)
             # logger.info(
             #     "before scaling {} {} first {} last {}\n{}".format(
             #         base, self.features.mnemonic(), fdf.index[0], fdf.index[-1],
@@ -147,13 +147,21 @@ class TrainingData:
         [fdf, tdf] = ccd.common_timerange([fdf, tdf])
         assert len(fdf) == len(tdf)
 
+        fdf.index.set_names("idx", inplace=True)
+        tdf.index.set_names("idx", inplace=True)
+        return (fdf, tdf)
+
+    def create_training_datasets(self):
+        """ Loads target and feature data per base and stores data frames
+            with all features and targets that is scaled and shuffled across bases.
+        """
+        (fdf, tdf) = self.create_type_datasets(TRAIN)
+
         ixl = np.arange(len(fdf))
         np.random.shuffle(ixl)  # shuffle training samples across bases
         fdf = fdf.iloc[ixl]
         tdf = tdf.iloc[ixl]
-        fdf.index.set_names("idx", inplace=True)
-        tdf.index.set_names("idx", inplace=True)
-        self.save_data(fdf, tdf)
+        return (fdf, tdf)
 
     def fname(self):
         fname = self.targets.path + self.features.mnemonic() + "_" \
@@ -318,6 +326,7 @@ def set_type_check(ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets
 def set_check(ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets, bases: list):
     for base in bases:
         odf = ohlcv.load_data(base)
+        ccd.no_index_gaps(odf)
         logger.info(
             "{} {} first {} last {}\n{}".format(
                 base, ohlcv.mnemonic(), odf.index[0], odf.index[-1], odf.describe(percentiles=[], include='all')))
@@ -408,18 +417,19 @@ class TrainingGenerator(keras.utils.Sequence):
 
 class BaseGenerator(keras.utils.Sequence):
     'Generates validation data for Keras'
-    def __init__(self, set_type, scaler, features: ccd.Features, targets: ct.Targets):
+    def __init__(self, set_type: str, bases: list, scaler, features: ccd.Features, targets: ct.Targets):
         # logger.debug(f"BaseGenerator({set_type}): __init__")
         self.set_type = set_type
         self.scaler = scaler  # dict: key == base str, value == scaler object
         self.features = features
         self.targets = targets
         self.ixl = list()  # list of indices refering to a (base_ix, subset_ix) tuple
+        self.bases = bases
 
     def __len__(self):
         'Denotes the number of batches per epoch'
         self.ixl = \
-            [(bix, six) for bix, base in enumerate(Env.bases) for six, subset_df in
+            [(bix, six) for bix, base in enumerate(self.bases) for six, subset_df in
              enumerate(SplitSets.split_sets(self.set_type, self.features.load_data(base)))]
         # features require the longest history -> use features as limiting data
         # logger.debug(f"BaseGenerator {self.set_type}: len = {len(self.ixl)}")
@@ -429,9 +439,9 @@ class BaseGenerator(keras.utils.Sequence):
         'Generate one batch of data'
         if index >= len(self.ixl):
             logger.debug(f"BaseGenerator {self.set_type}: index {index} >= len {len(self.ixl)}")
-            index %= len(Env.bases)
+            index %= len(self.bases)
         (bix, six) = self.ixl[index]
-        base = Env.bases[bix]
+        base = self.bases[bix]
         # logger.debug(
         #     f"BaseGenerator {self.set_type}: __getitem__: index = {index} base = {base} subset index = {six}")
         if self.features is not None:
@@ -453,17 +463,18 @@ class BaseGenerator(keras.utils.Sequence):
 
 class AssessmentGenerator(keras.utils.Sequence):
     'Generates close, features, targets dataframes - use values attribute for Keras'
-    def __init__(self, set_type, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
+    def __init__(self, set_type: str, bases: list, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
         # logger.debug(f"AssessmentGenerator {set_type}: __init__")
         self.set_type = set_type
         self.ohlcv = ohlcv
         self.features = features
         self.targets = targets
+        self.bases = bases
 
     def __len__(self):
         'Denotes the number of batches per epoch'
         self.ixl = \
-            [(bix, six) for bix, base in enumerate(Env.bases) for six, subset_df in
+            [(bix, six) for bix, base in enumerate(self.bases) for six, subset_df in
              enumerate(SplitSets.split_sets(self.set_type, self.features.load_data(base)))]
         # features require the longest history -> use features as limiting data
         # logger.debug(f"AssessmentGenerator {self.set_type}: len = {len(self.ixl)}")
@@ -473,9 +484,9 @@ class AssessmentGenerator(keras.utils.Sequence):
         'Generate one batch of data'
         if index >= len(self.ixl):
             logger.debug(f"AssessmentGenerator {self.set_type}: index {index} >= len {len(self.ixl)}")
-            index %= len(Env.bases)
+            index %= len(self.bases)
         (bix, six) = self.ixl[index]
-        base = Env.bases[bix]
+        base = self.bases[bix]
         # logger.debug(
         #     f"AssessmentGenerator {self.set_type}: __getitem__: index = {index} base = {base} subset index = {six}")
         if self.ohlcv is not None:
@@ -496,15 +507,15 @@ class AssessmentGenerator(keras.utils.Sequence):
 
 if __name__ == "__main__":
     # tee = env.Tee()
-    env.test_mode()
+    # env.test_mode()
     ohlcv = ccd.Ohlcv()
-    targets = ct.Gain10up5low30min(ohlcv)
+    targets = ct.Targets(ohlcv)
     # targets = ct.T10up5low30min(ohlcv)
     if True:
         features = cof.F3cond14(ohlcv)
     else:
         features = agf.F1agg110(ohlcv)
-    td = TrainingData(dict(), features, targets)
+    td = TrainingData(Env.bases, dict(), features, targets)
     if False:  # create training sets
         # ! don't use this part anymore because training data creation requires trained scaler
         start_time = timeit.default_timer()
@@ -514,7 +525,7 @@ if __name__ == "__main__":
         meta = td.load_meta()
         cnt = meta["samples"]
         logger.info(f"training set creation time: {(tdiff / 60):.0f} min = {(tdiff / cnt):.0f}s/sample")
-    if True:  # retrieve training sets for test purposes
+    if False:  # retrieve training sets for test purposes
         meta = td.load_meta()
         logger.debug(str(meta))
         start_time = timeit.default_timer()

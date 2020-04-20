@@ -30,8 +30,8 @@ def dfdescribe(desc, df):
     logger.debug(desc)
     logger.debug(f"\n{df.describe(percentiles=[], include='all')}\n")
     show_verbose(df, verbose=True, lines=2)
-    if no_index_gaps(df):
-        logger.debug("no index gaps")
+    # if no_index_gaps(df):
+    #     logger.debug("no index gaps")
 
 
 def common_timerange(df_list):
@@ -47,7 +47,7 @@ def common_timerange(df_list):
 
 
 def no_index_gaps(df: pd.DataFrame):
-    ix_check = df.index.to_series().diff().dt.seconds / 60
+    ix_check = df.index.to_series().diff() / pd.Timedelta(1, unit="T")
     ix_gaps = ix_check.loc[ix_check > 1]  # reduce time differences to those > 60 sec
     if not ix_gaps.empty:
         logger.warning("found index gaps")
@@ -153,8 +153,20 @@ class CryptoData:
         return ["missing subclass implementation"]
 
     def mnemonic(self):
-        "returns a string that represents this class as mnemonic, e.g. to use it in file names"
+        """
+            returns a string that represents this class as mnemonic, e.g. to use it in file names.
+            if classes share the same saved data but use different subsets then save_mnemonic for storage
+            may differ from mnemonic or specific subclass usage.
+        """
         return "missing subclass implementation"
+
+    def save_mnemonic(self):
+        """
+            returns a string that represents this class as mnemonic, e.g. to use it in file names.
+            if classes share the same saved data but use different subsets then save_mnemonic for storage
+            may differ from mnemonic or specific subclass usage.
+        """
+        return self.mnemonic()
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Downloads or calculates new data from 'first' sample up to and including 'last'.
@@ -165,7 +177,7 @@ class CryptoData:
 
     def fname(self, base: str):
         "returns a file name to load or store data in h5 format"
-        fname = self.path + base + "_" + self.mnemonic() + "_df.h5"
+        fname = self.path + base + "_" + self.save_mnemonic() + "_df.h5"
         return fname
 
     def check_timerange(self, df: pd.DataFrame, first: pd.Timestamp, last: pd.Timestamp):
@@ -180,9 +192,9 @@ class CryptoData:
             logger.warning(f"index time gap of: {df.index[0] - first} at start, {last - df.index[-1]} at end")
         return df
 
-    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
-        """ Loads and downloads/calculates new data from 'first' sample up to and including 'last'.
-            If use_cache == False then no saved data is used.
+    def lookup_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Loads and downloads/calculates data from 'first' sample up to and including 'last'.
+            If use_cache == False then no saved data is used. All data columns are returned.
         """
         assert first is not None
         assert last is not None
@@ -209,11 +221,20 @@ class CryptoData:
         assert no_index_gaps(df)
         return df
 
+    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Loads and downloads/calculates data from 'first' sample up to and including 'last'.
+            If use_cache == False then no saved data is used.
+            Only data columns of the current subclass identified in keys() are returned.
+        """
+        df = self.lookup_data(base, first, last, use_cache)
+        df = df.loc[:, self.keys()]
+        return df
+
     def load_data(self, base: str):
         """ Loads all saved data and returns it as a data frame.
         """
         try:
-            df = pd.read_hdf(self.fname(base), base + "_" + self.mnemonic())
+            df = pd.read_hdf(self.fname(base), base + "_" + self.save_mnemonic())
             if isinstance(df, pd.Series):
                 df = df.to_frame()
             df = df.loc[:, self.keys()]
@@ -230,7 +251,7 @@ class CryptoData:
             fname = self.fname(base)
             if isinstance(df, pd.Series):
                 df = df.to_frame()
-            df.to_hdf(self.fname(base), base + "_" + self.mnemonic(), mode="w")
+            df.to_hdf(self.fname(base), base + "_" + self.save_mnemonic(), mode="w")
             logger.info(f"saved {fname} {len(df)} samples from {df.index[0]} until {df.index[-1]}")
         except IOError:
             logger.error(f"cannot save {self.fname(base)}")

@@ -90,7 +90,7 @@ def pinfo(title):
 
 
 if __name__ == "__main__":
-    env.test_mode()
+    # env.test_mode()
     start_time = timeit.default_timer()
     ohlcv = ccd.Ohlcv()
     targets = ct.Gain10up5low30min(ohlcv)

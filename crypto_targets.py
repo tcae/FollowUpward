@@ -129,74 +129,6 @@ def trade_signals(close):
     return notes["target"]
 
 
-def target_prices_np(close):
-    """ Receives a numpy array of close prices starting with the oldest.
-        Returns a numpy array of signals.
-
-        algorithm:
-
-        - SELL if fardelta < sell threshold within max distance reach and minute delta negative.
-        - BUY if fardelta > buy threshold within max distance reach and minute delta positive.
-        - HOLD if fardelta and minute delta have different leading sign.
-        - else HOLD.
-    """
-    if close.ndim > 1:
-        logger.warning("unexpected close array dimension {close.ndim}")
-    maxdistance = min(close.size, max_look_back_minutes())
-    dt = np.dtype([("target", "i4"), ("nowdelta", "f8"), ("fardelta", "f8"),
-                   ("prices", "f8"), ("flag", "bool")])
-    notes = np.zeros(close.size, dt)
-    notes["target"] = UNDETERMINED
-    notes[-1]["nowdelta"] = 0.
-    subnotes = notes[:-1]
-    subnotes["nowdelta"] = (close[1:] - close[:-1]) / close[:-1]
-    notes[-1]["fardelta"] = 0.
-    notes[-1]["target"] = TARGETS[HOLD]
-
-    for ix in range(1, maxdistance):
-        subnotes = notes[0:-ix]
-        subnotes["fardelta"] = (close[ix:] - close[:-ix]) / close[ix:]
-
-        subnotes["flag"] = (
-            (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
-            (subnotes["target"] == UNDETERMINED))
-        subnotes["target"][subnotes["flag"]] = TARGETS[SELL]
-        subnotes[subnotes["flag"]]["prices"] = subnotes["fardelta"]
-
-        subnotes["flag"] = (
-            (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
-            (subnotes["target"] == UNDETERMINED))
-        subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
-
-        subnotes["flag"] = (
-            (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
-            (subnotes["target"] == UNDETERMINED))
-        subnotes["target"][subnotes["flag"]] = TARGETS[BUY]
-        subnotes[subnotes["flag"]]["prices"] = subnotes["fardelta"]
-
-        subnotes["flag"] = (
-            (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
-            (subnotes["target"] == UNDETERMINED))
-        subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
-
-    notes["flag"] = (notes["target"] == TARGETS[HOLD])
-    notes[notes["flag"]]["target"] = UNDETERMINED
-    ix = 1
-    subnotes = notes[0:-ix]
-    subnotes["flag"] = (subnotes["target"] == UNDETERMINED)
-    while subnotes["flag"].any():
-        subnotes["fardelta"] = (close[ix:] - close[:-ix]) / close[:-ix]
-
-        subnotes["flag"] = (
-            (subnotes["target"] == UNDETERMINED) & (notes[ix:] != UNDETERMINED))
-        subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
-        subnotes[subnotes["flag"]]["prices"] = subnotes["fardelta"]
-        ix += 1
-        subnotes = notes[0:-ix]
-        subnotes["flag"] = (subnotes["target"] == UNDETERMINED)
-    return notes["prices"]
-
-
 def invalidate_all_later_entries(ix_list: list, ix: int):
     while (len(ix_list) > 0) and (ix_list[0] >= ix):
         del ix_list[0]
@@ -309,78 +241,35 @@ def trade_target_performance(target_df):
 
 class Targets(ccd.CryptoData):
 
-    def target_dict(self):
-        """ Shall return a dict of target categories that can be used as columns for prediction data.
-            The dict values are the corresponding target values.
-        """
-        pass
-
-    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
-        """ Loads and downloads/calculates new data from 'first' sample up to and including 'last'.
-            For Targets enforce to use_cache.
-        """
-        return super().get_data(base, first, last, use_cache=True)
-
-
-class T10up5low30min(Targets):
-
     def __init__(self, ohlcv: ccd.Ohlcv):
         self.ohlcv = ohlcv
         super().__init__()
 
-    def target_dict(self):
-        return TARGETS
+    def keys(self):
+        "returns the list of element keys"
+        return ["target", "gain"]
 
     def history(self):
         """ Returns the number of history sample minutes
             excluding the minute under consideration required to calculate a new sample data.
         """
-        return max_look_back_minutes()
-
-    def keys(self):
-        "returns the list of element keys"
-        return ["target"]
+        return 1
 
     def mnemonic(self):
-        "returns a string that represents this class as mnemonic, e.g. to use it in file names"
-        return "T10up5low30min"
-
-    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
-        """ Downloads or calculates new data from 'first' sample up to and including 'last'.
-            This is the core method to be implemented by subclasses.
         """
-        ohlc_first = first - pd.Timedelta(self.history(), unit="T")
-        df = self.ohlcv.get_data(base, ohlc_first, last)
-        trade_targets = trade_signals(df["close"].values)
-        df["target"] = trade_targets
-        tdf = df.loc[first:]
-        tdf = tdf.loc[:, self.keys()]
-        return tdf
-
-
-class Gain10up5low30min(Targets):
-
-    def __init__(self, ohlcv: ccd.Ohlcv):
-        self.ohlcv = ohlcv
-        super().__init__()
-
-    def target_dict(self):
-        return TARGETS
-
-    def history(self):
-        """ Returns the number of history sample minutes
-            excluding the minute under consideration required to calculate a new sample data.
+            returns a string that represents this class as mnemonic, e.g. to use it in file names.
+            if classes share the same saved data but use different subsets then save_mnemonic for storage
+            may differ from mnemonic or specific subclass usage.
         """
-        return 0
+        return "TargetGain10up5low30min"
 
-    def keys(self):
-        "returns the list of element keys"
-        # return ["target", "gain"]
-        return ["target"]
-
-    def mnemonic(self):
-        "returns a string that represents this class as mnemonic, e.g. to use it in file names"
-        return "Gain10up5low30min"
+    def save_mnemonic(self):
+        """
+            returns a string that represents this class as mnemonic, e.g. to use it in file names.
+            if classes share the same saved data but use different subsets then save_mnemonic for storage
+            may differ from mnemonic or specific subclass usage.
+        """
+        return "TargetGain10up5low30min"
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Downloads or calculates new data from 'first' sample up to and including 'last'.
@@ -389,10 +278,45 @@ class Gain10up5low30min(Targets):
         ohlc_first = first - pd.Timedelta(self.history(), unit="T")
         df = self.ohlcv.get_data(base, ohlc_first, last)
         signals_prices = target_signals_gains(df["close"].values)
-        df = pd.DataFrame(data=signals_prices, columns=self.keys(), index=df.index)
+        df = pd.DataFrame(data={"target": signals_prices["target"], "gain": signals_prices["gain"]}, index=df.index)
         tdf = df.loc[first:]
-        tdf = tdf.loc[:, self.keys()]
         return tdf
+
+
+class Target10up5low30min(Targets):
+
+    def target_dict(self):
+        """ Shall return a dict of target categories that can be used as columns for prediction data.
+            The dict values are the corresponding target values.
+        """
+        return TARGETS
+
+    def mnemonic(self):
+        """
+            returns a string that represents this class as mnemonic, e.g. to use it in file names.
+            if classes share the same saved data but use different subsets then save_mnemonic for storage
+            may differ from mnemonic or specific subclass usage.
+        """
+        return "Target10up5low30min"
+
+    def keys(self):
+        "returns the list of element keys"
+        return ["target"]
+
+
+class Gain10up5low30min(Targets):
+
+    def mnemonic(self):
+        """
+            returns a string that represents this class as mnemonic, e.g. to use it in file names.
+            if classes share the same saved data but use different subsets then save_mnemonic for storage
+            may differ from mnemonic or specific subclass usage.
+        """
+        return "Gain10up5low30min"
+
+    def keys(self):
+        "returns the list of element keys"
+        return ["gain"]
 
 
 if __name__ == "__main__":
@@ -412,10 +336,27 @@ if __name__ == "__main__":
         [print(ix, tup) for ix, tup in enumerate(tuples)]
 
         ohlcv = ccd.Ohlcv()
-        targets = Gain10up5low30min(ohlcv)
-        tdf = targets.load_data(Env.bases[0])
+        targets = Targets(ohlcv)
+        tdf = targets.get_data(
+            Env.bases[0], pd.Timestamp("2018-01-20 23:59:00+00:00"),
+            pd.Timestamp("2018-01-31 23:59:00+00:00"), use_cache=False)
+        # tdf = targets.load_data(Env.bases[0])
         ccd.dfdescribe("Gain10up5low30min", tdf)
-        print(tdf.head(20))
+
+        targets = Target10up5low30min(ohlcv)
+        tdf = targets.get_data(
+            Env.bases[0], pd.Timestamp("2018-01-20 23:59:00+00:00"),
+            pd.Timestamp("2018-01-31 23:59:00+00:00"), use_cache=False)
+        # tdf = targets.load_data(Env.bases[0])
+        ccd.dfdescribe("Gain10up5low30min", tdf)
+
+        targets = Gain10up5low30min(ohlcv)
+        tdf = targets.get_data(
+            Env.bases[0], pd.Timestamp("2018-01-20 23:59:00+00:00"),
+            pd.Timestamp("2018-01-31 23:59:00+00:00"), use_cache=False)
+
+        # tdf = targets.load_data(Env.bases[0])
+        ccd.dfdescribe("Gain10up5low30min", tdf)
 
         # logger.debug(list(zip(close, perc, [TARGET_NAMES[ix] for ix in trade_targets])))
     else:

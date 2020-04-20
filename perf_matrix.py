@@ -20,8 +20,8 @@ class PerfMatrix:
         self.SELL = ct.TARGETS[ct.SELL]
         self.HOLD = ct.TARGETS[ct.HOLD]
         self.track = [self.PERF, self.COUNT, self.BUY_IX, self.BUY_PRICE] = [ix for ix in range(4)]
-        self.btl = [0.6, 0.7, 0.8, 0.9]  # buy thresholds
-        self.stl = [0.6, 0.7, 0.8, 0.9]  # sell thresholds
+        self.btl = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]  # buy thresholds
+        self.stl = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]  # sell thresholds
         self.perf = np.zeros((len(self.btl), len(self.stl), len(self.track)))  # overall performace array
         self.base_perf = dict()  # performance array for each base
         self.conf = np.zeros((len(ct.TARGETS), len(ct.TARGETS)))  # (target, actual) confusion matrix

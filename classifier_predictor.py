@@ -32,8 +32,8 @@ import tensorflow.keras.metrics as km
 
 import crypto_targets as ct
 import cached_crypto_data as ccd
-# import condensed_features as cof
-# import aggregated_features as agf
+import condensed_features as cof
+import aggregated_features as agf
 # import classify_keras as ck
 import adaptation_data as ad
 # import performance_data as perfdat
@@ -54,8 +54,9 @@ os.environ["KMP_BLOCKTIME"] = "30"
 os.environ["KMP_SETTINGS"] = "1"
 os.environ["KMP_AFFINITY"] = "granularity=fine,verbose,compact,1,0"
 # """
-# tf.config.set_visible_devices([], 'GPU')
+tf.config.set_visible_devices([], 'GPU')
 # tf.config.experimental.set_visible_devices([], 'GPU')
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 logger = logging.getLogger(__name__)
 logger.debug(f"Tensorflow version: {tf.version.VERSION}")
@@ -65,7 +66,7 @@ logger.debug(__doc__)
 
 class Predictor:
 
-    def __init__(self, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
+    def __init__(self, bases: list(), ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
         self.ohlcv = ohlcv
         self.targets = targets
         self.features = features
@@ -75,12 +76,16 @@ class Predictor:
         self.path = Env.model_path
         self.mnemonic = None
         self.epoch = 0
+        self.bases = bases
+        self.timestamp = env.timestr()
 
     def mnemonic_without_epoch(self):
         "returns a string that represent the estimator class as mnemonic, e.g. to use it in file names"
         if self.mnemonic is None:
             pmem = [str(p) + "-" + str(self.params[p]) for p in self.params]
-            self.mnemonic = "MLP2_" + "_".join(pmem) + "__" + self.features.mnemonic() + "__" + self.targets.mnemonic()
+            self.mnemonic = \
+                "MLP2_" + self.timestamp + "__" + "_".join(pmem) + "__" + \
+                self.features.mnemonic() + "__" + self.targets.mnemonic()
         return self.mnemonic
 
     def mnemonic_with_epoch(self):
@@ -114,68 +119,6 @@ class Predictor:
                 logger.error(f"Creation of the directory {path_epoch} failed")
                 return
         return path_epoch + "/"
-
-
-class EpochPerformance(keras.callbacks.Callback):
-    def __init__(self, classifier, patience_mistake_focus=6, patience_stop=12):
-        # logger.debug("EpochPerformance: __init__")
-        self.classifier = classifier
-        self.missing_improvements = 0
-        self.best_perf = -100.0
-        self.patience_mistake_focus = patience_mistake_focus
-        self.patience_stop = patience_stop
-        super().__init__()
-
-    def on_epoch_begin(self, epoch, logs=None):
-        # logger.debug(f"EpochPerformance: on_epoch_begin: {epoch}, logs: {logs}")
-        self.classifier.epoch = epoch
-
-    def on_epoch_end(self, epoch, logs=None):
-        logger.info("epoch end ==> epoch: {} classifier config: {}".format(
-            epoch, self.classifier.mnemonic_with_epoch()))
-
-        logger.debug(f"on_epoch_end {ad.TRAIN}")
-        (best, buy_thrsld, sell_thrsld, transactions) = self.classifier.assess_performance(Env.bases, ad.TRAIN, epoch)
-        logger.info(f"{ad.TRAIN} perf: {best:5.0%}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
-        logger.debug(f"on_epoch_end {ad.VAL}")
-        (best, buy_thrsld, sell_thrsld, transactions) = self.classifier.assess_performance(Env.bases, ad.VAL, epoch)
-        logger.info(f"{ad.VAL} perf: {best:5.0%}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
-
-        logger.debug(f"on_epoch_end assessment done")
-        if best > self.best_perf:
-            self.best_perf = best
-            self.missing_improvements = 0
-            self.classifier.save()
-        else:
-            self.missing_improvements += 1
-        if self.missing_improvements >= self.patience_stop:
-            self.classifier.kerasmodel.stop_training = True
-            logger.info("Stop training due to missing val_perf improvement since {} epochs".format(
-                  self.missing_improvements))
-        logger.info(f"on_epoch_end logs:{logs}")
-
-
-def next_MLP_iteration(params: dict, p_inst: dict, model, level):
-    activate = True
-    for para in params:
-        if para not in p_inst:
-            activate = False
-            for val in params[para]:
-                p_inst[para] = val
-                next_MLP_iteration(params, p_inst, model, level + 1)
-            p_inst.popitem()
-            break
-    if activate:
-        logger.debug("next MLP2: ", p_inst)
-        model(p_inst)
-
-
-class Classifier(Predictor):
-    """Provides methods to adapt single currency performance classifiers
-    """
-
-    def __init__(self, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
-        super().__init__(ohlcv, features, targets)
 
     def filename(self):
         """ Returns a dictionary of full qualified filenames to store or load a classifier.
@@ -247,26 +190,6 @@ class Classifier(Predictor):
         else:
             logger.warning(f"missing classifier - cannot save it")
 
-    def assess_performance(self, bases: list, set_type, epoch=0):
-        """Evaluates the performance on the given set and prints the confusion and
-        performance matrix.
-
-        Returns a tuple of (best-performance-factor, at-buy-probability-threshold,
-        at-sell-probability-threshold, with-number-of-transactions)
-        """
-        logger.debug(f"assess_performance {set_type}")
-        start_time = timeit.default_timer()
-        pm = perfmat.PerfMatrix(epoch, set_type)
-        pred = preddat.PredictionData(self)
-        for base, odf, fdf, tdf in ad.AssessmentGenerator(set_type, self.ohlcv, self.features, self.targets):
-            pred_np = pred.predict_batch(base, fdf)
-            pm.assess_prediction_np(base, pred_np, odf, tdf)
-
-        pm.report_assessment_np()
-        tdiff = (timeit.default_timer() - start_time) / 60
-        logger.info(f"performance assessment set type {set_type} time: {tdiff:.1f} min")
-        return pm.best_np()
-
     def adapt_scaler(self, base, features_np):
         """ With just one common scaler for all bases, this turned out to be suboptimal.
             Hence, a dict of scalers is maintained per base. This is not a problem for ML
@@ -286,7 +209,7 @@ class Classifier(Predictor):
             first before it can be used.
         """
         logger.info(f"adapting scaler")
-        for base in Env.bases:
+        for base in self.bases:
             _, fdf, _ = ad.SplitSets.set_type_data(base, ad.TRAIN, None, self.features, None)
             if (fdf is None) or fdf.empty:
                 logger.warning(f"missing {base} features")
@@ -294,22 +217,121 @@ class Classifier(Predictor):
             self.adapt_scaler(base, features_np)
         logger.info(f"scaler adapted")
 
-        start_time = timeit.default_timer()
-        logger.debug("creating training batches")
-        td = ad.TrainingData(self.scaler, self.features, self.targets)
-        td.create_training_datasets()
-        tdiff = (timeit.default_timer() - start_time)
-        meta = td.load_meta()
-        cnt = meta["samples"]
-        logger.info(f"training set creation time: {(tdiff / 60):.0f} min = {(tdiff / cnt):.0f}s/sample")
 
-        return features_np.shape[1]
+class EpochPerformance(keras.callbacks.Callback):
+    def __init__(self, classifier, patience_mistake_focus=6, patience_stop=12):
+        # logger.debug("EpochPerformance: __init__")
+        self.classifier = classifier
+        self.missing_improvements = 0
+        self.best_perf = -100.0
+        self.patience_mistake_focus = patience_mistake_focus
+        self.patience_stop = patience_stop
+        super().__init__()
+
+    def on_epoch_begin(self, epoch, logs=None):
+        # logger.debug(f"EpochPerformance: on_epoch_begin: {epoch}, logs: {logs}")
+        self.classifier.epoch = epoch
+
+    def on_epoch_end(self, epoch, logs=None):
+        logger.info("epoch end ==> epoch: {} classifier config: {}".format(
+            epoch, self.classifier.mnemonic_with_epoch()))
+
+        logger.debug(f"on_epoch_end {ad.TRAIN}")
+        (best, buy_thrsld, sell_thrsld, transactions) = \
+            self.classifier.assess_performance(self.classifier.bases, ad.TRAIN, epoch)
+        logger.info(f"{ad.TRAIN} perf: {best:5.0%}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
+        logger.debug(f"on_epoch_end {ad.VAL}")
+        (best, buy_thrsld, sell_thrsld, transactions) = \
+            self.classifier.assess_performance(self.classifier.bases, ad.VAL, epoch)
+        logger.info(f"{ad.VAL} perf: {best:5.0%}  count: {transactions} at {buy_thrsld}/{sell_thrsld}")
+
+        logger.debug(f"on_epoch_end assessment done")
+        if best > self.best_perf:
+            self.best_perf = best
+            self.missing_improvements = 0
+            self.classifier.save()
+        else:
+            self.missing_improvements += 1
+        if self.missing_improvements >= self.patience_stop:
+            self.classifier.kerasmodel.stop_training = True
+            logger.info("Stop training due to missing val_perf improvement since {} epochs".format(
+                  self.missing_improvements))
+        logger.info(f"on_epoch_end logs:{logs}")
+
+
+def next_MLP_iteration(params: dict, p_inst: dict, model, level):
+    """ receives a ML hyperparameter dictionary of lists with corresponding hyperparameter values,
+        that are iterated through all combinations once to adapt the provided model with them.
+    """
+    activate = True
+    for para in params:
+        if para not in p_inst:
+            activate = False
+            for val in params[para]:
+                p_inst[para] = val
+                next_MLP_iteration(params, p_inst, model, level + 1)
+            p_inst.popitem()
+            break
+    if activate:
+        logger.debug("next MLP2: ", p_inst)
+        model(p_inst)
+
+
+class Classifier(Predictor):
+    """Provides methods to adapt single currency performance classifiers
+    """
+
+    def __init__(self, bases: list(), ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
+        super().__init__(bases, ohlcv, features, targets)
+
+    def get_training_tf(self):
+        # logger.debug("creating training batches")
+        td = ad.TrainingData(self.bases, self.scaler, self.features, self.targets)
+        (fdf, tdf) = td.create_training_datasets()
+
+        tnp_cat = keras.utils.to_categorical(
+            tdf.values, num_classes=len(ct.TARGETS))
+        dataset = tf.data.Dataset.from_tensor_slices((fdf.values, tnp_cat))
+        dataset = dataset.batch(td.training_batch_size())
+        return fdf.values.shape[1], dataset
+
+    def get_tf_data_set_type(self, set_type: str):
+        td = ad.TrainingData(self.bases, self.scaler, self.features, self.targets)
+        (fdf, tdf) = td.create_type_datasets(set_type)
+
+        tnp_cat = keras.utils.to_categorical(
+            tdf.values, num_classes=len(ct.TARGETS))
+        dataset = tf.data.Dataset.from_tensor_slices((fdf.values, tnp_cat))
+        dataset = dataset.batch(td.training_batch_size())
+        return fdf.values.shape[1], dataset
+
+    def assess_performance(self, bases: list, set_type, epoch=0):
+        """Evaluates the performance on the given set and prints the confusion and
+        performance matrix.
+
+        Returns a tuple of (best-performance-factor, at-buy-probability-threshold,
+        at-sell-probability-threshold, with-number-of-transactions)
+        """
+        logger.debug(f"assess_performance {set_type}")
+        start_time = timeit.default_timer()
+        pm = perfmat.PerfMatrix(epoch, set_type)
+        pred = preddat.PredictionData(self)
+        for base, odf, fdf, tdf in ad.AssessmentGenerator(set_type, self.bases,
+                                                          self.ohlcv, self.features, self.targets):
+            pred_np = pred.predict_batch(base, fdf)
+            pm.assess_prediction_np(base, pred_np, odf, tdf)
+
+        pm.report_assessment_np()
+        tdiff = (timeit.default_timer() - start_time) / 60
+        logger.info(f"performance assessment set type {set_type} time: {tdiff:.1f} min")
+        return pm.best_np()
 
     def adapt_keras(self):
 
         # def MLP2(x, y, x_val, y_val, params):
         def MLP2(params):
             keras.backend.clear_session()  # done by switch in talos Scan command
+            logger.info(f"MLP params: {params}")
             model = keras.models.Sequential()
             model.add(keras.layers.Dense(
                 params["l1_neurons"], input_dim=feature_elems,
@@ -330,6 +352,10 @@ class Classifier(Predictor):
                           loss="categorical_crossentropy",
                           metrics=["accuracy", km.Precision()])
             self.kerasmodel = model
+            self.mnemonic = None  # reset mnemonic with new parameters
+            if len(self.bases) == 1:
+                # if only one base then base specific classifiers that should be part of their name
+                self.params["base"] = self.bases[0]
             self.params["l1"] = params["l1_neurons"]
             self.params["do"] = params["dropout"]
             self.params["l2"] = params["l2_neurons"]
@@ -347,18 +373,18 @@ class Classifier(Predictor):
                 # keras.callbacks.EarlyStopping(patience=10),
                 # keras.callbacks.ModelCheckpoint(tensorfile, verbose=1),
                 keras.callbacks.TensorBoard(log_dir=self.path_without_epoch())]
-            training_gen = ad.TrainingGenerator(self.scaler, self.features, self.targets, shuffle=False)
-            validation_gen = ad.BaseGenerator(ad.VAL, self.scaler, self.features, self.targets)
+            # training_gen = ad.TrainingGenerator(self.scaler, self.features, self.targets, shuffle=False)
+            # validation_gen = ad.BaseGenerator(ad.VAL, self.scaler, self.features, self.targets)
 
             model.summary(print_fn=logger.debug)
             out = self.kerasmodel.fit(
-                    x=training_gen,
-                    steps_per_epoch=len(training_gen),
+                    x=train_dataset,
+                    # steps_per_epoch=len(train_dataset),
                     epochs=50,
                     callbacks=callbacks,
                     verbose=2,
-                    validation_data=validation_gen,
-                    validation_steps=len(validation_gen),
+                    validation_data=eval_dataset,
+                    # validation_steps=len(validation_gen),
                     # class_weight=None,
                     # max_queue_size=10,
                     workers=6,
@@ -371,19 +397,21 @@ class Classifier(Predictor):
             return out, model
 
         start_time = timeit.default_timer()
-        feature_elems = self.adapt_scaler_training()
+        self.adapt_scaler_training()
+        (feature_elems, train_dataset) = self.get_training_tf()
+        (feature_elems, eval_dataset) = self.get_tf_data_set_type(ad.VAL)
 
         fc = len(self.features.keys())
         tc = len(self.targets.target_dict())
         assert tc == 3
         params = {
-                "l1_neurons": [max(3*tc, int(0.7*fc)), max(3*tc, int(1.2*fc))],
+                "l1_neurons": [max(3*tc, int(1*fc)), max(3*tc, int(1.2*fc))],
                 "l2_neurons": [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
                 "epochs": [50],
                 "use_l3": [False, True],
                 "l3_neurons": [max(1*tc, int(0.3*fc))],
                 "kernel_initializer": ["he_uniform"],
-                "dropout": [0.2, 0.45, 0.8],
+                "dropout": [0.2, 0.45],
                 "optimizer": ["Adam"],
                 "losses": ["categorical_crossentropy"],
                 "activation": ["relu"],
@@ -394,3 +422,44 @@ class Classifier(Predictor):
 
         tdiff = (timeit.default_timer() - start_time) / 60
         logger.info(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
+
+
+if __name__ == "__main__":
+    # env.test_mode()
+    start_time = timeit.default_timer()
+    ohlcv = ccd.Ohlcv()
+    targets = ct.Target10up5low30min(ohlcv)
+    try:
+
+        if True:
+            features = cof.F3cond14(ohlcv)
+        else:
+            features = agf.AggregatedFeatures(ohlcv)
+        for base in Env.bases:
+            classifier = Classifier([base], ohlcv, features, targets)
+            if True:
+                classifier.adapt_keras()
+            else:
+                # classifier = convert_cpc_classifier()
+                # classifier.load_classifier_file_collection(
+                #     "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
+                # ("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
+                classifier.load("MLP2_l1-9_do-0.2_l2-7_l3-no_opt-Adam__F3cond14__T10up5low30min", epoch=1)
+                env.Tee.set_path(classifier.path_without_epoch(), log_prefix="TrainEval")
+                # classifier.save()
+                # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
+                # perf = PerformanceData(PredictionData(classifier))
+                # for base in [base]:
+                #     features_df = features.load_data(base)
+                #     print(features_df.index[0], features_df.index[-1])
+                #     perf_df = perf.get_data(base, features_df.index[0], features_df.index[-1], use_cache=False)
+                #     perf.save_data(base, perf_df)
+
+                print("return new: ", classifier.assess_performance([base], ad.VAL))
+                # print("return new: ", classifier.assess_performance(["xrp"], ad.VAL))
+                env.Tee.reset_path()
+
+    except KeyboardInterrupt:
+        logger.info("keyboard interrupt")
+    tdiff = (timeit.default_timer() - start_time) / 60
+    logger.info(f"total script time: {tdiff:.0f} min")

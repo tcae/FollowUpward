@@ -136,7 +136,7 @@ def repair_stored_ohlcv():
     ccd.save_asset_dataframe(df, "xrp", Env.data_path)
 
 
-def update_history(bases: list, last: pd.Timestamp, data_objs: list):
+def update_history(bases: list, last: pd.Timestamp, ohlcv, data_objs: list):
     """ updates saved data history up to and including 'last'
     """
     minutes = 0
@@ -144,17 +144,17 @@ def update_history(bases: list, last: pd.Timestamp, data_objs: list):
     df_first = last
     df_last = last
     for base in bases:
-        for do in data_objs:
-            df = do.load_data(base)
-            if (df is not None) and (not df.empty):
-                if df_first > df.index[0]:
-                    df_first = df.index[0]
-                if df_last < df.index[-1]:
-                    df_last = df.index[-1]
+        df = ohlcv.load_data(base)
+        if (df is not None) and (not df.empty):
+            if df_first > df.index[0]:
+                df_first = df.index[0]
+            if df_last < df.index[-1]:
+                df_last = df.index[-1]
     minutes = int((df_last - df_first) / pd.Timedelta(1, unit="T")) + 1
     if minutes < minimum:
         df_first = df_first - pd.Timedelta(minimum, unit="T")
     assert df_first < df_last
+    logger.debug(f"first: {df_first}, last: {df_last}")
     for base in bases:
         for do in data_objs:
             df = do.get_data(base, df_first, df_last)
@@ -162,20 +162,20 @@ def update_history(bases: list, last: pd.Timestamp, data_objs: list):
 
 
 if __name__ == "__main__":
-    # env.test_mode()
+    env.test_mode()
     # tee = env.Tee(log_prefix="UpdateCryptoHistory")
     ohlcv = ccd.Ohlcv()
     if False:  # base data repair
         df = ccd.load_asset_dataframe("xrp", Env.data_path)
         ohlcv.save_data("xrp", df)
-    data_objs = [ohlcv, cof.F3cond14(ohlcv), agf.F1agg110(ohlcv), ct.Gain10up5low30min(ohlcv)]
-    # data_objs = [ohlcv, cof.F3cond14(ohlcv), agf.F1agg110(ohlcv), ct.T10up5low30min(ohlcv)]
+    data_objs = [ct.Targets(ohlcv)]
+    # data_objs = [ohlcv, cof.F3cond14(ohlcv), agf.F1agg110(ohlcv), ct.Targets(ohlcv)]
     # data_objs = [ohlcv, ct.T10up5low30min(ohlcv)]  # targets repair
-    if True:
+    if False:
         # update_history(Env.bases, pd.Timestamp.utcnow(), data_objs)
-        update_history(Env.bases, pd.Timestamp("2020-03-16 22:21:00+00:00"), data_objs)
+        update_history(Env.bases, pd.Timestamp("2020-03-16 22:21:00+00:00"), ohlcv, data_objs)
         # load_assets(Env.bases, pd.Timestamp.utcnow(), [cof.CondensedFeatures, agf.AggregatedFeatures])
         # load_assets(Env.bases, None, [cof.CondensedFeatures, agf.AggregatedFeatures])
     else:
-        update_history(["btc", "xrp"], pd.Timestamp("2018-01-31 23:59:00+00:00"), data_objs)
+        update_history(["btc", "xrp"], pd.Timestamp("2018-01-31 23:59:00+00:00"), ohlcv, data_objs)
     # tee.close()
