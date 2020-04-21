@@ -8,7 +8,7 @@ from env_config import Env
 
 import os
 # import pandas as pd
-# import numpy as np
+import numpy as np
 import timeit
 # import itertools
 # import math
@@ -284,26 +284,36 @@ class Classifier(Predictor):
     def __init__(self, bases: list(), ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
         super().__init__(bases, ohlcv, features, targets)
 
-    def get_training_tf(self):
-        # logger.debug("creating training batches")
-        td = ad.TrainingData(self.bases, self.scaler, self.features, self.targets)
-        (fdf, tdf) = td.create_training_datasets()
+    def get_tf_data(self, fdf_tdf_list):
+        BUFFER_SIZE = 10000
+        BATCH_SIZE = ad.TrainingData.training_batch_size()
 
-        tnp_cat = keras.utils.to_categorical(
-            tdf.values, num_classes=len(ct.TARGETS))
-        dataset = tf.data.Dataset.from_tensor_slices((fdf.values, tnp_cat))
-        dataset = dataset.batch(td.training_batch_size())
-        return fdf.values.shape[1], dataset
+        tf_data_list = list()
+        maxset = 0
+        for (feature_df, target_df) in fdf_tdf_list:
+            maxset = max(maxset, len(feature_df))
+            tnp_cat = keras.utils.to_categorical(
+                target_df.values, num_classes=len(ct.TARGETS))
+            ds = tf.data.Dataset.from_tensor_slices((feature_df.values, tnp_cat))
+            ds = ds.shuffle(BUFFER_SIZE).repeat()
+            tf_data_list.append(ds)
+        llen = len(fdf_tdf_list)
+        wl = [i/llen for i in range(llen)]
+        resampled_ds = tf.data.experimental.sample_from_datasets(tf_data_list, weights=wl)
+        resampled_ds = resampled_ds.batch(BATCH_SIZE).prefetch(2)
+        resampled_steps_per_epoch = np.ceil(llen * maxset / BATCH_SIZE)
+        return (resampled_steps_per_epoch, resampled_ds)
 
     def get_tf_data_set_type(self, set_type: str):
         td = ad.TrainingData(self.bases, self.scaler, self.features, self.targets)
-        (fdf, tdf) = td.create_type_datasets(set_type)
+        fdf_tdf_list = [td.create_type_datasets(set_type, lbl) for lbl in [ct.BUY, ct.HOLD, ct.SELL]]
+        return self.get_tf_data(fdf_tdf_list)
 
-        tnp_cat = keras.utils.to_categorical(
-            tdf.values, num_classes=len(ct.TARGETS))
-        dataset = tf.data.Dataset.from_tensor_slices((fdf.values, tnp_cat))
-        dataset = dataset.batch(td.training_batch_size())
-        return fdf.values.shape[1], dataset
+    def get_training_tf(self):
+        # logger.debug("creating training batches")
+        td = ad.TrainingData(self.bases, self.scaler, self.features, self.targets)
+        fdf_tdf_list = [td.create_training_datasets(lbl) for lbl in [ct.BUY, ct.HOLD, ct.SELL]]
+        return self.get_tf_data(fdf_tdf_list)
 
     def assess_performance(self, bases: list, set_type, epoch=0):
         """Evaluates the performance on the given set and prints the confusion and
@@ -334,7 +344,7 @@ class Classifier(Predictor):
             logger.info(f"MLP params: {params}")
             model = keras.models.Sequential()
             model.add(keras.layers.Dense(
-                params["l1_neurons"], input_dim=feature_elems,
+                params["l1_neurons"], input_dim=fc,
                 kernel_initializer=params["kernel_initializer"], activation=params["activation"]))
             model.add(keras.layers.Dropout(params["dropout"]))
             model.add(keras.layers.Dense(
@@ -379,12 +389,12 @@ class Classifier(Predictor):
             model.summary(print_fn=logger.debug)
             out = self.kerasmodel.fit(
                     x=train_dataset,
-                    # steps_per_epoch=len(train_dataset),
+                    steps_per_epoch=len(train_steps),
                     epochs=50,
                     callbacks=callbacks,
                     verbose=2,
                     validation_data=eval_dataset,
-                    # validation_steps=len(validation_gen),
+                    validation_steps=len(eval_steps),
                     # class_weight=None,
                     # max_queue_size=10,
                     workers=6,
@@ -398,8 +408,8 @@ class Classifier(Predictor):
 
         start_time = timeit.default_timer()
         self.adapt_scaler_training()
-        (feature_elems, train_dataset) = self.get_training_tf()
-        (feature_elems, eval_dataset) = self.get_tf_data_set_type(ad.VAL)
+        (train_steps, train_dataset) = self.get_training_tf()
+        (eval_steps, eval_dataset) = self.get_tf_data_set_type(ad.VAL)
 
         fc = len(self.features.keys())
         tc = len(self.targets.target_dict())

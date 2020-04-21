@@ -52,7 +52,7 @@ class SplitSets:
         return df_list
 
     @classmethod
-    def set_type_data(self, base: str, set_type: str, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
+    def set_type_data(cls, base: str, set_type: str, ohlcv: ccd.Ohlcv, features: ccd.Features, targets: ct.Targets):
         sdf = SplitSets.set_type_datetime_ranges(set_type)
         start = sdf.start.min()
         end = sdf.end.max()
@@ -87,7 +87,8 @@ class TrainingData:
         self.bgdf_ix = 0
         self.bases = bases
 
-    def training_batch_size(self):
+    @classmethod
+    def training_batch_size(cls):
         """ Return the number of training samples for one batch.
         """
         return 32
@@ -106,7 +107,7 @@ class TrainingData:
     #     cdf = pd.DataFrame(columns=ckeys)
     #     return cdf
 
-    def create_type_datasets(self, set_type: str):
+    def create_type_datasets(self, set_type: str, label: str = None):
         """ Loads target and feature data per base and stores data frames
             with all features and targets that is scaled across bases.
         """
@@ -116,6 +117,10 @@ class TrainingData:
         ltdf = 0
         for base in self.bases:
             _, fdf, tdf = SplitSets.set_type_data(base, set_type, None, self.features, self.targets)
+            if label is not None:
+                fdf = fdf.loc[tdf.target == ct.TARGETS[label]]
+                tdf = tdf.loc[tdf.target == ct.TARGETS[label]]
+                assert len(tdf) == len(fdf)
             # logger.info(
             #     "before scaling {} {} first {} last {}\n{}".format(
             #         base, self.features.mnemonic(), fdf.index[0], fdf.index[-1],
@@ -151,11 +156,11 @@ class TrainingData:
         tdf.index.set_names("idx", inplace=True)
         return (fdf, tdf)
 
-    def create_training_datasets(self):
+    def create_training_datasets(self, label: str = None):
         """ Loads target and feature data per base and stores data frames
             with all features and targets that is scaled and shuffled across bases.
         """
-        (fdf, tdf) = self.create_type_datasets(TRAIN)
+        (fdf, tdf) = self.create_type_datasets(TRAIN, label)
 
         ixl = np.arange(len(fdf))
         np.random.shuffle(ixl)  # shuffle training samples across bases
