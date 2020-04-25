@@ -38,7 +38,7 @@ import aggregated_features as agf
 import adaptation_data as ad
 # import performance_data as perfdat
 import prediction_data as preddat
-import perf_matrix as perfmat
+import perf_matrix_tf as perfmat
 
 """
 NUM_PARALLEL_EXEC_UNITS = 6
@@ -285,7 +285,7 @@ class Classifier(Predictor):
         super().__init__(bases, ohlcv, features, targets)
 
     def get_tf_data(self, fdf_tdf_list):
-        BUFFER_SIZE = 10000
+        # BUFFER_SIZE = 10000
         BATCH_SIZE = ad.TrainingData.training_batch_size()
 
         tf_data_list = list()
@@ -295,13 +295,14 @@ class Classifier(Predictor):
             tnp_cat = keras.utils.to_categorical(
                 target_df.values, num_classes=len(ct.TARGETS))
             ds = tf.data.Dataset.from_tensor_slices((feature_df.values, tnp_cat))
-            ds = ds.shuffle(BUFFER_SIZE).repeat()
+            # ds = ds.shuffle(BUFFER_SIZE).repeat()
+            ds = ds.repeat()
             tf_data_list.append(ds)
         llen = len(fdf_tdf_list)
         wl = [i/llen for i in range(llen)]
         resampled_ds = tf.data.experimental.sample_from_datasets(tf_data_list, weights=wl)
         resampled_ds = resampled_ds.batch(BATCH_SIZE).prefetch(2)
-        resampled_steps_per_epoch = np.ceil(llen * maxset / BATCH_SIZE)
+        resampled_steps_per_epoch = int(np.ceil(llen * maxset / BATCH_SIZE))
         return (resampled_steps_per_epoch, resampled_ds)
 
     def get_tf_data_set_type(self, set_type: str):
@@ -324,17 +325,21 @@ class Classifier(Predictor):
         """
         logger.debug(f"assess_performance {set_type}")
         start_time = timeit.default_timer()
-        pm = perfmat.PerfMatrix(epoch, set_type)
+        # pm = perfmat.PerfMatrix(epoch, set_type)
         pred = preddat.PredictionData(self)
+        perf, conf = perfmat.assess_prediction_np(None, None, None)  # get zero matrix
         for base, odf, fdf, tdf in ad.AssessmentGenerator(set_type, self.bases,
                                                           self.ohlcv, self.features, self.targets):
             pred_np = pred.predict_batch(base, fdf)
-            pm.assess_prediction_np(base, pred_np, odf, tdf)
+            bperf, bconf = perfmat.assess_prediction_np(pred_np, odf["close"].values, tdf["target"].values)
+            perfmat.report_assessment_np(bperf, bconf, f"{base} {set_type}")
+            perf = perf.assign_add(bperf)
+            conf = conf.assign_add(bconf)
 
-        pm.report_assessment_np()
+        perfmat.report_assessment_np(perf, conf, f"overall {set_type}")
         tdiff = (timeit.default_timer() - start_time) / 60
         logger.info(f"performance assessment set type {set_type} time: {tdiff:.1f} min")
-        return pm.best_np()
+        return perfmat.best_np(perf)
 
     def adapt_keras(self):
 
@@ -389,12 +394,12 @@ class Classifier(Predictor):
             model.summary(print_fn=logger.debug)
             out = self.kerasmodel.fit(
                     x=train_dataset,
-                    steps_per_epoch=len(train_steps),
+                    steps_per_epoch=train_steps,
                     epochs=50,
                     callbacks=callbacks,
                     verbose=2,
                     validation_data=eval_dataset,
-                    validation_steps=len(eval_steps),
+                    validation_steps=eval_steps,
                     # class_weight=None,
                     # max_queue_size=10,
                     workers=6,
@@ -446,7 +451,7 @@ if __name__ == "__main__":
         else:
             features = agf.AggregatedFeatures(ohlcv)
         for base in Env.bases:
-            classifier = Classifier([base], ohlcv, features, targets)
+            classifier = Classifier(Env.bases, ohlcv, features, targets)
             if True:
                 classifier.adapt_keras()
             else:
@@ -465,7 +470,7 @@ if __name__ == "__main__":
                 #     perf_df = perf.get_data(base, features_df.index[0], features_df.index[-1], use_cache=False)
                 #     perf.save_data(base, perf_df)
 
-                print("return new: ", classifier.assess_performance([base], ad.VAL))
+                print("return new: ", classifier.assess_performance(Env.bases, ad.VAL))
                 # print("return new: ", classifier.assess_performance(["xrp"], ad.VAL))
                 env.Tee.reset_path()
 

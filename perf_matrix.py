@@ -1,9 +1,11 @@
+# import os
 # import timeit
 import numpy as np
 import pandas as pd
 import logging
 # import cached_crypto_data as ccd
 import crypto_targets as ct
+import adaptation_data as ad
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +18,6 @@ class PerfMatrix:
 
         self.epoch = epoch
         self.set_type = set_type
-        self.BUY = ct.TARGETS[ct.BUY]
-        self.SELL = ct.TARGETS[ct.SELL]
-        self.HOLD = ct.TARGETS[ct.HOLD]
         self.track = [self.PERF, self.COUNT, self.BUY_IX, self.BUY_PRICE] = [ix for ix in range(4)]
         self.btl = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]  # buy thresholds
         self.stl = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]  # sell thresholds
@@ -55,15 +54,14 @@ class PerfMatrix:
                         self.perf[bt, st, self.BUY_PRICE] = close_arr[sample]
                         self.perf[bt, st, self.BUY_IX] = sample
 
-    def _close_open_transactions_np(self, base, close_df, target_df):
+    def _close_open_transactions_np(self, base, close_arr, last_ix):
         """ only corrects the performance calculation but not the confusion matrix
         """
-        close_arr = close_df["close"].values
         for bt in range(len(self.btl)):
             for st in range(len(self.stl)):
                 buy_price = self.perf[bt, st, self.BUY_PRICE]
                 if buy_price > 0:
-                    if self.perf[bt, st, self.BUY_IX] == (len(target_df) - 1):
+                    if self.perf[bt, st, self.BUY_IX] == last_ix:
                         # last transaction was opened by last sample --> revert transaction
                         self.perf[bt, st, self.BUY_PRICE] = 0
                     else:
@@ -77,7 +75,7 @@ class PerfMatrix:
                         self.base_perf[base][bt, st, self.PERF] += transaction_perf
                         self.base_perf[base][bt, st, self.COUNT] += 1
 
-    def assess_prediction_np(self, base: str, pred_np, close_df, target_df):
+    def assess_prediction_np(self, base: str, pred_np, close_arr, target_arr):
         """ Assesses the performance with different buy/sell thresholds. This method can be called multiple times,
             which accumulates the performance results in the class attributes 'perf' and 'conf'
 
@@ -87,11 +85,9 @@ class PerfMatrix:
             - target_df is a data frame with a 'target' column containing the target class index
         """
         pred_cnt = len(pred_np)
-        close_arr = close_df["close"].values
-        target_arr = target_df["target"].values
-        BUY = self.BUY
-        SELL = self.SELL
-        HOLD = self.HOLD
+        BUY = ct.TARGETS[ct.BUY]
+        SELL = ct.TARGETS[ct.SELL]
+        HOLD = ct.TARGETS[ct.HOLD]
         if base not in self.base_perf:
             self.base_perf[base] = np.zeros((len(self.btl), len(self.stl), len(self.track)))
         for sample in range(pred_cnt):
@@ -114,7 +110,7 @@ class PerfMatrix:
                 else:
                     # HOLD
                     self.conf[target_arr[sample], HOLD] += 1
-        self._close_open_transactions_np(base, close_df, target_df)
+        self._close_open_transactions_np(base, close_arr, pred_cnt-1)
 
     def best_np(self):
         bp = -999999.9
@@ -155,9 +151,19 @@ class PerfMatrix:
 
 
 if __name__ == "__main__":
-    track = [PERF, COUNT, BUY_IX, BUY_PRICE] = [ix for ix in range(4)]
-    print(track)
-    btl = [0.61, 0.7]
-    stl = [0.5, 0.6]
-    x = [(bt, st) for bt in btl for st in stl]
-    print(f"bt/st {x}")
+    df = pd.DataFrame(
+        data={"close": [100,  90, 100,  99,  90,  91, 120, 121, 130, 129, 110, 111, 100,  99, 110, 120, 125.0],
+              "target": [00,   0,   1,   0,   0,   2,   1,   0,   0,   0,   2,   1,   0,   0,  1,    1,   1],
+              ct.HOLD: [0.0, 0.3, 0.4, 0.7, 0.3, 0.4, 0.4, 0.7, 0.3, 0.5, 0.2, 0.4, 0.2, 0.6, 0.1, 0.0, 0.0],
+              ct.BUY:  [0.0, 0.1, 0.6, 0.1, 0.0, 0.0, 0.6, 0.0, 0.7, 0.1, 0.0, 0.0, 0.0, 0.0, 0.8, 0.9, 0.8],
+              ct.SELL: [0.0, 0.6, 0.0, 0.0, 0.7, 0.2, 0.0, 0.2, 0.0, 0.0, 0.8, 0.3, 0.4, 0.2, 0.1, 0.1, 0.2]},
+        columns=["close", "target", ct.HOLD, ct.BUY, ct.SELL],  # , "sell_ix", "sell_price", "perf"],
+        index=pd.date_range('2012-10-08 18:15:05', periods=17, freq='T'))
+    # print(f"inital \n {df.head(18)}")
+    pred_df = df.loc[:, [ct.HOLD, ct.BUY, ct.SELL]]
+    # print(f"inital \n {pred_df.head(18)}")
+    pm = PerfMatrix(1, ad.VAL)
+    pm.assess_prediction_np("test", pred_df.values, df["close"].values, df["target"].values)
+
+    # pm.report_assessment_np()
+    print(pm.perf)

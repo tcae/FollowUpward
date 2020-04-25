@@ -278,8 +278,8 @@ class Tee(object):
 
     @classmethod
     def init_tee(cls, log_prefix="Log"):
-        cls.stderr = sys.stderr
-        sys.stderr = Tee  # intercept stderr messages in write method
+        # cls.stderr = sys.stderr
+        # sys.stderr = Tee  # intercept stderr messages in write method
 
         fname = f"{Env.model_path}{log_prefix}_{timestr()}.csv"
         cls.logger = logging.getLogger()

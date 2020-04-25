@@ -118,6 +118,7 @@ class TrainingData:
         for base in self.bases:
             _, fdf, tdf = SplitSets.set_type_data(base, set_type, None, self.features, self.targets)
             if label is not None:
+                [fdf, tdf] = ccd.common_timerange([fdf, tdf])
                 fdf = fdf.loc[tdf.target == ct.TARGETS[label]]
                 tdf = tdf.loc[tdf.target == ct.TARGETS[label]]
                 assert len(tdf) == len(fdf)
