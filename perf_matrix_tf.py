@@ -9,163 +9,183 @@ import crypto_targets as ct
 import tensorflow as tf
 
 logger = logging.getLogger(__name__)
-tf.config.experimental_run_functions_eagerly(True)
+# tf.config.experimental_run_functions_eagerly(True)
 
 
-def _process_sell(close_arr, sample, pred_sell, perf, btl, stl):
-    """ process sell signal without confusion matrix update
+class PerfMatrix:
+    """Evaluates the performance across a range of buy/sell thresholds
     """
-    (PERF, COUNT, BUY_IX, BUY_PRICE) = (ix for ix in range(4))
-    for st in range(len(stl)):
-        if pred_sell >= stl[st]:
-            for bt in range(len(btl)):
-                buy_price = perf[bt, st, BUY_PRICE]
-                if buy_price > 0:
-                    # add here the transaction tracking shall be inserted
-                    transaction_perf = \
-                        (close_arr[sample] * (1 - ct.FEE) - buy_price * (1 + ct.FEE)) \
-                        / buy_price * (1 + ct.FEE)
-                    perf = perf.scatter_nd_update([[bt, st, BUY_PRICE]], [0])
-                    perf = perf.scatter_nd_add([[bt, st, PERF], [bt, st, COUNT]], [transaction_perf, 1])
-    return perf
 
+    def __init__(self):
+        self.PERF = tf.constant(0, dtype=tf.int32)
+        self.COUNT = tf.constant(1, dtype=tf.int32)
+        self.BUY_IX = self.BT_IX = tf.constant(2, dtype=tf.int32)
+        self.BUY_PRICE = self.ST_IX = tf.constant(3, dtype=tf.int32)
+        track = [self.PERF, self.COUNT, self.BUY_IX, self.BUY_PRICE]
+        self.btl = tf.constant([0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9], dtype=tf.float64)  # buy thresholds
+        self.stl = tf.constant([0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9], dtype=tf.float64)  # buy thresholds
+        self.perf = tf.Variable(tf.zeros((len(self.btl), len(self.stl), len(track)), dtype=tf.float64))
+        # self.perf = overall performance array
+        self.conf = tf.Variable(tf.zeros((len(ct.TARGETS), len(ct.TARGETS)), dtype=tf.float64))
 
-def _process_buy(close_arr, sample, pred_buy, perf, btl, stl):
-    """ process sell signal without confusion matrix update
-    """
-    (PERF, COUNT, BUY_IX, BUY_PRICE) = (ix for ix in range(4))
-    for bt in range(len(btl)):
-        if pred_buy >= btl[bt]:
-            for st in range(len(stl)):
-                if perf[bt, st, BUY_PRICE] == 0:
-                    # first buy of a possible sequence of multiple buys before sell
-                    perf = perf.scatter_nd_update(
-                        [[bt, st, BUY_PRICE], [bt, st, BUY_IX]], [close_arr[sample], sample])
-    return perf
+        self.close_arr = None
+        self.target_arr = None
+        self.pred_np = None
 
+    def sell_transaction(self, sample, btix, stix, buy_price):
+        # logger.debug(f"sample {sample}, btix {btix}, stix {stix}, buy_price {buy_price}")
+        transaction_perf = (self.close_arr[sample] * (1 - ct.FEE) - buy_price * (1 + ct.FEE)) / buy_price * (1 + ct.FEE)
+        self.perf = tf.tensor_scatter_nd_update(self.perf, [[btix, stix, self.BUY_PRICE]], [0])
+        self.perf = tf.tensor_scatter_nd_add(
+            self.perf, [[btix, stix, self.PERF], [btix, stix, self.COUNT]], [transaction_perf, 1])
 
-def _close_open_transactions_np(close_arr, last_ix, perf, btl, stl):
-    """ only corrects the performance calculation but not the confusion matrix
-    """
-    (PERF, COUNT, BUY_IX, BUY_PRICE) = (ix for ix in range(4))
-    for bt in range(len(btl)):
-        for st in range(len(stl)):
-            buy_price = perf[bt, st, BUY_PRICE]
-            if buy_price > 0:
-                if perf[bt, st, BUY_IX] == last_ix:
-                    # last transaction was opened by last sample --> revert transaction
-                    perf = perf.scatter_nd_update([[bt, st, BUY_PRICE]], [0])
-                else:
-                    # last transaction was opened before last sample --> close with sell
-                    # add here the transaction tracking
-                    transaction_perf = \
-                        (close_arr[-1] * (1 - ct.FEE) - buy_price * (1 + ct.FEE)) / buy_price * (1 + ct.FEE)
-                    perf = perf.scatter_nd_update([[bt, st, BUY_PRICE]], [0])
-                    perf = perf.scatter_nd_add([[bt, st, PERF], [bt, st, COUNT]], [transaction_perf, 1])
-    return perf
+    def sell_ge_threshold(self, sample, stix):
+        # logger.debug(f"sample {sample}, stix {stix}")
+        for btix in range(len(self.btl)):
+            buy_price = self.perf[btix, stix, self.BUY_PRICE]
+            tf.cond((buy_price > 0),
+                    lambda: self.sell_transaction(sample, btix, stix, buy_price),
+                    lambda: None)
 
+    def sell(self, sample):
+        """ process sell signal without confusion matrix update
+        """
+        # logger.debug(f"sample {sample}")
+        pred_sell = self.pred_np[sample, ct.TARGETS[ct.SELL]]
+        for stix in range(len(self.stl)):
+            tf.cond((pred_sell >= self.stl[stix]),
+                    lambda: self.sell_ge_threshold(sample, stix),
+                    lambda: None)
+        self.conf = tf.tensor_scatter_nd_add(self.conf, [[self.target_arr[sample], ct.TARGETS[ct.SELL]]], [1])
 
-@tf.function
-def assess_prediction_np(pred_np, close_arr, target_arr):
-    """ Assesses the performance with different buy/sell thresholds. This method can be called multiple times,
-        which accumulates the performance results in the class attributes 'perf' and 'conf'
+    def hold(self, sample):
+        # logger.debug(f"sample {sample}")
+        self.conf = tf.tensor_scatter_nd_add(self.conf, [[self.target_arr[sample], ct.TARGETS[ct.HOLD]]], [1])
 
-        - pred_np is a tensor with numpy data returning the predictions per class
-            with class index == ct.TARGETS[BUY|SELL|HOLD]
-        - close_df is a data frame with a 'close' column containing close prices
-        - target_df is a data frame with a 'target' column containing the target class index
-    """
-    elems = 4
-    (PERF, COUNT, BUY_IX, BUY_PRICE) = (ix for ix in range(elems))
-    btl = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)  # buy thresholds
-    stl = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)  # sell thresholds
-    perf = tf.Variable(tf.zeros((len(btl), len(stl), elems), dtype=tf.float32))  # overall performace array
-    conf = tf.Variable(tf.zeros((len(ct.TARGETS), len(ct.TARGETS)), dtype=tf.float32))
-    # conf = (target, actual) confusion matrix
+    def sell_ge_buy(self, sample, pred_sell, pred_hold):
+        # logger.debug(f"pred_sell {pred_sell}, pred_hold: {pred_hold}, sample: {sample}")
+        tf.cond((pred_sell >= pred_hold),
+                lambda: self.sell(sample),
+                lambda: self.hold(sample))
 
-    if (pred_np is None) or (close_arr is None) or (target_arr is None):
-        return (perf, conf)
+    def revert_buy_transaction(self, btix, stix):
+        # logger.debug(f"btix {btix}, stix {stix}")
+        self.perf = tf.tensor_scatter_nd_update(self.perf, [[btix, stix, self.BUY_PRICE]], [0])
 
-    pred_cnt = len(pred_np)
-    BUY = ct.TARGETS[ct.BUY]
-    SELL = ct.TARGETS[ct.SELL]
-    HOLD = ct.TARGETS[ct.HOLD]
-    for sample in range(pred_cnt):
-        pred_sell = pred_np[sample, SELL]
-        pred_buy = pred_np[sample, BUY]
-        pred_hold = pred_np[sample, HOLD]
-        if pred_sell >= pred_buy:
-            if pred_sell >= pred_hold:
-                # SELL
-                perf = _process_sell(close_arr, sample, pred_sell, perf, btl, stl)
-                conf = conf.scatter_nd_add([[target_arr[sample], SELL]], [1])
-            else:
-                # HOLD
-                conf = conf.scatter_nd_add([[target_arr[sample], HOLD]], [1])
-        else:  # SELL < HOLD
-            if pred_buy >= pred_hold:
-                # BUY
-                perf = _process_buy(close_arr, sample, pred_buy, perf, btl, stl)
-                conf = conf.scatter_nd_add([[target_arr[sample], BUY]], [1])
-            else:
-                # HOLD
-                conf = conf.scatter_nd_add([[target_arr[sample], HOLD]], [1])
-    perf = _close_open_transactions_np(close_arr, pred_cnt-1, perf, btl, stl)
-    # reuse BUY_IX, BUY_PRICE fields for bt and st
-    BT_IX = BUY_IX
-    ST_IX = BUY_PRICE
-    for bt in range(len(btl)):
-        for st in range(len(stl)):
-            perf = perf[bt, st, BT_IX].assign(btl[bt])
-            perf = perf[bt, st, ST_IX].assign(stl[st])
+    def check_open_buy(self, last_sample, btix, stix, buy_price):
+        # logger.debug(f"last_sample {last_sample}, btix {btix}, stix {stix}, buy_price {buy_price}")
+        tf.cond((self.perf[btix, stix, self.BUY_IX] == last_sample),
+                lambda: self.revert_buy_transaction(btix, stix),
+                lambda: self.sell_transaction(last_sample, btix, stix, buy_price))
 
-    return (perf, conf)
+    def buy_transaction(self, sample, btix, stix):
+        # first buy of a possible sequence of multiple buys before sell
+        # logger.debug(f"sample {sample}, btix {btix}, stix {stix}")
+        self.perf = tf.tensor_scatter_nd_update(
+            self.perf, [[btix, stix, self.BUY_PRICE], [btix, stix, self.BUY_IX]], [self.close_arr[sample], sample])
 
+    def buy_ge_threshold(self, sample, btix):
+        # logger.debug(f"sample {sample}, btix {btix}")
+        for stix in range(len(self.stl)):
+            tf.cond((self.perf[btix, stix, self.BUY_PRICE] == 0),
+                    lambda: self.buy_transaction(sample,
+                    btix, stix),
+                    lambda: None)
 
-def best_np(perf):
-    (PERF, COUNT, BT_IX, ST_IX) = (ix for ix in range(4))
-    bp = -999999.9
-    bc = bbt = bst = 0
-    btlen, stlen, _ = perf.shape
-    for bt in range(btlen):
-        for st in range(stlen):
-            if perf[bt, st, PERF] > bp:
-                (bp, bc, bbt, bst) = \
-                    (float(perf[bt, st, PERF]), int(perf[bt, st, COUNT]),
-                     float(perf[bt, st, BT_IX]), float(perf[bt, st, ST_IX]))
-    return (bp, bbt, bst, int(bc))
+    def buy(self, sample):
+        """ process sell signal without confusion matrix update
+        """
+        # logger.debug(f"sample {sample}")
+        pred_buy = self.pred_np[sample, ct.TARGETS[ct.BUY]]
+        for btix in range(len(self.btl)):
+            tf.cond((pred_buy >= self.btl[btix]),
+                    lambda: self.buy_ge_threshold(sample, btix),
+                    lambda: None)
+        self.conf = tf.tensor_scatter_nd_add(self.conf, [[self.target_arr[sample], ct.TARGETS[ct.BUY]]], [1])
 
+    def sell_lt_buy(self, sample, pred_buy, pred_hold):
+        # logger.debug(f"pred_buy {pred_buy}, pred_hold: {pred_hold}, sample: {sample}")
+        tf.cond((pred_buy >= pred_hold),
+                lambda: self.buy(sample),
+                lambda: self.hold(sample))
 
-def _prep_perf_mat(perf_np):
-    (PERF, COUNT, BT_IX, ST_IX) = (ix for ix in range(4))
-    btlen, stlen, _ = perf_np.shape
-    btl = [float(perf_np[bt, 0, BT_IX]) for bt in range(btlen)]
-    stl = [float(perf_np[0, st, ST_IX]) for st in range(stlen)]
-    perf_mat = pd.DataFrame(index=btl, columns=pd.MultiIndex.from_product([stl, ["perf", "count"]]))
-    perf_mat.index.rename("bt", inplace=True)
-    perf_mat.columns.rename(["st", "kpi"], inplace=True)
-    for bt in range(btlen):
-        for st in range(stlen):
-            perf_mat.loc[btl[bt], (stl[st], "perf")] = "{:>5.0%}".format(float(perf_np[bt, st, PERF]))
-            perf_mat.loc[btl[bt], (stl[st], "count")] = int(perf_np[bt, st, COUNT])
-    return perf_mat
+    @tf.function
+    def _assess_prediction_np(self):
+        """ Assesses the performance with different buy/sell thresholds. This method can be called multiple times,
+            which accumulates the performance results in the class attributes 'perf' and 'conf'
 
+            - pred_np is a tensor with numpy data returning the predictions per class
+                with class index == ct.TARGETS[BUY|SELL|HOLD]
+            - close_df is a data frame with a 'close' column containing close prices
+            - target_df is a data frame with a 'target' column containing the target class index
+        """
+        pred_cnt, _ = self.pred_np.shape
+        for sample in range(pred_cnt):
+            pred_sell = self.pred_np[sample, ct.TARGETS[ct.SELL]]
+            pred_buy = self.pred_np[sample, ct.TARGETS[ct.BUY]]
+            pred_hold = self.pred_np[sample, ct.TARGETS[ct.HOLD]]
+            tf.cond((pred_sell >= pred_buy),
+                    lambda: self.sell_ge_buy(sample, pred_sell, pred_hold),
+                    lambda: self.sell_lt_buy(sample, pred_buy, pred_hold))
 
-def report_assessment_np(perf, conf, name):
-    (PERF, COUNT, BT, ST) = (ix for ix in range(4))
-    conf_mat = pd.DataFrame(index=ct.TARGETS.keys(), columns=ct.TARGETS.keys(), dtype=int)
-    conf_mat.index.rename("target", inplace=True)
-    conf_mat.columns.rename("actual", inplace=True)
-    for target_label in ct.TARGETS:
-        for actual_label in ct.TARGETS:
-            conf_mat.loc[target_label, actual_label] = \
-                int(conf[ct.TARGETS[target_label], ct.TARGETS[actual_label]])
-    # logger.info(f"confusion matrix np: \n{conf}")
-    logger.info(f"{name} confusion matrix overall: \n{conf_mat}")
-    (bp, bbt, bst, bc) = best_np(perf)
-    logger. info(f"best {name} performance overall {bp:>5.0%} at bt/st {bbt}/{bst} with {bc} transactions")
-    # logger.info(f"performance matrix np: \n{perf}")
-    logger.info(f"{name} performance matrix overall: \n{_prep_perf_mat(perf)}")
+        for btix in range(len(self.btl)):
+            for stix in range(len(self.stl)):
+                buy_price = self.perf[btix, stix, self.BUY_PRICE]
+                tf.cond((buy_price > 0),
+                        lambda: self.check_open_buy(pred_cnt-1, btix, stix, buy_price),
+                        lambda: None)
+
+        for btix in range(len(self.btl)):
+            for stix in range(len(self.stl)):
+                self.perf = tf.tensor_scatter_nd_update(self.perf, [[btix, stix, self.BT_IX]], [self.btl[btix]])
+                self.perf = tf.tensor_scatter_nd_update(self.perf, [[btix, stix, self.ST_IX]], [self.stl[stix]])
+
+    def assess_prediction_np(self, pred_np, close_arr, target_arr, perf, conf):
+        self.close_arr = tf.constant(close_arr)
+        self.target_arr = tf.constant(target_arr)
+        self.pred_np = tf.constant(pred_np)
+        self._assess_prediction_np()
+        return self.perf, self.conf
+
+    def best_np(self, perf):
+        bp = -999999.9
+        bc = bbt = bst = 0
+        btlen, stlen, _ = perf.shape
+        for btix in range(btlen):
+            for stix in range(stlen):
+                if perf[btix, stix, self.PERF] > bp:
+                    (bp, bc, bbt, bst) = \
+                        (float(perf[btix, stix, self.PERF]), int(perf[btix, stix, self.COUNT]),
+                         float(perf[btix, stix, self.BT_IX]), float(perf[btix, stix, self.ST_IX]))
+        return (bp, bbt, bst, int(bc))
+
+    def _prep_perf_mat(self, perf_np):
+        btlen, stlen, _ = perf_np.shape
+        btl = [float(perf_np[btix, 0, self.BT_IX]) for btix in range(btlen)]
+        stl = [float(perf_np[0, stix, self.ST_IX]) for stix in range(stlen)]
+        perf_mat = pd.DataFrame(index=btl, columns=pd.MultiIndex.from_product([stl, ["perf", "count"]]))
+        perf_mat.index.rename("btix", inplace=True)
+        perf_mat.columns.rename(["stix", "kpi"], inplace=True)
+        for btix in range(btlen):
+            for stix in range(stlen):
+                perf_mat.loc[btl[btix], (stl[stix], "perf")] = "{:>5.0%}".format(float(perf_np[btix, stix, self.PERF]))
+                perf_mat.loc[btl[btix], (stl[stix], "count")] = int(perf_np[btix, stix, self.COUNT])
+        return perf_mat
+
+    def report_assessment_np(self, perf, conf, name):
+        conf_mat = pd.DataFrame(index=ct.TARGETS.keys(), columns=ct.TARGETS.keys(), dtype=int)
+        conf_mat.index.rename("target", inplace=True)
+        conf_mat.columns.rename("actual", inplace=True)
+        for target_label in ct.TARGETS:
+            for actual_label in ct.TARGETS:
+                conf_mat.loc[target_label, actual_label] = \
+                    int(conf[ct.TARGETS[target_label], ct.TARGETS[actual_label]])
+        # logger.info(f"confusion matrix np: \n{conf}")
+        logger.info(f"{name} confusion matrix overall: \n{conf_mat}")
+        (bp, bbt, bst, bc) = self.best_np(perf)
+        logger. info(f"best {name} performance overall {bp:>5.0%} at bt/st {bbt}/{bst} with {bc} transactions")
+        # logger.info(f"performance matrix np: \n{perf}")
+        logger.info(f"{name} performance matrix overall: \n{self._prep_perf_mat(perf)}")
 
 
 @tf.function
@@ -191,9 +211,12 @@ if __name__ == "__main__":
     # print(f"inital \n {df.head(18)}")
     pred_df = df.loc[:, [ct.HOLD, ct.BUY, ct.SELL]]
     # print(f"inital \n {pred_df.head(18)}")
-    perf, conf = assess_prediction_np(pred_df.values, df["close"].values, df["target"].values)
 
-    report_assessment_np(perf, conf, "test")
+    pm = PerfMatrix()
+    (perf, conf) = pm.assess_prediction_np(
+        pred_df.values, df["close"].values, df["target"].values, pm.perf, pm.conf)
+
+    pm.report_assessment_np(perf, conf, "test")
     print(perf, conf)
 
     # W = tf.Variable(tf.ones(shape=(2, 2)), name="W")

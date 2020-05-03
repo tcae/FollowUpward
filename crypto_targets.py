@@ -5,6 +5,7 @@ from sklearn.utils import Bunch
 from env_config import Env
 import env_config as env
 import cached_crypto_data as ccd
+import condensed_features as cof
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +318,80 @@ class Gain10up5low30min(Targets):
     def keys(self):
         "returns the list of element keys"
         return ["gain"]
+
+
+class Target5up0low30minregr(Targets):
+
+    def __init__(self, ohlcv: ccd.Ohlcv, features):
+        self.features = features
+        super().__init__(ohlcv)
+
+    def target_dict(self):
+        """ Shall return a dict of target categories that can be used as columns for prediction data.
+            The dict values are the corresponding target values.
+        """
+        return TARGETS
+
+    def history(self):
+        """ Returns the number of history sample minutes
+            excluding the minute under consideration required to calculate a new sample data.
+        """
+        return 0
+
+    def mnemonic(self):
+        """
+            returns a string that represents this class as mnemonic, e.g. to use it in file names.
+            if classes share the same saved data but use different subsets then save_mnemonic for storage
+            may differ from mnemonic or specific subclass usage.
+        """
+        return "Target5up0low30minregr"
+
+    def keys(self):
+        "returns the list of element keys"
+        return ["target"]
+
+    def save_mnemonic(self):
+        """
+            returns a string that represents this class as mnemonic, e.g. to use it in file names.
+            if classes share the same saved data but use different subsets then save_mnemonic for storage
+            may differ from mnemonic or specific subclass usage.
+        """
+        return self.mnemonic()
+
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Downloads or calculates new data from 'first' sample up to and including 'last'.
+            This is the core method to be implemented by subclasses.
+        """
+        REGRLEN = 60 * 4  # 4h
+        PEAKREGRLEN = 30  # 30min
+        regr_last = last + pd.Timedelta(REGRLEN, unit="T")
+        fdf = self.features.get_data(base, first, regr_last)
+
+        tdf = pd.DataFrame(index=fdf.index[0:-REGRLEN], columns=["target", "mask", "at", "after30m", "after4h"])
+        tdf["after4h"] = fdf["gain4h"].shift(-REGRLEN)
+        tdf["after30m"] = fdf["gain30m"].shift(-PEAKREGRLEN)
+        tdf["at"] = fdf["gain30m"]
+
+        tdf["target"] = TARGETS[HOLD]  # defailt is HOLD
+
+        tdf["mask"] = (tdf["after4h"] < 0)
+        logger.debug(f"{base} tdf[after4h] < 0%\n {tdf['mask'].value_counts()}")
+        tdf.loc[tdf["mask"], "target"] = TARGETS[SELL]
+
+        tdf["mask"] = (tdf["after4h"] > 0.005)  # 0.5% gain in 4h
+        logger.debug(f"{base} tdf[after4h] > 0.5%\n {tdf['mask'].value_counts()}")
+        tdf.loc[tdf["mask"], "target"] = TARGETS[BUY]
+
+        # tdf["mask"] = (tdf["after30m"] < -0.01)  # -1% loss in 30min == strong sell
+        # logger.debug(f"{base} tdf[after30m] < -1%\n {tdf.mask.value_counts()}")
+        # tdf.loc[tdf["mask"], "target"] = TARGETS[SELL]
+
+        # tdf["mask"] = (tdf["after30m"] > 0.01)  # 1% gain in 30min == strong buy
+        # logger.debug(f"{base} tdf[after30m] > 1%\n {tdf.mask.value_counts()}")
+        # tdf.loc[tdf["mask"], "target"] = TARGETS[SELL]
+
+        tdf = tdf.loc[(tdf.index >= first) & (tdf.index <= last), self.keys()]
+        return tdf
 
 
 if __name__ == "__main__":

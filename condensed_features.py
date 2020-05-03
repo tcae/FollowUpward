@@ -7,7 +7,7 @@ import logging
 from env_config import Env
 import cached_crypto_data as ccd
 # import crypto_features as cf
-import crypto_targets as ct
+# import crypto_targets as ct
 from crypto_features import TargetsFeatures
 from sklearn.linear_model import LinearRegression
 
@@ -260,9 +260,9 @@ if __name__ == "__main__":
     for base in Env.usage.bases:
         tf = CondensedFeatures(base, path=Env.data_path)
         tfv = tf.calc_features_and_targets()
-        ct.report_setsize(f"{base} tf.minute_data", tf.minute_data)
-        ct.report_setsize(f"tf.vec {base} tf.vec", tf.vec)
-        ct.report_setsize(f"tfv {base} tf.vec", tfv)
+        # ct.report_setsize(f"{base} tf.minute_data", tf.minute_data)
+        # ct.report_setsize(f"tf.vec {base} tf.vec", tf.vec)
+        # ct.report_setsize(f"tfv {base} tf.vec", tfv)
 """
     if True:
         cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=HMWF+10)

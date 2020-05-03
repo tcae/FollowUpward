@@ -27,6 +27,24 @@ class SplitSets:
     sets_split = None
 
     @classmethod
+    def overall_timerange(cls):
+        """ Returns a data frame with 'start' and 'end' column of given set_type.
+        """
+        if cls.sets_split is None:
+            try:
+                cls.sets_split = pd.read_csv(env.sets_split_fname(), skipinitialspace=True, sep="\t",
+                                             parse_dates=["start", "end"])
+            except IOError:
+                logger.error(f"pd.read_csv({env.sets_split_fname()}) IO error")
+                return None
+            # logger.debug(str(cls.sets_split))
+
+        first = cls.sets_split.start.min()
+        last = cls.sets_split.end.max()
+        logger.debug(f"split set time overall start {first} - end {last}")
+        return (first, last)
+
+    @classmethod
     def set_type_datetime_ranges(cls, set_type: str):
         """ Returns a data frame with 'start' and 'end' column of given set_type.
         """
