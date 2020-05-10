@@ -5,7 +5,7 @@ from sklearn.utils import Bunch
 from env_config import Env
 import env_config as env
 import cached_crypto_data as ccd
-import condensed_features as cof
+# import condensed_features as cof
 
 logger = logging.getLogger(__name__)
 

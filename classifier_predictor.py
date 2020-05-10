@@ -38,7 +38,7 @@ import aggregated_features as agf
 import adaptation_data as ad
 # import performance_data as perfdat
 import prediction_data as preddat
-import perf_matrix_tf as perfmat
+import perf_matrix as perfmat
 
 """
 NUM_PARALLEL_EXEC_UNITS = 6
@@ -229,11 +229,13 @@ class EpochPerformance(keras.callbacks.Callback):
         super().__init__()
 
     def on_epoch_begin(self, epoch, logs=None):
-        # logger.debug(f"EpochPerformance: on_epoch_begin: {epoch}, logs: {logs}")
+        epoch += 1
+        logger.debug(f"EpochPerformance: on_epoch_begin: {epoch}, logs: {logs}")
         self.classifier.epoch = epoch
 
     def on_epoch_end(self, epoch, logs=None):
-        logger.info("epoch end ==> epoch: {} classifier config: {}".format(
+        epoch += 1
+        logger.info("start on_epoch_end ==> epoch: {} classifier config: {}".format(
             epoch, self.classifier.mnemonic_with_epoch()))
 
         logger.debug(f"on_epoch_end {ad.TRAIN}")
@@ -256,7 +258,7 @@ class EpochPerformance(keras.callbacks.Callback):
             self.classifier.kerasmodel.stop_training = True
             logger.info("Stop training due to missing val_perf improvement since {} epochs".format(
                   self.missing_improvements))
-        logger.info(f"on_epoch_end logs:{logs}")
+        logger.info(f"end on_epoch_end ==> epoch: {epoch} logs:{logs}")
 
 
 def next_MLP_iteration(params: dict, p_inst: dict, model, level):
@@ -299,7 +301,7 @@ class Classifier(Predictor):
             ds = ds.repeat()
             tf_data_list.append(ds)
         llen = len(fdf_tdf_list)
-        wl = [i/llen for i in range(llen)]
+        wl = [1/llen for _ in range(llen)]
         resampled_ds = tf.data.experimental.sample_from_datasets(tf_data_list, weights=wl)
         resampled_ds = resampled_ds.batch(BATCH_SIZE).prefetch(2)
         resampled_steps_per_epoch = int(np.ceil(llen * maxset / BATCH_SIZE))
@@ -307,13 +309,15 @@ class Classifier(Predictor):
 
     def get_tf_data_set_type(self, set_type: str):
         td = ad.TrainingData(self.bases, self.scaler, self.features, self.targets)
-        fdf_tdf_list = [td.create_type_datasets(set_type, lbl) for lbl in [ct.BUY, ct.HOLD, ct.SELL]]
+        # fdf_tdf_list = [td.create_type_datasets(set_type, lbl) for lbl in [ct.BUY, ct.HOLD, ct.SELL]]
+        fdf_tdf_list = [td.create_type_datasets(set_type, None)]
         return self.get_tf_data(fdf_tdf_list)
 
     def get_training_tf(self):
         # logger.debug("creating training batches")
         td = ad.TrainingData(self.bases, self.scaler, self.features, self.targets)
         fdf_tdf_list = [td.create_training_datasets(lbl) for lbl in [ct.BUY, ct.HOLD, ct.SELL]]
+        # samples are already shuffled - no need to shuffle by tf.data
         return self.get_tf_data(fdf_tdf_list)
 
     def assess_performance(self, bases: list, set_type, epoch=0):
@@ -325,21 +329,17 @@ class Classifier(Predictor):
         """
         logger.debug(f"assess_performance {set_type}")
         start_time = timeit.default_timer()
-        # pm = perfmat.PerfMatrix(epoch, set_type)
+        pm = perfmat.PerfMatrix(epoch, set_type)
         pred = preddat.PredictionData(self)
-        perf, conf = perfmat.assess_prediction_np(None, None, None)  # get zero matrix
         for base, odf, fdf, tdf in ad.AssessmentGenerator(set_type, self.bases,
                                                           self.ohlcv, self.features, self.targets):
             pred_np = pred.predict_batch(base, fdf)
-            bperf, bconf = perfmat.assess_prediction_np(pred_np, odf["close"].values, tdf["target"].values)
-            perfmat.report_assessment_np(bperf, bconf, f"{base} {set_type}")
-            perf = perf.assign_add(bperf)
-            conf = conf.assign_add(bconf)
+            pm.assess_prediction_np(base, pred_np, odf["close"].values, tdf["target"].values, odf.index.values)
 
-        perfmat.report_assessment_np(perf, conf, f"overall {set_type}")
+        pm.report_assessment_np()
         tdiff = (timeit.default_timer() - start_time) / 60
         logger.info(f"performance assessment set type {set_type} time: {tdiff:.1f} min")
-        return perfmat.best_np(perf)
+        return pm.best_np()
 
     def adapt_keras(self):
 
@@ -439,40 +439,51 @@ class Classifier(Predictor):
         logger.info(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
 
 
+def all_data_objs(ohlcv):
+    """ prevents 'import but unused' plint warnings
+    """
+    f3cond14 = cof.F3cond14(ohlcv)
+    return [ohlcv, f3cond14, agf.F1agg110(ohlcv), ct.Targets(ohlcv), ct.Target5up0low30minregr(ohlcv, f3cond14)]
+
+
 if __name__ == "__main__":
     # env.test_mode()
     start_time = timeit.default_timer()
     ohlcv = ccd.Ohlcv()
-    targets = ct.Target10up5low30min(ohlcv)
+
+    # bases = Env.bases
+    bases = ["btc"]
+
     try:
-
+        features = cof.F3cond14(ohlcv)
+        # features = agf.AggregatedFeatures(ohlcv)
+        targets = ct.Target10up5low30min(ohlcv)
+        # targets = ct.Target5up0low30minregr(ohlcv, features)
+        classifier = Classifier(bases, ohlcv, features, targets)
         if True:
-            features = cof.F3cond14(ohlcv)
+            classifier.adapt_keras()
         else:
-            features = agf.AggregatedFeatures(ohlcv)
-        for base in Env.bases:
-            classifier = Classifier(Env.bases, ohlcv, features, targets)
-            if True:
-                classifier.adapt_keras()
-            else:
-                # classifier = convert_cpc_classifier()
-                # classifier.load_classifier_file_collection(
-                #     "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
-                # ("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
-                classifier.load("MLP2_l1-9_do-0.2_l2-7_l3-no_opt-Adam__F3cond14__T10up5low30min", epoch=1)
-                env.Tee.set_path(classifier.path_without_epoch(), log_prefix="TrainEval")
-                # classifier.save()
-                # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
-                # perf = PerformanceData(PredictionData(classifier))
-                # for base in [base]:
-                #     features_df = features.load_data(base)
-                #     print(features_df.index[0], features_df.index[-1])
-                #     perf_df = perf.get_data(base, features_df.index[0], features_df.index[-1], use_cache=False)
-                #     perf.save_data(base, perf_df)
+            # classifier = convert_cpc_classifier()
+            # classifier.load_classifier_file_collection(
+            #     "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
+            # ("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
+            classifier.load(
+                "MLP2_2020-04-24_06h35m__base-trx_l1-14_do-0.2_l2-7_l3-no_opt-Adam__F3cond14__Target10up5low30min",
+                epoch=1)
+            classifier.adapt_scaler_training()
+            env.Tee.set_path(classifier.path_without_epoch(), log_prefix="TrainEval")
+            # classifier.save()
+            # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
+            # perf = PerformanceData(PredictionData(classifier))
+            # for base in [base]:
+            #     features_df = features.load_data(base)
+            #     print(features_df.index[0], features_df.index[-1])
+            #     perf_df = perf.get_data(base, features_df.index[0], features_df.index[-1], use_cache=False)
+            #     perf.save_data(base, perf_df)
 
-                print("return new: ", classifier.assess_performance(Env.bases, ad.VAL))
-                # print("return new: ", classifier.assess_performance(["xrp"], ad.VAL))
-                env.Tee.reset_path()
+            print("return new: ", classifier.assess_performance(bases, ad.VAL, epoch=1))
+            # print("return new: ", classifier.assess_performance(["xrp"], ad.VAL))
+            env.Tee.reset_path()
 
     except KeyboardInterrupt:
         logger.info("keyboard interrupt")
