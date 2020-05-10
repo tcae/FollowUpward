@@ -16,6 +16,7 @@ import condensed_features as cof
 import cached_crypto_data as ccd
 import indicators as ind
 import update_crypto_history as uch
+import classifier_predictor as cp
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 ohlcv_df_dict = None  # ohlcv minute data
 features = None
 targets = None
+classifier_set = None
 
 styles = {
     'pre': {
@@ -606,6 +608,11 @@ def target_list(base, start, end, bmd):
     colormap = {ct.TARGETS[ct.HOLD]: 0, ct.TARGETS[ct.BUY]: 1, ct.TARGETS[ct.SELL]: -1}
 
     target_dict = dict()
+    signals_df = classifier_set.predict_signals(base, start, end)
+    target_colors = [colormap[t] for t in signals_df["signal"]]
+    labels = [ct.TARGET_NAMES[t] for t in signals_df["signal"]]
+    target_dict["signals"] = {"targets": target_colors, "labels": labels}
+
     target_df = targets.get_data(base, start, end)
     # fstart = start - pd.Timedelta(features.history(), "T")
     # fdf = bmd.loc[(bmd.index >= fstart) & (bmd.index <= end)]
@@ -623,7 +630,7 @@ def target_list(base, start, end, bmd):
 
     target_colors = [colormap[t] for t in target_df["target"]]
     labels = [ct.TARGET_NAMES[t] for t in target_df["target"]]
-    target_dict["target1"] = {"targets": target_colors, "labels": labels}
+    target_dict["target"] = {"targets": target_colors, "labels": labels}
 
     # labels2 = [ct.TARGET_NAMES[t] for t in bmd["target2"]]
     # logger.debug(f"{len(labels1)}, {labels1}, {len(targets1)}, {targets1}")
@@ -688,7 +695,7 @@ def update_detail_graph_by_click(focus_json, base, indicators, json_end):
         graph_bases.append(
             go.Candlestick(x=nbmd.index, open=nbmd.open, high=nbmd.high, low=nbmd.low,
                            close=nbmd.close, yaxis='y',
-                           hoverinfo="x+y+z+text+name", text=target_dict["target1"]["labels"]))
+                           hoverinfo="x+y+z+text+name", text=target_dict["target"]["labels"]))
         graph_bases.append(target_heatmap(base, start, end, nbmd, target_dict))
     else:
         graph_bases.append(
@@ -738,6 +745,8 @@ def update_detail_graph_by_click(focus_json, base, indicators, json_end):
 # show targets in history views
 # show performance transaction start/stop in history view
 # visualize chance and risk features in 4h graph
+# detecting volume emerging new cryptos
+# KPI table of all focus cryptos (above liquidity criteria)
 if __name__ == '__main__':
     # load_crypto_data()
     # env.test_mode()
@@ -746,4 +755,5 @@ if __name__ == '__main__':
     features = cof.F3cond14(ohlcv)
     targets = ct.Target10up5low30min(ohlcv)
     ohlcv_df_dict = {base: ohlcv.load_data(base) for base in Env.bases}
+    classifier_set = cp.ClassifierSet()
     app.run_server(debug=True)

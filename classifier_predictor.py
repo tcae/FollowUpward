@@ -7,7 +7,7 @@ import env_config as env
 from env_config import Env
 
 import os
-# import pandas as pd
+import pandas as pd
 import numpy as np
 import timeit
 # import itertools
@@ -39,6 +39,7 @@ import adaptation_data as ad
 # import performance_data as perfdat
 import prediction_data as preddat
 import perf_matrix as perfmat
+# import update_crypto_history as uch
 
 """
 NUM_PARALLEL_EXEC_UNITS = 6
@@ -439,6 +440,85 @@ class Classifier(Predictor):
         logger.info(f"{env.timestr()} MLP adaptation time: {tdiff:.0f} min")
 
 
+class ClassifierSet():
+
+    def __init__(self):
+        super().__init__()
+        ohlcv = ccd.Ohlcv()
+        self.features = cof.F3cond14(ohlcv)
+        targets = ct.Target10up5low30min(ohlcv)
+        classifier = Classifier(Env.bases, ohlcv, self.features, targets)
+        classifier.load(
+            "MLP2_2020-04-24_06h35m__base-trx_l1-14_do-0.2_l2-7_l3-no_opt-Adam__F3cond14__Target10up5low30min",
+            epoch=1)
+        classifier.adapt_scaler_training()
+        self.baseclass = {base: classifier for base in Env.bases}
+
+    def predict_probs(self, base, first, last):
+        if base not in self.baseclass:
+            logger.warning(f"no classifier found for base {base}")
+            return None
+        clfr = self.baseclass[base]
+        pred = preddat.PredictionData(clfr)
+        fdf = self.features.get_data(base, first, last)
+        if (fdf is None) or fdf.empty:
+            logger.warning(f"no features for {base} between {first} and {last}")
+            return None
+        pred_np = pred.predict_batch(base, fdf)
+        pdf = pd.DataFrame(data=pred_np, index=fdf.index, columns=clfr.targets.target_dict().keys())
+        return pdf
+
+    def predict_signals(self, base, first, last, buy_threshold=0, sell_threshold=0):
+        if base not in self.baseclass:
+            logger.warning(f"no classifier found for base {base}")
+            return None
+        clfr = self.baseclass[base]
+        pred = preddat.PredictionData(clfr)
+        fdf = self.features.get_data(base, first, last)
+        if (fdf is None) or fdf.empty:
+            logger.warning(f"no features for {base} between {first} and {last}")
+            return None
+        pred_np = pred.predict_batch(base, fdf)
+        signals = np.zeros((len(fdf), 1), dtype=np.int32)  # by default all is 0 == HOLD
+        BUY = ct.TARGETS[ct.BUY]
+        SELL = ct.TARGETS[ct.SELL]
+        HOLD = ct.TARGETS[ct.HOLD]
+        signals[(pred_np[:, BUY] > pred_np[:, HOLD]) &
+                (pred_np[:, BUY] > pred_np[:, SELL]) &
+                (pred_np[:, BUY] > buy_threshold)] = BUY
+        signals[(pred_np[:, SELL] > pred_np[:, HOLD]) &
+                (pred_np[:, SELL] > pred_np[:, BUY]) &
+                (pred_np[:, SELL] > sell_threshold)] = SELL
+
+        pdf = pd.DataFrame(data=signals, index=fdf.index, columns=["signal"])
+        # ccd.dfdescribe("predict_signals", pdf)
+        return pdf
+
+    def predict_signals_test(self):
+        tdat = {"close": [100,  90, 100,  99,  90,  91, 120, 121, 130, 129, 110, 111, 100,  99, 110, 120, 125.0],
+                "target": [00,   0,   1,   0,   0,   2,   1,   0,   0,   0,   2,   1,   0,   0,  1,    1,   1],
+                ct.HOLD: [0.0, 0.3, 0.4, 0.7, 0.3, 0.4, 0.4, 0.7, 0.3, 0.5, 0.2, 0.4, 0.2, 0.6, 0.1, 0.0, 0.0],
+                ct.BUY:  [0.0, 0.1, 0.6, 0.1, 0.0, 0.0, 0.6, 0.0, 0.7, 0.1, 0.0, 0.0, 0.0, 0.0, 0.8, 0.9, 0.8],
+                ct.SELL: [0.0, 0.6, 0.0, 0.0, 0.7, 0.2, 0.0, 0.2, 0.0, 0.0, 0.8, 0.3, 0.4, 0.2, 0.1, 0.1, 0.2],
+                "times": [1,   2,   3,   4,   5,   6,   7,   8,   9,   10,  11,  12,  13,  14,  15,  16,  17]}
+        df = pd.DataFrame(
+            data=tdat,
+            index=pd.date_range('2012-10-08 18:15:05', periods=17, freq='T'))
+        pred_np = df.loc[:, [ct.HOLD, ct.BUY, ct.SELL]].values
+        print(f"inital \n {df.head(18)}")
+        print(f"pred_np \n {pred_np}")
+        signals = np.zeros((len(df), 1), dtype=np.int32)  # by default all is 0 == HOLD
+        BUY = ct.TARGETS[ct.BUY]
+        SELL = ct.TARGETS[ct.SELL]
+        HOLD = ct.TARGETS[ct.HOLD]
+        signals[(pred_np[BUY] > pred_np[HOLD]) &
+                (pred_np[BUY] > pred_np[SELL]) &
+                (pred_np[BUY] > 0)] = BUY
+        signals[(pred_np[SELL] > pred_np[HOLD]) &
+                (pred_np[SELL] > pred_np[BUY]) &
+                (pred_np[SELL] > 0)] = SELL
+
+
 def all_data_objs(ohlcv):
     """ prevents 'import but unused' plint warnings
     """
@@ -447,45 +527,48 @@ def all_data_objs(ohlcv):
 
 
 if __name__ == "__main__":
-    # env.test_mode()
-    start_time = timeit.default_timer()
-    ohlcv = ccd.Ohlcv()
+    cs = ClassifierSet()
+    cs.predict_signals_test()
+    if False:
+        # env.test_mode()
+        start_time = timeit.default_timer()
+        ohlcv = ccd.Ohlcv()
 
-    # bases = Env.bases
-    bases = ["btc"]
+        # bases = Env.bases
+        bases = ["btc"]
 
-    try:
-        features = cof.F3cond14(ohlcv)
-        # features = agf.AggregatedFeatures(ohlcv)
-        targets = ct.Target10up5low30min(ohlcv)
-        # targets = ct.Target5up0low30minregr(ohlcv, features)
-        classifier = Classifier(bases, ohlcv, features, targets)
-        if True:
-            classifier.adapt_keras()
-        else:
-            # classifier = convert_cpc_classifier()
-            # classifier.load_classifier_file_collection(
-            #     "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
-            # ("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
-            classifier.load(
-                "MLP2_2020-04-24_06h35m__base-trx_l1-14_do-0.2_l2-7_l3-no_opt-Adam__F3cond14__Target10up5low30min",
-                epoch=1)
-            classifier.adapt_scaler_training()
-            env.Tee.set_path(classifier.path_without_epoch(), log_prefix="TrainEval")
-            # classifier.save()
-            # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
-            # perf = PerformanceData(PredictionData(classifier))
-            # for base in [base]:
-            #     features_df = features.load_data(base)
-            #     print(features_df.index[0], features_df.index[-1])
-            #     perf_df = perf.get_data(base, features_df.index[0], features_df.index[-1], use_cache=False)
-            #     perf.save_data(base, perf_df)
+        try:
+            features = cof.F3cond14(ohlcv)
+            # features = agf.AggregatedFeatures(ohlcv)
+            targets = ct.Target10up5low30min(ohlcv)
+            # targets = ct.Target5up0low30minregr(ohlcv, features)
+            classifier = Classifier(bases, ohlcv, features, targets)
+            if True:
+                classifier.adapt_keras()
+            else:
+                # classifier = convert_cpc_classifier()
+                # classifier.load_classifier_file_collection(
+                #     "MLP2_epoch=15_talos_iter=3_l1=14_do=0.2_l2=16_l3=no_opt=Adam__F2cond20__T10up5low30min")
+                # ("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
+                classifier.load(
+                    "MLP2_2020-04-24_06h35m__base-trx_l1-14_do-0.2_l2-7_l3-no_opt-Adam__F3cond14__Target10up5low30min",
+                    epoch=1)
+                classifier.adapt_scaler_training()
+                env.Tee.set_path(classifier.path_without_epoch(), log_prefix="TrainEval")
+                # classifier.save()
+                # MLP2_epoch=0_talos_iter=0_l1=16_do=0.2_h=19_no=l3_opt=optAdam__F2cond20__T10up5low30min_0")
+                # perf = PerformanceData(PredictionData(classifier))
+                # for base in [base]:
+                #     features_df = features.load_data(base)
+                #     print(features_df.index[0], features_df.index[-1])
+                #     perf_df = perf.get_data(base, features_df.index[0], features_df.index[-1], use_cache=False)
+                #     perf.save_data(base, perf_df)
 
-            print("return new: ", classifier.assess_performance(bases, ad.VAL, epoch=1))
-            # print("return new: ", classifier.assess_performance(["xrp"], ad.VAL))
-            env.Tee.reset_path()
+                print("return new: ", classifier.assess_performance(bases, ad.VAL, epoch=1))
+                # print("return new: ", classifier.assess_performance(["xrp"], ad.VAL))
+                env.Tee.reset_path()
 
-    except KeyboardInterrupt:
-        logger.info("keyboard interrupt")
-    tdiff = (timeit.default_timer() - start_time) / 60
-    logger.info(f"total script time: {tdiff:.0f} min")
+        except KeyboardInterrupt:
+            logger.info("keyboard interrupt")
+        tdiff = (timeit.default_timer() - start_time) / 60
+        logger.info(f"total script time: {tdiff:.0f} min")
