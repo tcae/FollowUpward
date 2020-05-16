@@ -17,6 +17,8 @@ import cached_crypto_data as ccd
 import indicators as ind
 import update_crypto_history as uch
 import classifier_predictor as cp
+from dateutil.tz import tzlocal
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -154,10 +156,10 @@ def set_focus_time(click_all, click_6month, click_10day, click_1day, click_4h, u
     if not ctx.triggered:
         trigger = 'No Id'
     else:
-        # print(f"triggered: {ctx.triggered[0]}")
+        # logger.debug(f"triggered: {ctx.triggered[0]}")
         trigger = ctx.triggered[0]['prop_id'].split('.')[0]
 
-    print(f"trigger: {trigger}")
+    logger.debug(f"trigger: {trigger}")
 
     if (update_data_click is not None) and (trigger == "update_data"):
         # for base in ohlcv_df_dict.keys():
@@ -219,17 +221,15 @@ def set_focus_time(click_all, click_6month, click_10day, click_1day, click_4h, u
         focus = click_data['points'][0]['x']
     else:
         focus = None
-    # focus = focus.tz_localize(None)
-    # print(f"{focus}, {focus_is_end}")
-    # return json.dumps((focus.timestamp(), focus_is_end))
     return json.dumps((focus, focus_is_end))
 
 
 @app.callback(
     dash.dependencies.Output('graph_all', 'figure'),
     [dash.dependencies.Input('focus', 'children'),
-     dash.dependencies.Input('crypto_select', 'value')])
-def update_graph(focus_json, bases):
+     dash.dependencies.Input('crypto_select', 'value'),
+     dash.dependencies.Input('crypto_radio', 'value')])
+def update_graph(focus_json, bases, base_radio):
     graph_bases = []
     (focus, _, focus_is_end) = get_end_focus(focus_json, None)
     if ('graph_all' in focus_is_end) and (not focus_is_end['graph_all']) and (focus is not None):
@@ -238,19 +238,22 @@ def update_graph(focus_json, bases):
         graph_bases.append(
             dict(x=[x1, x2, x2, x1, x1], y=[0, 0, 1, 1, 0],
                  mode='lines', yaxis='y', fill='tonexty', color="lightblue"))
-    if bases is not None:
-        for base in bases:
-            # df_check(ohlcv_df_dict[base], None)
-            bmd = ohlcv_df_dict[base].resample("D").agg({"close": "first"})  # bmd == base minute data
-            # bmd = ohlcv_df_dict[base].resample("D").agg({"open": "first", "close": "last", "high": "max",
-            #                                     "low": "min", "volume": "sum"})
-            bmd = bmd/bmd.max()  # normalize
-            graph_bases.append(dict(
-                x=bmd.index,
-                y=bmd["close"],
-                mode='lines',  # 'lines+markers'
-                name=base
-            ))
+    if bases is None:
+        bases = []
+    if base_radio not in bases:
+        bases.append(base_radio)
+    for base in bases:
+        # df_check(ohlcv_df_dict[base], None)
+        bmd = ohlcv_df_dict[base].resample("D").agg({"close": "first"})  # bmd == base minute data
+        # bmd = ohlcv_df_dict[base].resample("D").agg({"open": "first", "close": "last", "high": "max",
+        #                                     "low": "min", "volume": "sum"})
+        bmd = bmd/bmd.max()  # normalize
+        graph_bases.append(dict(
+            x=bmd.index,
+            y=bmd["close"],
+            mode='lines',  # 'lines+markers'
+            name=base
+        ))
     return {
         'data': graph_bases,
         'layout': {
@@ -327,6 +330,7 @@ def normalize_close(bmd, start, end, aggregation):
     bmd = bmd.loc[(bmd.index >= start) & (bmd.index <= end)]
     if aggregation != "T":
         bmd = bmd.resample(aggregation).agg({"close": "first"})
+
     if (bmd is not None) and (len(bmd) > 0):
         normfactor = bmd.iloc[0].close
         bmd = bmd.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
@@ -407,13 +411,15 @@ def show_condensed_features(base, start, time):
 
     start = max(start, regr_start)
     for (regr_only, offset, minutes, ext) in cof.REGRESSION_KPI:
-        time_regr_y = float(bf_df["price"+ext])
+        # time_regr_y = float(bf_df["price"+ext])
         gain = float(bf_df["gain"+ext])
         line_end = time - pd.Timedelta(offset, "T")
         line_start = line_end - pd.Timedelta(minutes-1, "T")
         line_start = max(line_start, start)
+        time_cur_y = float(red_bmdc.loc[line_end, "close"])
         legendname = "{}: d/h = {:4.3f}".format(ext, gain)
-        yield straigt_line(line_start, line_end, time_regr_y, gain, legendname)
+        # print(f"straigt_line({line_start}, {line_end}, {time_cur_y}, {gain}, {legendname})")
+        yield straigt_line(line_start, line_end, time_cur_y, gain, legendname)
         if not regr_only:
             time_cur_y = float(red_bmdc.loc[line_end, "close"])
             chance = float(bf_df["chance"+ext])
@@ -437,20 +443,7 @@ def regression_graph(start, end, bmd, aggregation):
     return dict(x=reduced_bmd.index[[0, -1]], y=Y_pred, mode='lines', name=legendname, yaxis='y')
 
 
-def close_timeline_graph(timerange, aggregation, click_data, bases, base_radio, indicators):
-    end = pd.Timestamp.now(tz='UTC')
-    # print(f"close_timeline_graph {bases}, {base_radio}")
-    if bases is not None and len(bases) > 0:
-        if click_data is None:
-            end = ohlcv_df_dict[bases[0]].index[-1]
-        else:
-            end = pd.Timestamp(click_data['points'][0]['x'], tz='UTC')
-    else:
-        end = pd.Timestamp.now(tz='UTC')
-    return close_timeline_graph2(timerange, aggregation, end, bases, base_radio, indicators)
-
-
-def close_timeline_graph2(timerange, aggregation, focus, end, bases, base_radio, indicators):
+def timeline_graph(timerange, aggregation, focus, end, bases, base_radio, indicators):
     """ Displays a line chart of close prices
         and a one dimensional close prices regression line both on the same Datetimeindex.
     """
@@ -465,7 +458,7 @@ def close_timeline_graph2(timerange, aggregation, focus, end, bases, base_radio,
     for base in Env.bases:
         if (base in bases) or (base == base_radio):
             if (start is None) or (end is None) or (aggregation is None):
-                print(f"close_timeline_graph2 start: {start}, end: {end}, aggregation: {aggregation}")
+                logger.warning(f"timeline_graph start: {start}, end: {end}, aggregation: {aggregation}")
             bmd = normalize_close(ohlcv_df_dict[base], start, end, aggregation)
             regr = regression_graph(start, end, bmd, aggregation)
             if indicators is None:
@@ -512,17 +505,16 @@ def dash_trigger():
 def get_end_focus(focus_json, base_radio):
     if focus_json is not None:
         (focus, focus_is_end) = json.loads(focus_json)
-        focus = pd.Timestamp(focus, tz='UTC')
+        focus = pd.Timestamp(focus, tz=Env.tz)
     else:
         focus = None
         focus_is_end = {}
     if base_radio is not None:
         end = ohlcv_df_dict[base_radio].index[-1]
     else:
-        end = pd.Timestamp.now(tz='UTC')
+        end = pd.Timestamp.now(tz=Env.tz)
     if (focus is not None) and (focus is pd.NaT):
         focus = None
-    # print(f"get_end_focus {focus}, {end}, {focus_is_end}")
     return (focus, end, focus_is_end)
 
 
@@ -540,13 +532,13 @@ def update_graph6month(focus_json, bases, base_radio, indicators, json_end):
         if focus is not None:
             end = focus
         json_end = json.dumps(str(end))
-        return [close_timeline_graph2(
+        return [timeline_graph(
             pd.Timedelta(365/2, "D"), "H", None, end, bases, base_radio, indicators),
             json_end]
     else:
         if json_end is not None:
             end = pd.Timestamp(json.loads(json_end))
-        return [close_timeline_graph2(
+        return [timeline_graph(
             pd.Timedelta(365/2, "D"), "H", focus, end, bases, base_radio, indicators),
             json_end]
 
@@ -565,13 +557,13 @@ def update_graph10day(focus_json, bases, base_radio, indicators, json_end):
         if focus is not None:
             end = focus
         json_end = json.dumps(str(end))
-        return [close_timeline_graph2(
+        return [timeline_graph(
             pd.Timedelta(10, "D"), "T", None, end, bases, base_radio, indicators),
             json_end]
     else:
         if json_end is not None:
             end = pd.Timestamp(json.loads(json_end))
-        return [close_timeline_graph2(
+        return [timeline_graph(
             pd.Timedelta(10, "D"), "T", focus, end, bases, base_radio, indicators),
             json_end]
 
@@ -590,13 +582,13 @@ def update_graph1day(focus_json, bases, base_radio, indicators, json_end):
         if focus is not None:
             end = focus
         json_end = json.dumps(str(end))
-        return [close_timeline_graph2(
+        return [timeline_graph(
             pd.Timedelta(1, "D"), "T", None, end, bases, base_radio, indicators),
             json_end]
     else:
         if json_end is not None:
             end = pd.Timestamp(json.loads(json_end))
-        return [close_timeline_graph2(
+        return [timeline_graph(
             pd.Timedelta(1, "D"), "T", focus, end, bases, base_radio, indicators),
             json_end]
 
@@ -658,14 +650,29 @@ def target_heatmap(base, start, end, bmd, target_dict):
         colorbar=dict(tick0=0, dtick=1))
 
 
+def ymin_ymax(start, end):
+    max = min = 0
+    for base in Env.bases:
+        bmd = normalize_close(ohlcv_df_dict[base], start, end, "T")
+        bmd = bmd.drop(columns=["volume"])
+        bmax = bmd.max().max()
+        if bmax > max:
+            max = bmax
+        bmin = bmd.min().min()
+        if bmin < min:
+            min = bmin
+    return min, max
+
+
 @app.callback(
     [dash.dependencies.Output('graph4h', 'figure'),
      dash.dependencies.Output('graph4h_end', 'children')],
     [dash.dependencies.Input('focus', 'children'),
+     dash.dependencies.Input('crypto_select', 'value'),
      dash.dependencies.Input('crypto_radio', 'value'),
      dash.dependencies.Input('indicator_select', 'value')],
     [dash.dependencies.State('graph4h_end', 'children')])
-def update_detail_graph_by_click(focus_json, base, indicators, json_end):
+def update_detail_graph_by_click(focus_json, bases, base, indicators, json_end):
     """ Displays candlestick charts of the selected time and max time aggs back
         together with selected indicators
     """
@@ -678,16 +685,16 @@ def update_detail_graph_by_click(focus_json, base, indicators, json_end):
         if json_end is not None:
             end = pd.Timestamp(json.loads(json_end))
 
-    # print(f"{end}")
     graph_bases = []
-    bmd = ohlcv_df_dict[base]
     zoom_in_time = 4*60
 
     aggregation = "T"
     if indicators is None:
         indicators = []
     start = end - pd.Timedelta(zoom_in_time, "m")
+    ymin, ymax = ymin_ymax(start, end)
 
+    bmd = ohlcv_df_dict[base]
     nbmd = normalize_ohlc(bmd, start, end, aggregation)
     # logger.debug(f"update_detail_graph_by_click: len(nbmd): {len(nbmd)}, len(labels): {len(labels1)}")
     if "targets" in indicators:
@@ -703,6 +710,11 @@ def update_detail_graph_by_click(focus_json, base, indicators, json_end):
                            close=nbmd.close, yaxis='y',
                            hoverinfo="x+y+z+text+name"))
 
+    # if (bases is not None) and (len(bases) > 0):
+    #     graph_bases.append(
+    #         timeline_graph(pd.Timedelta(zoom_in_time, "T"), "T", None, end, [bases[0]], base, []))
+        # show the first selcted base - in general btc - as a reference
+
     if "regression 1D" in indicators:
         graph_bases.append(regression_graph(start, end, nbmd, aggregation))
         graph_bases.append(regression_graph(end - pd.Timedelta(5-1, "m"), end, nbmd, aggregation))
@@ -711,6 +723,7 @@ def update_detail_graph_by_click(focus_json, base, indicators, json_end):
         graph_bases.append(regression_graph(end - pd.Timedelta(30-1, "m"), end, nbmd, aggregation))
     graph_bases.append(volume_graph(start, end, bmd))
 
+    # logger.debug(f"indicators: {indicators}")
     if ("features" in indicators) and (focus is not None):
         for graph in show_condensed_features(base, start, focus):
             # logger.debug(str(graph))
@@ -731,17 +744,13 @@ def update_detail_graph_by_click(focus_json, base, indicators, json_end):
             'yaxis2': {"domain": [0., 0.2], "side": "left"},
             'yaxis4': {"domain": [0., 0.2], "side": "right", "overlaying": "y"},
             'yaxis3': {"domain": [0.2, 0.23], "showticklabels": False},
-            'yaxis': {'type': 'linear', "domain": [0.3, 1]},
+            'yaxis': {'type': 'linear', "domain": [0.3, 1], "range": [ymin, ymax]},
             'xaxis': {'showgrid': False, 'title': timeinfo, "rangeslider": {"visible": False}}
         }
     }, json_end]
 
 
 # wish list:
-# click on history data in one of the left graphs to realign all shorter graphs
-# and show click position in click graph and all larger graphs by vertical line
-#
-# show targets and actual labels on right graph
 # show targets in history views
 # show performance transaction start/stop in history view
 # visualize chance and risk features in 4h graph

@@ -13,7 +13,8 @@ PICKLE_EXT = ".pydata"  # pickle file extension
 
 
 def nowstr():
-    return datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    # return datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    return pd.Timestamp.now(tz=Env.tz).to_pydatetime().strftime("%Y-%m-%d_%H:%M:%S")
 
 
 class MissingHistoryData(Exception):
@@ -22,6 +23,7 @@ class MissingHistoryData(Exception):
 
 class Env():
     quote = "usdt"
+    tz = "Europe/Amsterdam"
     sym_sep = "_"  # symbol seperator
     xch_sym_sep = "/"  # ccxt symbol seperator
     smaller_16gb_ram = True

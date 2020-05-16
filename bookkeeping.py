@@ -141,7 +141,7 @@ class Bk():
         Bk.aid is an action_id to log the sequence of actions
         Bk.ats is an action_id timestamp to log the sequence of actions
         """
-        Bk.ats = nowstr()  # pd.Timestamp.utcnow()
+        Bk.ats = nowstr()  # pd.Timestamp.now(tz=Env.tz)
         Bk.aid = len(Bk.actions.index)
         Bk.actions.loc[Bk.aid] = [ccxt_action, Bk.ats]
 
@@ -193,7 +193,7 @@ class Bk():
             else:
                 Bk.book.loc[base, "USDT"] = tickers[sym]["last"]
                 Bk.book.loc[base, "dayUSDT"] = tickers[sym]["quoteVolume"]
-            Bk.book.loc[base, "updated"] = pd.Timestamp.utcnow()
+            Bk.book.loc[base, "updated"] = pd.Timestamp.now(tz=Env.tz)
 
     def get_ohlcv(base, minutes, when):
         df = Bk.exch.get_ohlcv(base, minutes, when)

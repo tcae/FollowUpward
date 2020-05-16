@@ -10,7 +10,7 @@ import timeit
 # import logging
 import time
 import env_config as env
-# from env_config import Env
+from env_config import Env
 import crypto_targets as ct
 # import crypto_features as cf
 # import classify_keras as ck
@@ -100,7 +100,7 @@ class Trading():
                     for order in oo:
                         is_sell = (order["side"] == "sell")
                         ots = pd.Timestamp(order["datetime"])
-                        nowts = pd.Timestamp.utcnow()
+                        nowts = pd.Timestamp.now(tz=Env.tz)
                         tsdiff = int((nowts - ots) / timedelta(seconds=1))
                         logger.info(f"now {env.timestr(nowts)} - ts {env.timestr(ots)} = {tsdiff}s")
                         """
@@ -256,7 +256,7 @@ class Trading():
             while True:
                 logger.info(f"next round")
                 # TOD: check order progress
-                ts1 = pd.Timestamp.utcnow()
+                ts1 = pd.Timestamp.now(tz=Env.tz)
                 for base in Bk.book.index:
                     trade_signal, last_close = self._get_signal(
                         cpc, buy_trshld, sell_trshld, base, ts1)
@@ -272,7 +272,7 @@ class Trading():
                         buylist.append(base)  # amount to be determined by __distribute_buy_amount
 
                 self._distribute_buy_amount(buylist)
-                ts2 = pd.Timestamp.utcnow()
+                ts2 = pd.Timestamp.now(tz=Env.tz)
                 tsdiff = 59 - int((ts2 - ts1) / pd.Timedelta(1, unit='S'))  # 1 seconds order progress
                 if tsdiff > 1:
                     time.sleep(tsdiff)

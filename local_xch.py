@@ -342,32 +342,34 @@ class Xch():
         return df, remaining
 
     def __ohlcvs2df_fill_gaps(ohlcvs, df, fromdate, base):
-        prev_tic = fromdate - pd.Timedelta(1, unit='T')
+        one_minute = pd.Timedelta(1, unit='T')
+        prev_tic = fromdate - one_minute
         count = 0
         last_tic = None
         for ohlcv in ohlcvs:
             tic = pd.Timestamp(datetime.utcfromtimestamp(ohlcv[0]/1000), tz='UTC')
-            if int((tic - prev_tic)/pd.Timedelta(1, unit='T')) > 1:
-                logger.info(f"ohlcv time gap for {base} between {prev_tic} and {tic}")
-                if prev_tic < fromdate:
+            if int((tic - prev_tic)/one_minute) > 1:
+                logger.info(f"ohlcv time {tic - prev_tic - one_minute} gap for {base} between {prev_tic} and {tic}")
+                if prev_tic < fromdate:  # this is only the case for the first ohlcvs
                     if df.index.isin([prev_tic]).any():  # repair first tics
                         last_tic = prev_tic
                     else:
-                        # no history: then repair backwards
-                        last_tic = fromdate
+                        # no history: then skip until first sample
+                        last_tic = tic  # NOT fromdate
                         df.loc[last_tic] = ohlcv[1:6]
-                        count += 1
-                        prev_tic += pd.Timedelta(1, unit='T')
-                prev_tic += pd.Timedelta(1, unit='T')
+                        count = int((tic - fromdate)/one_minute)
+                        # prev_tic += one_minute
+                        prev_tic = tic - one_minute
+                prev_tic += one_minute
                 while (prev_tic < tic):  # fills time gaps with lastrecord before gap
                     df.loc[prev_tic] = df.loc[last_tic]
                     count += 1
-                    prev_tic += pd.Timedelta(1, unit='T')
-                prev_tic -= pd.Timedelta(1, unit='T')  # correct last increment
+                    prev_tic += one_minute
+                prev_tic -= one_minute  # correct last increment
             last_tic = tic
             df.loc[last_tic] = ohlcv[1:6]
             count += 1
-            prev_tic += pd.Timedelta(1, unit='T')
+            prev_tic += one_minute
         return count
 
     def check_df_result(df):
@@ -384,7 +386,8 @@ class Xch():
         # logger.debug("consistency check done")
 
     def get_ohlcv(base, minutes, last_minute):
-        """Returns the last 'minutes' OHLCV values of pair before 'last_minute'.
+        """ Returns the last 'minutes' OHLCV values of pair before 'last_minute'.
+            'last_minute' is provided in local CEST timezone but UTC is used in data exchange!
 
         Is also used to calculate the average minute volume over the last hour
         that is used in buy orders to determine the max buy volume.
@@ -394,7 +397,8 @@ class Xch():
             2) last_minute before df cache coverage (e.g. simulation) ==> # TODO
         """
         # logger.debug(f"last_minute: {last_minute}  minutes{minutes}")
-        last_minute = pd.Timestamp(last_minute).replace(second=0, microsecond=0, nanosecond=0)
+
+        last_minute = pd.Timestamp(last_minute).replace(second=0, microsecond=0, nanosecond=0).tz_convert(tz="UTC")
         last_minute += pd.Timedelta(1, unit='T')  # one minute later to include the `last_minute`
         minutes += 1  # `minutes` is extended by one to replace the last old and incomplete sample
 
@@ -419,8 +423,8 @@ class Xch():
                 break
 
         Xch.ohlcv[base] = df
-        if len(df) < minutes:
-            logger.debug(f"{base} len(df) {len(df)} < {minutes} minutes")
+        # if len(df) < minutes:
+        #     logger.debug(f"{base} len(df) {len(df)} < {minutes} minutes")
         if len(df) > minutes:
             df = df.iloc[-minutes:]
         Xch.check_df_result(df)

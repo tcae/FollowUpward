@@ -192,6 +192,10 @@ class CryptoData:
             logger.warning(f"index time gap of: {df.index[0] - first} at start, {last - df.index[-1]} at end")
         return df
 
+    def convert_to_current_timezone(self, df):
+        df.index = df.index.tz_convert("Europe/Amsterdam")
+        return df
+
     def lookup_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Loads and downloads/calculates data from 'first' sample up to and including 'last'.
             If use_cache == False then no saved data is used. All data columns are returned.
@@ -201,18 +205,22 @@ class CryptoData:
         assert first <= last
         if use_cache:
             df = self.load_data(base)
+            df = self.convert_to_current_timezone(df)
         else:
             df = None
         if (df is None) or df.empty:
             df = self.new_data(base, first, last, use_cache)
+            df = self.convert_to_current_timezone(df)
             if (df is None) or df.empty:
                 return None
         elif (last > df.index[-1]):
             if first > df.index[-1]:
                 df = self.new_data(base, first, last, use_cache)
+                df = self.convert_to_current_timezone(df)
             else:
                 # include df.index[-1] as new data first due to incomplete last minute effect
                 ndf = self.new_data(base, df.index[-1], last, use_cache)
+                df = self.convert_to_current_timezone(df)
                 if (ndf is not None) and (not ndf.empty):
                     df = df.loc[df.index < ndf.index[0]]
                     # thereby cutting any time overlaps, e.g. +1 minute due to incomplete last minute effect
@@ -235,6 +243,7 @@ class CryptoData:
         """
         try:
             df = pd.read_hdf(self.fname(base), base + "_" + self.save_mnemonic())
+            df = self.convert_to_current_timezone(df)
             if isinstance(df, pd.Series):
                 df = df.to_frame()
             df = df.loc[:, self.keys()]
@@ -312,6 +321,7 @@ class Ohlcv(CryptoData):
         minutes = int((last - first) / pd.Timedelta(1, unit="T"))
         if minutes > 0:
             df = Xch.get_ohlcv(base, minutes, last)
+            df = self.convert_to_current_timezone(df)
             return df[Xch.data_keys]
         else:
             return None
@@ -362,11 +372,9 @@ def load_asset(bases):
     for base in bases:
         logger.debug(f"supplementing {base}")
         hdf = load_asset_dataframe(base, path=Env.data_path)
-        # hdf.index.tz_localize(tz='UTC')
 
         last = (hdf.index[len(hdf)-1])
-        # last = (hdf.index[len(hdf)-1]).tz_localize(tz='UTC')
-        now = pd.Timestamp.utcnow()
+        now = pd.Timestamp.now(tz=Env.tz)
         diffmin = int((now - last)/pd.Timedelta(1, unit='T'))
         ohlcv_df = Xch.get_ohlcv(base, diffmin, now)
         if ohlcv_df is None:

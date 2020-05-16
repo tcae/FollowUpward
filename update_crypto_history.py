@@ -8,7 +8,7 @@ from local_xch import Xch
 # import crypto_features as cf
 import crypto_targets as ct
 import condensed_features as cof
-# import aggregated_features as agf
+import aggregated_features as agf
 import adaptation_data as ad
 
 logger = logging.getLogger(__name__)
@@ -176,18 +176,18 @@ def regenerate_dataset(bases: list, first, last, data_objs):
 
 def update_to_now(bases: list, ohlcv, data_objs):
     first, last = ohlcv_timerange(bases, ohlcv)
-    now = pd.Timestamp.utcnow()
+    now = pd.Timestamp.now(tz=Env.tz)
     delta = int((now - last) / pd.Timedelta(1, unit="T"))
     logger.info(f"found ohlcv from {first} - {last}, uploading {delta} minutes until {now}")
-    update_history(bases, first, pd.Timestamp.utcnow(), data_objs)
+    update_history(bases, first, now, data_objs)
 
 
 def all_data_objs(ohlcv):
     """ prevents 'import but unused' plint warnings
     """
     f3cond14 = cof.F3cond14(ohlcv)
-    # return [ohlcv, f3cond14, agf.F1agg110(ohlcv), ct.Targets(ohlcv), ct.Target5up0low30minregr(ohlcv, f3cond14)]
     return [ohlcv, f3cond14, ct.Targets(ohlcv)]
+    return [ohlcv, f3cond14, agf.F1agg110(ohlcv), ct.Targets(ohlcv), ct.Target5up0low30minregr(ohlcv, f3cond14)]
 
 
 if __name__ == "__main__":
@@ -195,17 +195,20 @@ if __name__ == "__main__":
     tee = env.Tee(log_prefix="UpdateCryptoHistory")
     ohlcv = ccd.Ohlcv()
     bases = Env.bases
+    bases = ["zrx", "bch", "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm"]
     # bases = ["btc"]
 
     # first, last = ohlcv_timerange(bases, ohlcv)
     first, last = ad.SplitSets.overall_timerange()
 
-    data_objs = all_data_objs(ohlcv)
+    data_objs = [ohlcv]
+    # data_objs = all_data_objs(ohlcv)
     # data_objs = [ct.Target5up0low30minregr(ohlcv, cof.F3cond14(ohlcv))]
 
     # repair_stored_ohlcv(bases, ohlcv)
     # regenerate_dataset(bases, first, last, data_objs)
-    # update_history(bases, pd.Timestamp("2018-01-31 23:59:00+00:00"), data_objs)
-    update_to_now(bases, ohlcv, data_objs)
+    update_history(
+        bases, pd.Timestamp("2017-10-30 23:59:00+00:00"), pd.Timestamp("2020-05-16 20:59:00+00:00"), data_objs)
+    # update_to_now(bases, ohlcv, data_objs)
 
     tee.close()
