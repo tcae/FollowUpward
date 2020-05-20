@@ -94,7 +94,9 @@ class Usage():
 
 class Production(Usage):
     data_path_suffix = "Features/"
-    bases = ["btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
+    bases = [
+        "btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx", "zrx", "bch",
+        "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm", "zec"]
     conf_fname = "target_5_sets_split.config"
     set_split_fname = "adapt_sets_split.csv"
     test_mode = False

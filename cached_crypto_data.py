@@ -193,7 +193,8 @@ class CryptoData:
         return df
 
     def convert_to_current_timezone(self, df):
-        df.index = df.index.tz_convert("Europe/Amsterdam")
+        if df is not None:
+            df.index = df.index.tz_convert("Europe/Amsterdam")
         return df
 
     def lookup_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):

@@ -1,18 +1,3 @@
-import pandas as pd
-import numpy as np
-import math
-import logging
-# import indicators as ind
-# import env_config as env
-from env_config import Env
-import cached_crypto_data as ccd
-# import crypto_features as cf
-# import crypto_targets as ct
-from crypto_features import TargetsFeatures
-from sklearn.linear_model import LinearRegression
-
-logger = logging.getLogger(__name__)
-
 """ Alternative feature set. Approach: less features and closer to intuitive performance correlation
     (what would I look at?).
 
@@ -26,7 +11,30 @@ logger = logging.getLogger(__name__)
     - chance: 2*SDA - (current price - regression price) (== up potential) for 12h, 4h, 0.5h, 5min regression
     - not directly used: SDB = absolute standard deviation of price points below regression line
     - risk: 2*SDB + (current price - regression price) (== down potential) for 12h, 4h, 0.5h, 5min regression
+
+    2020-05-17: the problem with this festure set is that it is not clipped
+    to handle extreme values. I saw in Dec 2017 amplitude of 40% per minute and amplitudes of several hundred %
+    which dominates training.
+    New approach: clip at 5% / h regression gradient and at +-1% distance to 4h regression line.
+    Also remove regression line of 10d, 5min-5min offset, gain and risk calculation.
+    Introduce distance to 4h regression line and RSI for 4h and 2h, 1h, 15 min regression gradient.
 """
+import pandas as pd
+import numpy as np
+import math
+import logging
+# import indicators as ind
+# import env_config as env
+# from env_config import Env
+import cached_crypto_data as ccd
+# import crypto_features as cf
+# import crypto_targets as ct
+from crypto_features import TargetsFeatures
+from sklearn.linear_model import LinearRegression
+
+logger = logging.getLogger(__name__)
+
+
 # REGRESSION_KPI = [(0, 0, 5, "5m_0"), (1, 5, 5, "5m_5")]
 # (regression_only, offset, regression_minutes, label)
 # regression_only == TRUE: 3 features = slope, last point y
@@ -235,6 +243,10 @@ class F3cond14(ccd.Features):
         """
         return HMWF
 
+    def load_data(self, base: str):
+        df = super().load_data(base)
+        return df
+
     def keys(self):
         "returns the list of element keys"
         cols = [
@@ -256,26 +268,98 @@ class F3cond14(ccd.Features):
         return cal_features(df)
 
 
-if __name__ == "__main__":
-    for base in Env.usage.bases:
-        tf = CondensedFeatures(base, path=Env.data_path)
-        tfv = tf.calc_features_and_targets()
-        # ct.report_setsize(f"{base} tf.minute_data", tf.minute_data)
-        # ct.report_setsize(f"tf.vec {base} tf.vec", tf.vec)
-        # ct.report_setsize(f"tfv {base} tf.vec", tfv)
-"""
-    if True:
-        cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=HMWF+10)
-        features = cal_features(cdf)
-        logger.debug(str(cdf.head(5)))
-        logger.debug(str(cdf.tail(5)))
-        logger.debug(str(features.head(5)))
-        logger.debug(str(features.tail(5)))
-    else:
+REGRESSION_KPI2 = [(1, 5, "5m"), (1, 15, "15m"),
+                   (1, 30, "30m"), (1, 1*60, "1h"), (1, 2*60, "2h"), (0, 4*60, "4h"),
+                   (1, 12*60, "12h")]
+FEATURE_COUNT2 = 3 * 1 + 3 * 3 + 2  # 12 + 2 vol (see below) = 14 features per sample
+HMWF2 = max([minutes for (regr_only, minutes, ext) in REGRESSION_KPI2]) - 1
+# HMWF == history minutes required without features
+VOL_KPI2 = [(5, 12*60, "5m12h")]
+COL_PREFIX2 = ["gain", "sto-rsi", "distance", "vol"]  # distance is >0 above  and <0 below the regression line
+
+
+def cal_features2(ohlcv):
+    """ Receives a float ohlcv DataFrame of consecutive prices in fixed minute frequency starting with the oldest price.
+        Returns a DataFrame of features per price base on close prices and volumes
+        that begins 'HMWF2' minutes later than 'ohlcv.index[0]'.
+        ! under construction
+    """
+    cols = [
+        COL_PREFIX[ix] + ext
+        for regr_only, minutes, ext in REGRESSION_KPI
+        for ix in range(3) if ((ix < 2) or (not regr_only))]
+    cols = cols + [COL_PREFIX[3] + ext for (svol, lvol, ext) in VOL_KPI]
+    prices = ohlcv["close"]
+    volumes = ohlcv["volume"].values.reshape(-1, 1)
+    df = pd.DataFrame(columns=cols, index=prices.index[HMWF:], dtype=np.double)
+    xfull = np.arange(HMWF+1).reshape(-1, 1)
+    prices = prices.values.reshape(-1, 1)
+    linregr = LinearRegression()  # create object for the class
+    for pix in range(HMWF, prices.size):  # pix == prices index
+        tic = df.index[pix - HMWF]
+        norm_prices = prices[pix-HMWF:pix+1].copy() / prices[pix]
+        for (regr_only, offset, minutes, ext) in REGRESSION_KPI:
+            if regr_only:
+                df.loc[tic, ["gain"+ext]] = \
+                    _linregr_gain_price(linregr, xfull, norm_prices, minutes, offset)
+            else:
+                df.loc[tic, ["gain"+ext, "chance"+ext, "risk"+ext]] = \
+                    _linregr_gain_price_chance_risk(linregr, xfull, norm_prices, minutes, offset)
+        for (svol, lvol, ext) in VOL_KPI:
+            df["vol"+ext][tic] = _vol_rel(volumes[:pix+1], lvol, svol)
+    return df
+
+
+class F4cond14(ccd.Features):
+
+    def history(self):
+        """ Returns the number of history sample minutes
+            excluding the minute under consideration required to calculate a new sample data.
+        """
+        return HMWF
+
+    def load_data(self, base: str):
+        df = super().load_data(base)
+        return df
+
+    def keys(self):
+        "returns the list of element keys"
         cols = [
             COL_PREFIX[ix] + ext
             for regr_only, offset, minutes, ext in REGRESSION_KPI
             for ix in range(3) if ((ix < 1) or (not regr_only))]
         cols = cols + [COL_PREFIX[3] + ext for (svol, lvol, ext) in VOL_KPI]
-        logger.debug(str(cols))
-"""
+        return cols
+
+    def mnemonic(self):
+        "returns a string that represents this class as mnemonic, e.g. to use it in file names"
+        return "F3cond{}".format(FEATURE_COUNT)
+
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+        """ Downloads or calculates new data from 'first' sample up to and including 'last'.
+        """
+        ohlc_first = first - pd.Timedelta(self.history(), unit="T")
+        df = self.ohlcv.get_data(base, ohlc_first, last)
+        return cal_features2(df)
+
+
+if __name__ == "__main__":
+    bases = ["btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
+    percentiles = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    features = F3cond14(ccd.Ohlcv())
+    # base_info = {base: features.load_data(base).describe(percentiles=percentiles, include='all') for base in bases}
+    base_info = list()
+    dfl = list()
+    for base in bases:
+        df = features.load_data(base)
+        dfl.append(df)
+        if df is not None:
+            base_info.append(df.describe(percentiles=percentiles, include='all'))
+        else:
+            logger.error(f"unexpected df=None for base {base}")
+    df_all = pd.concat(dfl, join="outer", ignore_index=True)
+    base_info.append(df_all.describe(percentiles=percentiles, include='all'))
+    bases.append("all")
+    info_df = pd.concat(base_info, join="outer", keys=bases)
+    info_df.index = info_df.index.swaplevel(0, 1)
+    print(info_df)

@@ -20,7 +20,7 @@ Stock trading is a possible future step but cryoto trading offers more opportuni
 - development and debug environment based on Visual Studio Code (Jupyter notebooks are not suited for easy debugging)
 - conda for package consistency and virtual environment
 
-### package installations
+### package installations of environment tf3 (slower than tf5)
 
 - conda install -c intel intelpython3_full
 - conda install dash
@@ -40,13 +40,14 @@ Stock trading is a possible future step but cryoto trading offers more opportuni
 
 Downgrade package `gast` to version 0.2.2 with `conda install gast=0.2.2`
 
-### experimental package installations
+### package installationsof environment tf5
 
 - pip install tensorflow-transform
 - pip install ccxt
 - pip install tables
 - conda install dash
 - conda install -c conda-forge pandas
+- conda install requests  # this package is not yet used but may replace ccxt in the future to use binance streaming
 
 With tensorflow-transform the following packages are installed: absl-py-0.8.1 apache-beam-2.19.0 astor-0.8.1 avro-python3-1.9.2.1 cachetools-3.1.1 chardet-3.0.4 crcmod-1.7 dill-0.3.1.1 docopt-0.6.2 fastavro-0.21.24 fasteners-0.15 future-0.18.2 gast-0.2.2 google-api-core-1.16.0 google-api-python-client-1.8.0 google-apitools-0.5.28 google-auth-1.13.1 google-auth-httplib2-0.0.3 google-auth-oauthlib-0.4.1 google-cloud-bigquery-1.17.1 google-cloud-bigtable-1.0.0 google-cloud-core-1.3.0 google-cloud-datastore-1.7.4 google-cloud-pubsub-1.0.2 google-pasta-0.2.0 google-resumable-media-0.4.1 googleapis-common-protos-1.51.0 grpc-google-iam-v1-0.12.3 grpcio-1.28.1 h5py-2.10.0 hdfs-2.5.8 httplib2-0.12.0 idna-2.9 keras-applications-1.0.8 keras-preprocessing-1.1.0 markdown-3.2.1 mock-2.0.0 monotonic-1.5 numpy-1.18.2 oauth2client-3.0.0 oauthlib-3.1.0 opt-einsum-3.2.0 pbr-5.4.5 protobuf-3.11.3 pyarrow-0.15.1 pyasn1-0.4.8 pyasn1-modules-0.2.8 pydot-1.4.1 pymongo-3.10.1 pyparsing-2.4.7 python-dateutil-2.8.1 pytz-2019.3 requests-2.23.0 requests-oauthlib-1.3.0 rsa-4.0 scipy-1.4.1 six-1.14.0 tensorboard-2.1.1 tensorflow-2.1.0 tensorflow-estimator-2.1.0 tensorflow-metadata-0.21.1 tensorflow-serving-api-2.1.0 tensorflow-transform-0.21.2 termcolor-1.1.0 tfx-bsl-0.21.4 typing-3.7.4.1 typing-extensions-3.7.4.2 uritemplate-3.0.1 urllib3-1.25.8 werkzeug-1.0.1 wrapt-1.12.1
 
@@ -88,6 +89,18 @@ With pandas the following packages are installed:
   python-dateutil    conda-forge/noarch::python-dateutil-2.8.1-py_0
   python_abi         conda-forge/linux-64::python_abi-3.7-1_cp37m
   pytz               conda-forge/noarch::pytz-2019.3-py_0
+
+With requests the followings packages are installed:
+  asn1crypto         intel/linux-64::asn1crypto-1.3.0-py37_0
+  cffi               intel/linux-64::cffi-1.13.2-py37_2
+  chardet            intel/linux-64::chardet-3.0.4-py37_3
+  cryptography       intel/linux-64::cryptography-2.8-py37_0
+  idna               intel/linux-64::idna-2.8-py37_0
+  pycparser          intel/linux-64::pycparser-2.19-py37_1
+  pyopenssl          intel/linux-64::pyopenssl-19.1.0-py37_1
+  pysocks            intel/linux-64::pysocks-1.7.0-py37_1
+  requests           intel/linux-64::requests-2.22.0-py37_1
+  urllib3            intel/linux-64::urllib3-1.25.7-py37_0
 
 ## Main code entry points
 

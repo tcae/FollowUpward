@@ -71,19 +71,11 @@ class Xch():
     #     "secret": "YOUR_SECRET_PRIVATE_KEY",
     # })
 
-    markets = lxch.load_markets()
-
-    # def quote():
-    #     return Xch.lxch.load_markets()
-
     def xhc_sym_of_base(base):
         sym = env.sym_of_base(base)
         sym = sym.replace(Env.sym_sep, Env.xch_sym_sep)
         sym = sym.upper()
         return sym
-
-    def load_markets():
-        return Xch.lxch.load_markets()
 
     def fetch_balance():
         return Xch.lxch.fetch_balance()
@@ -142,9 +134,11 @@ class Xch():
                 logger.error(f"fetch_ohlcv failed {i}x due to a ExchangeError error:", str(err))
                 break
             else:
-                if len(ohlcvs) == 0:
+                if (ohlcvs is None) or (len(ohlcvs) == 0):
+                    logger.warning(f"retry {i}")
                     continue
                 else:
+                    # OK == result available
                     break
         return ohlcvs
 
@@ -288,6 +282,8 @@ class Xch():
 
     def check_limits(base, amount, price, ice_chunk):  # noqa C901  all checks in an overview is OK
         sym = base + "/" + Xch.quote
+        if Xch.markets is None:
+            Xch.markets = Xch.lxch.load_markets()
         mincost = Xch.markets[sym]["limits"]["cost"]["min"]
         # amount = round(amount, Xch.markets[sym]["precision"]["amount"]) is ensured by ice_chunk
         price = round(price, Xch.markets[sym]["precision"]["price"])
@@ -398,7 +394,8 @@ class Xch():
         """
         # logger.debug(f"last_minute: {last_minute}  minutes{minutes}")
 
-        last_minute = pd.Timestamp(last_minute).replace(second=0, microsecond=0, nanosecond=0).tz_convert(tz="UTC")
+        last_minute = pd.Timestamp(last_minute).replace(second=0, microsecond=0, nanosecond=0)
+        last_minute = last_minute.tz_convert(tz="UTC")  # inside xch UTC, oitside Europe/Amsterdam
         last_minute += pd.Timedelta(1, unit='T')  # one minute later to include the `last_minute`
         minutes += 1  # `minutes` is extended by one to replace the last old and incomplete sample
 
@@ -428,7 +425,7 @@ class Xch():
         if len(df) > minutes:
             df = df.iloc[-minutes:]
         Xch.check_df_result(df)
-        return df
+        return df.copy()
 
     def __last_hour_performance(ohlcv_df):
         cix = ohlcv_df.columns.get_loc("close")

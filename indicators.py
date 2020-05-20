@@ -3,10 +3,10 @@ from sklearn.linear_model import LinearRegression
 
 
 def time_linear_regression(df):
-    """ Receives a one column data dataframe with a Datetimeindex in fixed frequency.
+    """ Receives a one column data dataframe with a Datetimeindex in fixed minute frequency.
 
         Returns a (hourly_delta, regression_df) tuple containing the regression delta within 1 hour
-        and a one dimensional data regression df with the same Datetimeindex as the input df.
+        and a two element y coordinate array (first and last point) of the data regression line.
     """
     X = np.arange(len(df)).reshape(-1, 1)
     Y = df.values.reshape(-1, 1)  # -1 means that calculate the dimension of rows, but have 1 column
