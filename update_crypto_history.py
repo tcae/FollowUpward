@@ -195,9 +195,9 @@ if __name__ == "__main__":
     tee = env.Tee(log_prefix="UpdateCryptoHistory")
     ohlcv = ccd.Ohlcv()
     bases = Env.bases
-    # bases = ["zrx", "bch", "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm"]
+    # bases = ["zrx", "bch", "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm", "zec"]
     # bases = ["btc"]
-    # bases = ["zec"]
+    bases = ["tfuel", "theta"]
 
     # first, last = ohlcv_timerange(bases, ohlcv)
     first, last = ad.SplitSets.overall_timerange()
@@ -208,9 +208,9 @@ if __name__ == "__main__":
 
     # repair_stored_ohlcv(bases, ohlcv)
     # regenerate_dataset(bases, first, last, data_objs)
-    # update_history(
-    #     bases, pd.Timestamp("2017-10-30 23:59:00+00:00", tz=Env.tz),
-    #     pd.Timestamp("2020-05-16 20:59:00+00:00", tz=Env.tz), data_objs)
-    update_to_now(bases, ohlcv, data_objs)
+    update_history(
+        bases, pd.Timestamp("2017-10-30 23:59:00+00:00", tz=Env.tz),
+        pd.Timestamp("2020-05-21 20:59:00+00:00", tz=Env.tz), data_objs)
+    # update_to_now(bases, ohlcv, data_objs)
 
     tee.close()

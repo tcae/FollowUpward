@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
-from dash.dependencies import Input, Output  # , State
+from dash.dependencies import Input, Output, State
 import dash_table
 # import dash_table.FormatTemplate as FormatTemplate
 # from dash_table.Format import Sign
@@ -49,12 +49,12 @@ view_config = {
     "graph10day": {"10d": {"timerange": pd.Timedelta(10, "D"), "aggregation": "m"}},
     "graph6month": {"6M": {"timerange": pd.Timedelta(365/2, "D"), "aggregation": "h"}},
     "kpi_table": {
-        "15m": {"timerange": pd.Timedelta(14, "m"), "aggregation": "m"},
-        "30m": {"timerange": pd.Timedelta(29, "m"), "aggregation": "m"},
-        "1h": {"timerange": pd.Timedelta(1, "h"), "aggregation": "m"},
-        "2h": {"timerange": pd.Timedelta(2, "h"), "aggregation": "m"},
-        "4h": {"timerange": pd.Timedelta(4, "h"), "aggregation": "m"},
-        "1d": {"timerange": pd.Timedelta(1, "D"), "aggregation": "m"},
+        "15m": {"timerange": pd.Timedelta(14, "m"), "aggregation": "m", "buy": 4., "sell": -2.},
+        "30m": {"timerange": pd.Timedelta(29, "m"), "aggregation": "m", "buy": 2., "sell": -1.},
+        "1h": {"timerange": pd.Timedelta(1, "h"), "aggregation": "m", "buy": 1., "sell": -0.5},
+        "2h": {"timerange": pd.Timedelta(2, "h"), "aggregation": "m", "buy": 0.5, "sell": -0.25},
+        "4h": {"timerange": pd.Timedelta(4, "h"), "aggregation": "m", "buy": 0.25, "sell": -0.125},
+        "1d": {"timerange": pd.Timedelta(1, "D"), "aggregation": "m", "buy": 0.1, "sell": 0},
     },
 }
 
@@ -148,7 +148,14 @@ app.layout = html.Div([
         dcc.Graph(id="graph4h"),
         # dcc.Graph(id="volume-signals-graph"),
         html.Div(id="graph4h_end", style={"display": "none"}),
-        html.Div(id="kpi_table")
+        dash_table.DataTable(
+            id="kpi_table", editable=False,  #hidden_columns=["id"],
+            style_header={
+                "backgroundColor": "rgb(230, 230, 230)",
+                "fontWeight": "bold"
+            }
+        )
+        # html.Div(id="kpi_table_wrapper")
     ], style={"display": "inline-block", "float": "right", "width": "49%"}),
 
 ])
@@ -331,7 +338,9 @@ def regression_gradient_distance(start, end, bmd):
 
 
 @app.callback(
-    dash.dependencies.Output("kpi_table", "children"),
+    [dash.dependencies.Output("kpi_table", "data"),
+     dash.dependencies.Output("kpi_table", "columns"),
+     dash.dependencies.Output("kpi_table", "style_data_conditional")],
     [dash.dependencies.Input("focus", "children"),
      dash.dependencies.Input("crypto_select", "value"),
      dash.dependencies.Input("crypto_radio", "value")])
@@ -353,15 +362,140 @@ def update_table(focus_json, bases, base_radio):
                 gradient, distance = regression_gradient_distance(start, end, bmd)
                 df.loc[base, regression+"grad"] = gradient
                 df.loc[base, regression+"dist"] = distance
+    gl = [regression+"grad" for regression in view_config["kpi_table"]]
+    dl = [regression+"dist" for regression in view_config["kpi_table"]]
+    cmp = dict()
+    cmp["buy_grad"] = {
+        regression+"grad": view_config["kpi_table"][regression]["buy"]
+        for regression in view_config["kpi_table"]}
+    cmp["sell_grad"] = {
+        regression+"grad": view_config["kpi_table"][regression]["sell"]
+        for regression in view_config["kpi_table"]}
+    cmp["buy_dist"] = {regression+"dist": -0.5 for regression in view_config["kpi_table"]}
+    cmp["sell_dist"] = {regression+"dist": 0.5 for regression in view_config["kpi_table"]}
+    cmp["best_grad"] = {
+        col: max([cmp["buy_grad"][col]*2, value])
+        for (col, value) in df.quantile(0.9).iteritems() if "grad" in col}
+    cmp["best_dist"] = {
+        col: min([cmp["buy_dist"][col]*2, value])
+        for (col, value) in df.quantile(0.9).iteritems() if "dist" in col}
+    cmp["worst_grad"] = {
+        col: min([cmp["sell_grad"][col]*2, value])
+        for (col, value) in df.quantile(0.1).iteritems() if "grad" in col}
+    cmp["worst_dist"] = {
+        col: max([cmp["sell_dist"][col]*2, value])
+        for (col, value) in df.quantile(0.1).iteritems() if "dist" in col}
+    # print(json.dumps(cmp, indent=4))
+    df = df[gl+dl]
     df = df.reset_index()
-    return dash_table.DataTable(
-        id='typing_formatting_1',
-        data=df.to_dict('records'),
-        columns=[{
-            "id": id, "name": id, 'type': 'numeric',
-            'format': Format(precision=5, scheme=Scheme.fixed)} for id in df.columns],
-        editable=True
-        )
+    df["id"] = df["base"]
+    buy_grad = [
+        {
+            "if": {
+                "filter_query": "{{{}}} >= {}".format(col, cmp["buy_grad"][col]),
+                "column_id": col
+            },
+            "backgroundColor": "#86cb66",
+            "color": "black"
+        } for col in cmp["buy_grad"]
+    ]
+    buy_dist = [
+        {
+            "if": {
+                "filter_query": "{{{}}} <= {}".format(col, cmp["buy_dist"][col]),
+                "column_id": col
+            },
+            "backgroundColor": "#86cb66",
+            "color": "black"
+        } for col in cmp["buy_dist"]
+    ]
+    sell_grad = [
+        {
+            "if": {
+                "filter_query": "{{{}}} <= {}".format(col, cmp["sell_grad"][col]),
+                "column_id": col
+            },
+            "backgroundColor": "#f24632",
+            "color": "black"
+        } for col in cmp["sell_grad"]
+    ]
+    sell_dist = [
+        {
+            "if": {
+                "filter_query": "{{{}}} >= {}".format(col, cmp["sell_dist"][col]),
+                "column_id": col
+            },
+            "backgroundColor": "#f24632",
+            "color": "black"
+        } for col in cmp["sell_dist"]
+    ]
+    best_grad = [
+        {
+            "if": {
+                "filter_query": "{{{}}} >= {}".format(col, cmp["best_grad"][col]),
+                "column_id": col
+            },
+            "backgroundColor": "#006837",
+            "color": "white"
+        } for col in cmp["best_grad"]
+    ]
+    best_dist = [
+        {
+            "if": {
+                "filter_query": "{{{}}} <= {}".format(col, cmp["best_dist"][col]),
+                "column_id": col
+            },
+            "backgroundColor": "#006837",
+            "color": "white"
+        } for col in cmp["best_dist"]
+    ]
+    worst_grad = [
+        {
+            "if": {
+                "filter_query": "{{{}}} <= {}".format(col, cmp["worst_grad"][col]),
+                "column_id": col
+            },
+            "backgroundColor": "#a50026",
+            "color": "white"
+        } for col in cmp["worst_grad"]
+    ]
+    worst_dist = [
+        {
+            "if": {
+                "filter_query": "{{{}}} >= {}".format(col, cmp["worst_dist"][col]),
+                "column_id": col
+            },
+            "backgroundColor": "#a50026",
+            "color": "white"
+        } for col in cmp["worst_dist"]
+    ]
+    return [
+        df.to_dict("records"),
+        [{
+            "id": id, "name": id, "type": "numeric",
+            "format": Format(precision=5, scheme=Scheme.fixed)} for id in df.columns],
+        [
+            {
+                "if": {"row_index": "odd"},
+                "backgroundColor": "rgb(248, 248, 248)"
+            },
+            {
+                "if": {
+                    "filter_query": "{{{}}} = {}".format("base", base_radio),
+                },
+                "backgroundColor": "#fafa6e",
+                "color": "inherit"
+            },
+            *buy_grad,
+            *sell_grad,
+            *buy_dist,
+            *sell_dist,
+            *best_grad,
+            *worst_grad,
+            *best_dist,
+            *worst_dist,
+        ]
+    ]
 
 
 @app.callback(
@@ -382,10 +516,17 @@ def select_all_none(all_click_ts, none_click_ts):
 
 @app.callback(
     Output("crypto_radio", "value"),
-    [Input("crypto_select", "value")])
-def radio_range(selected_cryptos):
+    [Input("crypto_select", "value"),
+     Input("kpi_table", "active_cell")],
+    [State("crypto_radio", "value")])
+def radio_range(selected_cryptos, active_cell, base_radio):
+    if active_cell is not None:
+        return active_cell["row_id"]
     if (selected_cryptos is not None) and (len(selected_cryptos) > 0):
-        return selected_cryptos[0]
+        if base_radio in selected_cryptos:
+            return base_radio
+        else:
+            return selected_cryptos[0]
     else:
         return Env.bases[0]
 

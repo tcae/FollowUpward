@@ -24,6 +24,7 @@ Stock trading is a possible future step but cryoto trading offers more opportuni
 
 - conda install -c intel intelpython3_full
 - conda install dash
+- pip install dash_colorscales
 - pip install ccxt
 - pip install tables
 
