@@ -29,8 +29,8 @@ import logging
 import cached_crypto_data as ccd
 # import crypto_features as cf
 # import crypto_targets as ct
-from crypto_features import TargetsFeatures
 from sklearn.linear_model import LinearRegression
+import bottleneck as bn
 
 logger = logging.getLogger(__name__)
 
@@ -184,57 +184,6 @@ def cal_features(ohlcv):
     return df
 
 
-def calc_features_nocache(minute_data):
-    """ minute_data has to be in minute frequency and shall have 'HMWF' minutes more history elements than
-        the oldest returned element with feature data.
-        The calculation is performed on 'close' and 'volume' data.
-    """
-    if not check_input_consistency(minute_data):
-        return None
-    return cal_features(minute_data)
-
-
-class CondensedFeatures(TargetsFeatures):
-    """ Holds the source ohlcv data as pandas DataFrame 'minute_data',
-        the feature vectors as DataFrame rows of 'vec' and
-        the target trade signals in column 'target' in both DataFrames.
-
-    """
-
-    def __init__(self, base, minute_dataframe=None, path=None):
-        super().__init__(base, minute_dataframe, path)
-
-    @staticmethod
-    def feature_str():
-        "returns a string that represent the features class as mnemonic"
-        return "F2cond24"
-
-    @staticmethod
-    def feature_count():
-        """ returns the number of features for one sample
-
-        - without close and target column
-        - regression_only == TRUE: 3 features = slope, last point y, relative volume
-        - regression_only == FALSE: 5 features = slope, last point y, risk, chance, relative volume
-        - FEATURE_COUNT = 3 * 3 + 3 * 5  # 14 features per sample
-        """
-        return FEATURE_COUNT
-
-    @staticmethod
-    def history():
-        "history_minutes_without_features"
-        return HMWF
-
-    def calc_features(self, minute_data):
-        """ minute_data has to be in minute frequency and shall have 'HMWF' minutes more history elements than
-            the oldest returned element with feature data.
-            The calculation is performed on 'close' and 'volume' data.
-        """
-        if not check_input_consistency(minute_data):
-            return None
-        return cal_features(minute_data)
-
-
 class F3cond14(ccd.Features):
 
     def history(self):
@@ -268,46 +217,112 @@ class F3cond14(ccd.Features):
         return cal_features(df)
 
 
-REGRESSION_KPI2 = [(1, 5, "5m"), (1, 15, "15m"),
-                   (1, 30, "30m"), (1, 1*60, "1h"), (1, 2*60, "2h"), (0, 4*60, "4h"),
-                   (1, 12*60, "12h")]
-FEATURE_COUNT2 = 3 * 1 + 3 * 3 + 2  # 12 + 2 vol (see below) = 14 features per sample
-HMWF2 = max([minutes for (regr_only, minutes, ext) in REGRESSION_KPI2]) - 1
-# HMWF == history minutes required without features
-VOL_KPI2 = [(5, 12*60, "5m12h")]
-COL_PREFIX2 = ["gain", "sto-rsi", "distance", "vol"]  # distance is >0 above  and <0 below the regression line
+def regression(yarr, window=5):
+    """
+        This implementation ignores index and assumes an equidistant x values
+        yarr is a one dimensional numpy array
+
+        Regression Equation(y) = a + bx
+        Slope(b) = (NΣXY - (ΣX)(ΣY)) / (NΣ(X^2) - (ΣX)^2)
+        Intercept(a) = (ΣY - b(ΣX)) / N
+        used from https://www.easycalculation.com/statistics/learn-regression.php
+
+        returns 2 numpy arrays: slope and regr_end
+        slope are the gradients
+        regr_end are the regression line last points
+    """
+    # yarr = df.to_numpy()
+    # xarr = df.index.values
+    len = yarr.shape[0]
+    if len == 0:
+        return np.full((len), np.nan, dtype=np.float), np.full((len), np.nan, dtype=np.float)
+    xarr = np.array([x for x in range(len)], dtype=float)
+    xyarr = xarr * yarr
+    xy_mov_sum = bn.move_sum(xyarr, window=window)
+    x_mov_sum = bn.move_sum(xarr, window=window)
+    x2arr = xarr * xarr
+    x2_mov_sum = bn.move_sum(x2arr, window=window)
+    x_mov_sum_2 = x_mov_sum * x_mov_sum
+    y_mov_sum = bn.move_sum(yarr, window=window)
+    slope = (window * xy_mov_sum - (x_mov_sum * y_mov_sum)) / (window * x2_mov_sum - x_mov_sum_2)
+    intercept = (y_mov_sum - (slope * x_mov_sum)) / window
+    regr_end = xarr * slope + intercept
+    return slope, regr_end
 
 
-def cal_features2(ohlcv):
+def regression_unit_test():
+    df = pd.DataFrame(data={"y": [2.9, 3.1, 3.6, 3.8, 4, 4.1, 5]}, index=[59, 60, 61, 62, 63, 65, 65], dtype=float)
+    slope, regr_end = regression(df["y"].to_numpy())
+    df = pd.DataFrame(index=df.index)
+    df["slope"] = slope
+    # df["intercept"] = intercept
+    df["regr_end"] = regr_end
+    assert np.equal(df.loc[63:, "slope"].values.round(2), np.array([0.29, 0.24, 0.31])).all()
+    # print(df)
+    df = df.dropna()
+    print(df)
+    # print(df.loc[63:, "slope"])
+
+
+def relative_volume(volumes, short_window=5, large_window=60):
+    """
+        This implementation ignores index and assumes an equidistant x values
+        yarr is a one dimensional numpy array
+
+        returns a numpy array with short mean/long mean relation values
+    """
+    if volumes.shape[0] < large_window:
+        return np.full((volumes.shape[0]), np.nan, dtype=np.float)
+    short_mean = bn.move_mean(volumes, short_window)
+    large_mean = bn.move_mean(volumes, large_window)
+    vol_rel = short_mean / large_mean
+    return vol_rel
+
+
+def relative_volume_unit_test():
+    df = pd.DataFrame(data={"y": [np.NaN, 2, 3, 4, 5, 0, 0]}, dtype=float)
+    df["vol_rel"] = relative_volume(df["y"].to_numpy(), 2, 5)
+    assert np.equal(df.loc[5:, "vol_rel"].values.round(2), np.array([0.89, 0.])).all()
+    print(df)
+    # df = df.dropna()
+    # print(df)
+
+
+def pivot_regression_relative_volume(ohlcv: pd.DataFrame):
     """ Receives a float ohlcv DataFrame of consecutive prices in fixed minute frequency starting with the oldest price.
         Returns a DataFrame of features per price base on close prices and volumes
         that begins 'HMWF2' minutes later than 'ohlcv.index[0]'.
+        There is NO percentage normalization as part of the feature calculation.
         ! under construction
     """
-    cols = [
-        COL_PREFIX[ix] + ext
-        for regr_only, minutes, ext in REGRESSION_KPI
-        for ix in range(3) if ((ix < 2) or (not regr_only))]
-    cols = cols + [COL_PREFIX[3] + ext for (svol, lvol, ext) in VOL_KPI]
-    prices = ohlcv["close"]
-    volumes = ohlcv["volume"].values.reshape(-1, 1)
-    df = pd.DataFrame(columns=cols, index=prices.index[HMWF:], dtype=np.double)
-    xfull = np.arange(HMWF+1).reshape(-1, 1)
-    prices = prices.values.reshape(-1, 1)
-    linregr = LinearRegression()  # create object for the class
-    for pix in range(HMWF, prices.size):  # pix == prices index
-        tic = df.index[pix - HMWF]
-        norm_prices = prices[pix-HMWF:pix+1].copy() / prices[pix]
-        for (regr_only, offset, minutes, ext) in REGRESSION_KPI:
-            if regr_only:
-                df.loc[tic, ["gain"+ext]] = \
-                    _linregr_gain_price(linregr, xfull, norm_prices, minutes, offset)
-            else:
-                df.loc[tic, ["gain"+ext, "chance"+ext, "risk"+ext]] = \
-                    _linregr_gain_price_chance_risk(linregr, xfull, norm_prices, minutes, offset)
-        for (svol, lvol, ext) in VOL_KPI:
-            df["vol"+ext][tic] = _vol_rel(volumes[:pix+1], lvol, svol)
+    if (ohlcv is None) or ohlcv.empty:
+        df = pd.DataFrame(columns=["pivot", "range"], dtype=np.float)
+        yarr = np.array([])
+    else:
+        df = pd.DataFrame(index=ohlcv.index, columns=["pivot", "range"], dtype=np.float)
+
+        df["range"] = df["high"] - df["low"]
+        df["pivot"] = (ohlcv["open"] + ohlcv["close"] + ohlcv["high"] + ohlcv["low"]) / 4  # == pivot price
+        yarr = df["pivot"].to_numpy()
+
+    df["grad_5m"], df["level_5m"] = regression(yarr, window=5)
+    df["grad_15m"], df["level_15m"] = regression(yarr, window=15)
+    df["grad_30m"], df["level_30m"] = regression(yarr, window=30)
+    df["grad_1h"], df["level_1h"] = regression(yarr, window=60)
+    df["grad_2h"], df["level_2h"] = regression(yarr, window=2*60)
+    df["grad_4h"], df["level_4h"] = regression(yarr, window=4*60)
+    df["grad_12h"], df["level_12h"] = regression(yarr, window=12*60)
+
+    df["vol_5m12h"] = relative_volume(ohlcv["volume"].to_numpy(), short_window=5, large_window=12*60)
+    df["vol_5m1h"] = relative_volume(ohlcv["volume"].to_numpy(), short_window=5, large_window=60)
+    df = df.dropna()
     return df
+
+
+def pivot_regression_relative_volume_unit_test():
+    df = pivot_regression_relative_volume(pd.DataFrame(columns=["open", "high", "low", "close", "volume"]))
+    print(df)
+    print(df.empty)
 
 
 class F4cond14(ccd.Features):
@@ -340,10 +355,10 @@ class F4cond14(ccd.Features):
         """
         ohlc_first = first - pd.Timedelta(self.history(), unit="T")
         df = self.ohlcv.get_data(base, ohlc_first, last)
-        return cal_features2(df)
+        return pivot_regression_relative_volume(df)
 
 
-if __name__ == "__main__":
+def feature_percentiles():
     bases = ["btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
     percentiles = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     features = F3cond14(ccd.Ohlcv())
@@ -363,3 +378,10 @@ if __name__ == "__main__":
     info_df = pd.concat(base_info, join="outer", keys=bases)
     info_df.index = info_df.index.swaplevel(0, 1)
     print(info_df)
+
+
+if __name__ == "__main__":
+    # feature_percentiles()
+    # regression_unit_test()
+    relative_volume_unit_test()
+    pivot_regression_relative_volume_unit_test()

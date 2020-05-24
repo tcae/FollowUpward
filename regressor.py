@@ -33,8 +33,6 @@ import tensorflow.keras as keras
 import crypto_targets as ct
 import cached_crypto_data as ccd
 import condensed_features as cof
-import aggregated_features as agf
-# import classify_keras as ck
 import adaptation_data as ad
 # import performance_data as perfdat
 import prediction_data as preddat
@@ -361,10 +359,7 @@ if __name__ == "__main__":
     # targets = ct.T10up5low30min(ohlcv)
     try:
 
-        if True:
-            features = cof.F3cond14(ohlcv)
-        else:
-            features = agf.AggregatedFeatures(ohlcv)
+        features = cof.F3cond14(ohlcv)
         for base in Env.bases:
             regressor = Regressor([base], ohlcv, features, targets)
             if True:

@@ -197,7 +197,7 @@ if __name__ == "__main__":
     bases = Env.bases
     # bases = ["zrx", "bch", "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm", "zec"]
     # bases = ["btc"]
-    bases = ["tfuel", "theta"]
+    bases = ["ont", "vet", "iost"]
 
     # first, last = ohlcv_timerange(bases, ohlcv)
     first, last = ad.SplitSets.overall_timerange()

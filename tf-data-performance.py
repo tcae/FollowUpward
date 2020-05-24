@@ -15,7 +15,6 @@ import env_config as env
 import crypto_targets as ct
 import cached_crypto_data as ccd
 import condensed_features as cof
-import aggregated_features as agf
 # import classify_keras as ck
 import adaptation_data as ad
 # import performance_data as perfdat
@@ -35,10 +34,7 @@ def prep_classifier():
     start_time = timeit.default_timer()
     ohlcv = ccd.Ohlcv()
     targets = ct.Target10up5low30min(ohlcv)
-    if True:
-        features = cof.F3cond14(ohlcv)
-    else:
-        features = agf.AggregatedFeatures(ohlcv)
+    features = cof.F3cond14(ohlcv)
     for base in bases:
         classifier = cp.Classifier(bases, ohlcv, features, targets)
     tdiff = (timeit.default_timer() - start_time)

@@ -20,7 +20,6 @@ from bookkeeping import Bk
 import crypto_history_sets as chs
 import cached_crypto_data as ccd
 import condensed_features as cof
-import aggregated_features as agf
 import prediction_data as pdd
 
 logger = logging.getLogger(__name__)
@@ -289,10 +288,7 @@ def trading_main():
     trading = Trading()
     ohlcv = ccd.Ohlcv()
     targets = ct.T10up5low30min(ohlcv)
-    if True:
-        features = cof.F3cond14(ohlcv)
-    else:
-        features = agf.AggregatedFeatures(ohlcv)
+    features = cof.F3cond14(ohlcv)
     classifier = pdd.Classifier(ohlcv, features, targets)
     classifier.load("MLP2_talos_iter-3_l1-14_do-0.2_l2-16_l3-no_opt-Adam__F2cond20__T10up5low30min", epoch=15)
 

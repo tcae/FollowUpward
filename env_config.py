@@ -35,7 +35,6 @@ class Env():
         # logger.info(f"{type(calc)}/{type(usage)}")
         # first initialize environment then configure logging and then start logging
         Env.data_path = calc.data_path_prefix + usage.data_path_suffix
-        Env.conf_fname = usage.conf_fname
         Env.test_mode = usage.test_mode
         Env.cache_path = f"{calc.data_path_prefix}cache/"
         Env.bases = usage.bases
@@ -96,28 +95,23 @@ class Production(Usage):
     data_path_suffix = "Features/"
     bases = [
         "btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx", "zrx", "bch",
-        "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm", "zec"]
-    conf_fname = "target_5_sets_split.config"
-    set_split_fname = "adapt_sets_split.csv"
+        "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm", "zec", "tfuel", "theta"]
+    training_bases = [
+        "btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
+    set_split_fname = "sets_split.csv"
     test_mode = False
 
 
 class Test(Usage):
     data_path_suffix = "TestFeatures/"
+    training_bases = ["btc"]
     bases = ["btc", "xrp"]
-    # conf_fname = "target_5_sets_split_unit-test.config"
-    conf_fname = "target_5_sets_split.config"
-    set_split_fname = "adapt_sets_split.csv"
+    set_split_fname = "sets_split.csv"
     test_mode = True
 
 
 def config_ok():
     return len(Env.data_path) > 0
-
-
-def sets_config_fname():
-    cfname = Env.data_path + Env.conf_fname
-    return cfname
 
 
 def sets_split_fname():
