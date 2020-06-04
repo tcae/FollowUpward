@@ -150,3 +150,19 @@ In order to focus on the ML part data handling shall be unified over all data pr
 - black list of cryptos that should not be considered for trading due to
   - trading volume below certain threshold
   - too many no trade breaks indicating  a limited number of market participants
+
+## Ideas and Observations
+
+### Design ideas
+
+CryptoData shall be extended to store and get data quick and easy but there shall be a layer in between to enable classes using the same data for different things, e.g.
+
+- features normalized, capped, masked (use some for visualization and others for ML)
+- ohlcv gaps stored but without gaps used
+- target classes or regression values
+
+### Oberservations
+
+Gradient alone may be insufficient - gain between gradient sign changes may be significant, e.g. mid term gaining crypto shows small losses between gradient sign changes but big gains. Hence the last complete loss and the last complete gain per aggregation may add value.
+
+Which aggregation is most profitable? Depends on last observed gains/losses, the liquidity (do I find a counterpart at the price I want to trade?)

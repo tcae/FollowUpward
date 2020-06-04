@@ -58,14 +58,24 @@ view_config = {
         "legend": "6M", "timerange": pd.Timedelta(365/2, "D"), "aggregation": "h", "focusrange": pd.Timedelta(10, "D")},
     "graph_all": {"focusrange": pd.Timedelta(365/2, "D")},
     "kpi_table": {
-        "1m": {"timerange": pd.Timedelta(1, "m"), "aggregation": "m", "buy": 60., "sell": -30.},
-        "5m": {"timerange": pd.Timedelta(5, "m"), "aggregation": "m", "buy": 12., "sell": -6.},
-        "15m": {"timerange": pd.Timedelta(15, "m"), "aggregation": "m", "buy": 4., "sell": -2.},
-        "30m": {"timerange": pd.Timedelta(30, "m"), "aggregation": "m", "buy": 2., "sell": -1.},
-        "1h": {"timerange": pd.Timedelta(1, "h"), "aggregation": "m", "buy": 1., "sell": -0.5},
-        "2h": {"timerange": pd.Timedelta(2, "h"), "aggregation": "m", "buy": 0.5, "sell": -0.25},
-        "4h": {"timerange": pd.Timedelta(4, "h"), "aggregation": "m", "buy": 0.25, "sell": -0.125},
-        "12h": {"timerange": pd.Timedelta(12, "h"), "aggregation": "m", "buy": 0.125, "sell": -0.0625},
+        "regression": {
+            "1m": {"timerange": pd.Timedelta(1, "m"), "aggregation": "m", "buy": 60., "sell": -30.},
+            "5m": {"timerange": pd.Timedelta(5, "m"), "aggregation": "m", "buy": 12., "sell": -6.},
+            "15m": {"timerange": pd.Timedelta(15, "m"), "aggregation": "m", "buy": 4., "sell": -2.},
+            "30m": {"timerange": pd.Timedelta(30, "m"), "aggregation": "m", "buy": 2., "sell": -1.},
+            "1h": {"timerange": pd.Timedelta(1, "h"), "aggregation": "m", "buy": 1., "sell": -0.5},
+            "2h": {"timerange": pd.Timedelta(2, "h"), "aggregation": "m", "buy": 0.5, "sell": -0.25},
+            "4h": {"timerange": pd.Timedelta(4, "h"), "aggregation": "m", "buy": 0.25, "sell": -0.125},
+            "12h": {"timerange": pd.Timedelta(12, "h"), "aggregation": "m", "buy": 0.125, "sell": -0.0625},
+        },
+        "volume": {
+            # "5m1h": {"shortrange": pd.Timedelta(5, "m"), "longrange": pd.Timedelta(1, "h")},
+            "5m4h": {"shortrange": pd.Timedelta(5, "m"), "longrange": pd.Timedelta(4, "h")},
+        },
+        "liquidity": {
+            # "5m1h": {"shortrange": pd.Timedelta(5, "m"), "longrange": pd.Timedelta(1, "h")},
+            "median(1h)/min": {"timerange": pd.Timedelta(1, "h")},
+        }
     },
 }
 
@@ -350,6 +360,24 @@ def regression_gradient_distance(start, end, bmd):
     return (gradient, distance)
 
 
+def volume_relation_check(short_range, long_range, end, ohlcv_df):
+    short_start = end - short_range
+    long_start = end - long_range
+    sdf = ohlcv_df.loc[(ohlcv_df.index >= short_start) & (ohlcv_df.index <= end)]
+    ldf = ohlcv_df.loc[(ohlcv_df.index >= long_start) & (ohlcv_df.index <= end)]
+    vol_rel = sdf["volume"].mean() / ldf["volume"].mean()
+    # logger.debug(f"vol_rel: {vol_rel} = sdf: {sdf.volume.mean()}/ ldf: {ldf.volume.mean()}")
+    return vol_rel
+
+
+def minute_liquidity(timerange, end, ohlcv_df):
+    start = end - timerange
+    sdf = ohlcv_df.loc[(ohlcv_df.index >= start) & (ohlcv_df.index <= end)]
+    sdf["liq"] = sdf["volume"] * sdf["close"]
+    liquidity = sdf["liq"].median()
+    return liquidity
+
+
 @app.callback(
     [dash.dependencies.Output("kpi_table", "data"),
      dash.dependencies.Output("kpi_table", "columns"),
@@ -363,7 +391,10 @@ def update_table(focus_json, bases, base_radio):
         end = focus
     df = pd.DataFrame(index=Env.bases)
     df.index.rename("base", inplace=True)
-    max_timerange = max([view_config["kpi_table"][reg]["timerange"] for reg in view_config["kpi_table"]])
+    regr_config = view_config["kpi_table"]["regression"]
+    vol_config = view_config["kpi_table"]["volume"]
+    liq_config = view_config["kpi_table"]["liquidity"]
+    max_timerange = max([regr_config[reg]["timerange"] for reg in regr_config])
     for base in Env.bases:
         if end is None:  # is the case for initialization
             rend = ohlcv_df_dict[base].index[-1]
@@ -372,22 +403,30 @@ def update_table(focus_json, bases, base_radio):
         start = rend - max_timerange
         bmd = normalize_close(ohlcv_df_dict[base], start, rend, "T")
         if (bmd is not None) and (not bmd.empty):
-            for regression in view_config["kpi_table"]:
-                start = rend - view_config["kpi_table"][regression]["timerange"]
+            for regression in regr_config:
+                start = rend - regr_config[regression]["timerange"]
                 gradient, distance = regression_gradient_distance(start, rend, bmd)
                 df.loc[base, regression+"grad"] = gradient
                 df.loc[base, regression+"dist"] = distance
-    gl = [regression+"grad" for regression in view_config["kpi_table"]]
-    dl = [regression+"dist" for regression in view_config["kpi_table"]]
+            for vol in vol_config:
+                df.loc[base, vol+"volrel"] = volume_relation_check(
+                    vol_config[vol]["shortrange"], vol_config[vol]["longrange"], rend, ohlcv_df_dict[base])
+            for liq in liq_config:
+                df.loc[base, liq+"_liq"] = minute_liquidity(
+                    liq_config[liq]["timerange"], rend, ohlcv_df_dict[base])
+    gl = [regression+"grad" for regression in regr_config]
+    dl = [regression+"dist" for regression in regr_config]
+    vl = [vol+"volrel" for vol in vol_config]
+    ll = [liq+"_liq" for liq in liq_config]
     cmp = dict()
     cmp["buy_grad"] = {
-        regression+"grad": view_config["kpi_table"][regression]["buy"]
-        for regression in view_config["kpi_table"]}
+        regression+"grad": regr_config[regression]["buy"]
+        for regression in regr_config}
     cmp["sell_grad"] = {
-        regression+"grad": view_config["kpi_table"][regression]["sell"]
-        for regression in view_config["kpi_table"]}
-    cmp["buy_dist"] = {regression+"dist": -0.5 for regression in view_config["kpi_table"]}
-    cmp["sell_dist"] = {regression+"dist": 0.5 for regression in view_config["kpi_table"]}
+        regression+"grad": regr_config[regression]["sell"]
+        for regression in regr_config}
+    cmp["buy_dist"] = {regression+"dist": -0.5 for regression in regr_config}
+    cmp["sell_dist"] = {regression+"dist": 0.5 for regression in regr_config}
     cmp["best_grad"] = {
         col: max([cmp["buy_grad"][col]*2, value])
         for (col, value) in df.quantile(0.9).iteritems() if "grad" in col}
@@ -401,9 +440,10 @@ def update_table(focus_json, bases, base_radio):
         col: max([cmp["sell_dist"][col]*2, value])
         for (col, value) in df.quantile(0.1).iteritems() if "dist" in col}
     # logger.debug(json.dumps(cmp, indent=4))
-    df = df[gl+dl]
+    df = df[gl+dl+vl+ll]
     df = df.reset_index()
     df["id"] = df["base"]
+    df = df.sort_values(ll[0], ascending=False)
     buy_grad = [
         {
             "if": {
@@ -615,7 +655,7 @@ def normalize_close(bmd, start, end, aggregation):
         bmd = bmd.resample(aggregation).agg({"close": "first"})
 
     if (bmd is not None) and (len(bmd) > 0):
-        normfactor = bmd.iloc[0].close
+        normfactor = bmd.iloc[-1].close
         bmd = bmd.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
     return bmd
 
@@ -626,7 +666,7 @@ def normalize_ohlc(bmd, start, end, aggregation):
         bmd = bmd.resample(aggregation).agg({"open": "first", "close": "last", "high": "max",
                                              "low": "min"})  # "volume": "sum"
     if (bmd is not None) and (len(bmd) > 0):
-        normfactor = bmd.iloc[0].close
+        normfactor = bmd.iloc[-1].close
         bmd = bmd.apply(lambda x: (x / normfactor - 1) * 100)  # normalize to % change
     return bmd
 
@@ -965,7 +1005,7 @@ def update_detail_graph_by_click(focus_json, bases, base, indicators):
     return {
         "data": graph_bases,
         "layout": {
-            "height": 700,
+            "height": 500,
             "margin": {"l": 20, "b": 30, "r": 10, "t": 10},
             "annotations": [{
                 "x": 0, "y": 0.85, "xanchor": "left", "yanchor": "bottom",

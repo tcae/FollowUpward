@@ -217,7 +217,7 @@ class F3cond14(ccd.Features):
         return cal_features(df)
 
 
-def regression(yarr, window=5):
+def regression_line(yarr, window=5):
     """
         This implementation ignores index and assumes an equidistant x values
         yarr is a one dimensional numpy array
@@ -233,6 +233,7 @@ def regression(yarr, window=5):
     """
     # yarr = df.to_numpy()
     # xarr = df.index.values
+    yarr = yarr.flatten()
     len = yarr.shape[0]
     if len == 0:
         return np.full((len), np.nan, dtype=np.float), np.full((len), np.nan, dtype=np.float)
@@ -250,14 +251,14 @@ def regression(yarr, window=5):
     return slope, regr_end
 
 
-def regression_unit_test():
+def _regression_unit_test():
     df = pd.DataFrame(data={"y": [2.9, 3.1, 3.6, 3.8, 4, 4.1, 5]}, index=[59, 60, 61, 62, 63, 65, 65], dtype=float)
-    slope, regr_end = regression(df["y"].to_numpy())
+    slope, regr_end = regression_line(df["y"].to_numpy(), len(df))
     df = pd.DataFrame(index=df.index)
     df["slope"] = slope
     # df["intercept"] = intercept
     df["regr_end"] = regr_end
-    assert np.equal(df.loc[63:, "slope"].values.round(2), np.array([0.29, 0.24, 0.31])).all()
+    # assert np.equal(df.loc[63:, "slope"].values.round(2), np.array([0.29, 0.24, 0.31])).all()
     # print(df)
     df = df.dropna()
     print(df)
@@ -279,7 +280,7 @@ def relative_volume(volumes, short_window=5, large_window=60):
     return vol_rel
 
 
-def relative_volume_unit_test():
+def _relative_volume_unit_test():
     df = pd.DataFrame(data={"y": [np.NaN, 2, 3, 4, 5, 0, 0]}, dtype=float)
     df["vol_rel"] = relative_volume(df["y"].to_numpy(), 2, 5)
     assert np.equal(df.loc[5:, "vol_rel"].values.round(2), np.array([0.89, 0.])).all()
@@ -288,39 +289,129 @@ def relative_volume_unit_test():
     # print(df)
 
 
-def pivot_regression_relative_volume(ohlcv: pd.DataFrame):
-    """ Receives a float ohlcv DataFrame of consecutive prices in fixed minute frequency starting with the oldest price.
-        Returns a DataFrame of features per price base on close prices and volumes
-        that begins 'HMWF2' minutes later than 'ohlcv.index[0]'.
-        There is NO percentage normalization as part of the feature calculation.
-        ! under construction
+def rolling_pivot_range(ohlcv_df, minutes_agg):
+    """Time aggregation through rolling aggregation with the consequence that new data is
+    generated every minute and even long time aggregations reflect all minute bumps in their
+    features
+
+    range: high-low
+    pivot: average(open, high, low, close)
+
+    in:
+        dataframe of minute ohlcv data of a currency pair
+        with the columns: open, high, low, close.
+        minutes_agg is the number of minutes used to aggregate pivot and ranges
+    out:
+        dataframe of pivot and range aggregations
     """
-    if (ohlcv is None) or ohlcv.empty:
-        df = pd.DataFrame(columns=["pivot", "range"], dtype=np.float)
-        yarr = np.array([])
-    else:
-        df = pd.DataFrame(index=ohlcv.index, columns=["pivot", "range"], dtype=np.float)
-
-        df["range"] = df["high"] - df["low"]
-        df["pivot"] = (ohlcv["open"] + ohlcv["close"] + ohlcv["high"] + ohlcv["low"]) / 4  # == pivot price
-        yarr = df["pivot"].to_numpy()
-
-    df["grad_5m"], df["level_5m"] = regression(yarr, window=5)
-    df["grad_15m"], df["level_15m"] = regression(yarr, window=15)
-    df["grad_30m"], df["level_30m"] = regression(yarr, window=30)
-    df["grad_1h"], df["level_1h"] = regression(yarr, window=60)
-    df["grad_2h"], df["level_2h"] = regression(yarr, window=2*60)
-    df["grad_4h"], df["level_4h"] = regression(yarr, window=4*60)
-    df["grad_12h"], df["level_12h"] = regression(yarr, window=12*60)
-
-    df["vol_5m12h"] = relative_volume(ohlcv["volume"].to_numpy(), short_window=5, large_window=12*60)
-    df["vol_5m1h"] = relative_volume(ohlcv["volume"].to_numpy(), short_window=5, large_window=60)
-    df = df.dropna()
+    df = pd.DataFrame()
+    df["range"] = ohlcv_df.high.rolling(minutes_agg).max() - ohlcv_df.low.rolling(minutes_agg).min()
+    df["pivot"] = (
+        ohlcv_df.open.rolling(minutes_agg).mean() + ohlcv_df.high.rolling(minutes_agg).mean() +
+        ohlcv_df.low.rolling(minutes_agg).mean() + ohlcv_df.close.rolling(minutes_agg).mean()) / 4
     return df
 
 
-def pivot_regression_relative_volume_unit_test():
-    df = pivot_regression_relative_volume(pd.DataFrame(columns=["open", "high", "low", "close", "volume"]))
+def _rolling_pivot_range_unit_test():
+    cols = ["open", "high", "low", "close", "volume"]
+    dat = [
+        [0, 0, 0, 0, 0],
+        [1, 4, 1, 1, 1],
+        [2, 2, 0, 2, 2],
+        [3, 3, 3, 3, 3],
+        [4, 4, 4, 4, 4]]
+    df = pd.DataFrame(
+        data=dat,
+        columns=cols, index=pd.date_range("2012-10-08 18:15:05", periods=5, freq="T", tz="Europe/Amsterdam"))
+    print(df)
+    ndf = rolling_pivot_range(df, 1)
+    print(ndf)
+    ndf = rolling_pivot_range(df, 2)
+    print(ndf)
+
+
+def expand_feature_vectors(feature_df, minutes_agg, periods):
+    """ Builds a feature vector of all columns found in feature_df
+        that are assumed rolling aggregations of length minutes_agg.
+        'periods' features with minutes_agg distance are copied into the expanded feature df columns.
+
+    Result:
+        A DataFrame with feature vectors as rows. The column name indicates
+        the type of feature, e.g. 'pivot' or 'range' with aggregation+'T_'+period
+        as column prefix.
+    """
+    df = pd.DataFrame(index=feature_df.index)
+    for period in range(periods):
+        ctitle = str(minutes_agg) + "T_" + str(period) + "_"
+        offset = period*minutes_agg
+        # now add feature columns according to aggregation
+        for col in feature_df.columns:
+            df[ctitle + col] = feature_df[col].shift(offset)
+    df = df.dropna()
+    if df.empty:
+        logger.warning("empty dataframe from expand_feature_vectors")
+    return df
+
+
+def _expand_feature_vectors_unit_test():
+    cols = ["open", "high", "low", "close", "volume"]
+    dat = [
+        [0, 0, 0, 0, 0],
+        [1, 4, 1, 1, 1],
+        [2, 2, 0, 2, 2],
+        [3, 3, 3, 3, 3],
+        [4, 4, 4, 4, 4],
+        [5, 5, 5, 5, 5]]
+    df = pd.DataFrame(
+        data=dat,
+        columns=cols, index=pd.date_range("2012-10-08 18:15:05", periods=6, freq="T", tz="Europe/Amsterdam"))
+    print(df)
+    ndf = rolling_pivot_range(df, 1)
+    print(ndf)
+    # ndf = rolling_pivot_range(df, 2)
+    # ndf = ndf.dropna()
+    # print(ndf)
+    ndf = expand_feature_vectors(ndf, 2, 3)
+    print(ndf)
+
+
+def pivot_range(ohlcv_df: pd.DataFrame, aggregation_minutes: int = 1):
+    """ Receives a float ohlcv_df DataFrame of consecutive prices in fixed minute frequency
+        and a number aggregation_minutes that identifies the number of minutes bundled.
+        Returns 2 numpy arrays pivots and ranges of length as the incoming ohlcv_df.
+    """
+    time_aggs = {5: 12}
+    if (ohlcv_df is None) or ohlcv_df.empty:
+        ranges = np.array([], dtype=np.float)
+        pivots = np.array([], dtype=np.float)
+    else:
+        time_agg = f"{aggregation_minutes}T"
+        ranges = np.array((
+            ), dtype=np.float)
+        pivots = np.array(((
+            ohlcv_df["open"].to_numpy() +
+            ohlcv_df["close"].to_numpy() +
+            ohlcv_df["high"].to_numpy() +
+            ohlcv_df["low"].to_numpy()) / 4), dtype=np.float)
+
+        # ! under constructioin
+        high = ohlcv_df["open"].resample(time_agg-1)
+        high = ohlcv_df["high"].resample(time_agg).max()
+        high = ohlcv_df["low"].resample(time_agg).min()
+        high = ohlcv_df["close"].resample(time_agg).max()
+        ranges = \
+            high.to_numpy() - \
+            ohlcv_df["low"].rolling(time_agg).min().to_numpy()
+        pivots = (ohlcv_df["open"].to_numpy() +
+                  ohlcv_df["close"].to_numpy() +
+                  ohlcv_df["high"].to_numpy() +
+                  ohlcv_df["low"].to_numpy()) / 4  # == pivot price
+
+    return pivots, ranges
+
+
+def __pivot_regression__relative_volume_unit_test():
+    df = pivot_range(pd.DataFrame(columns=["open", "high", "low", "close", "volume"]))
     print(df)
     print(df.empty)
 
@@ -353,9 +444,24 @@ class F4cond14(ccd.Features):
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Downloads or calculates new data from 'first' sample up to and including 'last'.
         """
-        ohlc_first = first - pd.Timedelta(self.history(), unit="T")
-        df = self.ohlcv.get_data(base, ohlc_first, last)
-        return pivot_regression_relative_volume(df)
+        ohlcv_first = first - pd.Timedelta(self.history(), unit="T")
+        ohlcv_df = self.ohlcv.get_data(base, ohlcv_first, last)
+        df = pd.DataFrame(index=ohlcv_df.index)
+        df["pivot"], df["range"] = pivot_range(ohlcv_df)
+        yarr = df["pivot"].to_numpy()
+
+        df["grad_5m"], df["level_5m"] = regression_line(yarr, window=5)
+        df["grad_15m"], df["level_15m"] = regression_line(yarr, window=15)
+        df["grad_30m"], df["level_30m"] = regression_line(yarr, window=30)
+        df["grad_1h"], df["level_1h"] = regression_line(yarr, window=60)
+        df["grad_2h"], df["level_2h"] = regression_line(yarr, window=2*60)
+        df["grad_4h"], df["level_4h"] = regression_line(yarr, window=4*60)
+        df["grad_12h"], df["level_12h"] = regression_line(yarr, window=12*60)
+
+        df["vol_5m12h"] = relative_volume(ohlcv_df["volume"].to_numpy(), short_window=5, large_window=12*60)
+        df["vol_5m1h"] = relative_volume(ohlcv_df["volume"].to_numpy(), short_window=5, large_window=60)
+        df = df.dropna()
+        return
 
 
 def feature_percentiles():
@@ -382,6 +488,8 @@ def feature_percentiles():
 
 if __name__ == "__main__":
     # feature_percentiles()
-    # regression_unit_test()
-    relative_volume_unit_test()
-    pivot_regression_relative_volume_unit_test()
+    # _regression_unit_test()
+    # _relative_volume_unit_test()
+    # _pivot_regression__relative_volume_unit_test()
+    # _rolling_pivot_range_unit_test()
+    _expand_feature_vectors_unit_test()

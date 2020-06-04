@@ -95,7 +95,8 @@ class Production(Usage):
     data_path_suffix = "Features/"
     bases = [
         "btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx", "zrx", "bch",
-        "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm", "zec", "tfuel", "theta"]
+        "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm", "zec",
+        "tfuel", "theta", "ont", "vet", "iost"]
     training_bases = [
         "btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
     set_split_fname = "sets_split.csv"
