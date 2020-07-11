@@ -155,20 +155,10 @@ class CryptoData:
     def mnemonic(self):
         """
             returns a string that represents this class as mnemonic, e.g. to use it in file names.
-            if classes share the same saved data but use different subsets then save_mnemonic for storage
-            may differ from mnemonic or specific subclass usage.
         """
         return "missing subclass implementation"
 
-    def save_mnemonic(self):
-        """
-            returns a string that represents this class as mnemonic, e.g. to use it in file names.
-            if classes share the same saved data but use different subsets then save_mnemonic for storage
-            may differ from mnemonic or specific subclass usage.
-        """
-        return self.mnemonic()
-
-    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp):
         """ Downloads or calculates new data from 'first' sample up to and including 'last'.
             This is the core method to be implemented by subclasses.
             If use_cache == False then no saved data is used.
@@ -177,7 +167,7 @@ class CryptoData:
 
     def fname(self, base: str):
         "returns a file name to load or store data in h5 format"
-        fname = self.path + base + "_" + self.save_mnemonic() + "_df.h5"
+        fname = self.path + base + "_" + self.mnemonic() + "_df.h5"
         return fname
 
     def check_timerange(self, df: pd.DataFrame, first: pd.Timestamp, last: pd.Timestamp):
@@ -197,30 +187,26 @@ class CryptoData:
             df.index = df.index.tz_convert("Europe/Amsterdam")
         return df
 
-    def lookup_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp):
         """ Loads and downloads/calculates data from 'first' sample up to and including 'last'.
-            If use_cache == False then no saved data is used. All data columns are returned.
         """
         assert first is not None
         assert last is not None
         assert first <= last
-        if use_cache:
-            df = self.load_data(base)
-            df = self.convert_to_current_timezone(df)
-        else:
-            df = None
+        df = self.load_data(base)
+        df = self.convert_to_current_timezone(df)
         if (df is None) or df.empty:
-            df = self.new_data(base, first, last, use_cache)
+            df = self.new_data(base, first, last)
             df = self.convert_to_current_timezone(df)
             if (df is None) or df.empty:
                 return None
         elif (last > df.index[-1]):
             if first > df.index[-1]:
-                df = self.new_data(base, first, last, use_cache)
+                df = self.new_data(base, first, last)
                 df = self.convert_to_current_timezone(df)
             else:
                 # include df.index[-1] as new data first due to incomplete last minute effect
-                ndf = self.new_data(base, df.index[-1], last, use_cache)
+                ndf = self.new_data(base, df.index[-1], last)
                 df = self.convert_to_current_timezone(df)
                 if (ndf is not None) and (not ndf.empty):
                     df = df.loc[df.index < ndf.index[0]]
@@ -230,20 +216,11 @@ class CryptoData:
         assert no_index_gaps(df)
         return df
 
-    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
-        """ Loads and downloads/calculates data from 'first' sample up to and including 'last'.
-            If use_cache == False then no saved data is used.
-            Only data columns of the current subclass identified in keys() are returned.
-        """
-        df = self.lookup_data(base, first, last, use_cache)
-        df = df.loc[:, self.keys()]
-        return df
-
     def load_data(self, base: str):
         """ Loads all saved data and returns it as a data frame.
         """
         try:
-            df = pd.read_hdf(self.fname(base), base + "_" + self.save_mnemonic())
+            df = pd.read_hdf(self.fname(base), base + "_" + self.mnemonic())
             df = self.convert_to_current_timezone(df)
             if isinstance(df, pd.Series):
                 df = df.to_frame()
@@ -261,7 +238,7 @@ class CryptoData:
             fname = self.fname(base)
             if isinstance(df, pd.Series):
                 df = df.to_frame()
-            df.to_hdf(self.fname(base), base + "_" + self.save_mnemonic(), mode="w")
+            df.to_hdf(self.fname(base), base + "_" + self.mnemonic(), mode="w")
             logger.info(f"saved {fname} {len(df)} samples from {df.index[0]} until {df.index[-1]}")
         except IOError:
             logger.error(f"cannot save {self.fname(base)}")
@@ -295,6 +272,16 @@ class CryptoData:
         #     return set_type_df
 
 
+def calc_pivot(ohlcv_df):
+    """Returns a numpy array of the same length as ohlcv_df
+    with the average(open, high, low, close)
+    """
+    pivot = (
+        ohlcv_df.open.to_numpy() + ohlcv_df.high.to_numpy() +
+        ohlcv_df.low.to_numpy() + ohlcv_df.close.to_numpy()) / 4.0
+    return pivot
+
+
 class Ohlcv(CryptoData):
     """ Class for binance OHLCV samples handling
     """
@@ -311,10 +298,9 @@ class Ohlcv(CryptoData):
         "returns a string that represent the PredictionData class as mnemonic, e.g. to use it in file names"
         return "OHLCV"
 
-    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
-            If use_cache == False then no saved data is used.
         """
         assert first is not None
         assert last is not None
@@ -327,11 +313,13 @@ class Ohlcv(CryptoData):
         else:
             return None
 
-    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp):
         """ Loads and downloads/calculates new data from 'first' sample up to and including 'last'.
-            For Ohlcv enforce to use_cache.
         """
-        return super().get_data(base, first, last, use_cache=True)
+        df = super().get_data(base, first, last)
+        if "pivot" not in df:
+            df["pivot"] = calc_pivot(df)
+        return df
 
 
 class Features(CryptoData):
@@ -341,11 +329,10 @@ class Features(CryptoData):
         self.ohlcv = ohlcv
         super().__init__()
 
-    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
+    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp):
         """ Loads and downloads/calculates new data from 'first' sample up to and including 'last'.
-            For Features enforce to use_cache.
         """
-        return super().get_data(base, first, last, use_cache=True)
+        return super().get_data(base, first, last)
 
 
 def check_df(df):

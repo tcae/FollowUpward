@@ -373,7 +373,7 @@ def volume_relation_check(short_range, long_range, end, ohlcv_df):
 def minute_liquidity(timerange, end, ohlcv_df):
     start = end - timerange
     sdf = ohlcv_df.loc[(ohlcv_df.index >= start) & (ohlcv_df.index <= end)]
-    sdf["liq"] = sdf["volume"] * sdf["close"]
+    sdf.loc[:, "liq"] = sdf["volume"] * sdf["close"]
     liquidity = sdf["liq"].median()
     return liquidity
 

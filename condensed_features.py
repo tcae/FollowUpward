@@ -239,19 +239,19 @@ def regression_line(yarr, window=5):
         return np.full((len), np.nan, dtype=np.float), np.full((len), np.nan, dtype=np.float)
     xarr = np.array([x for x in range(len)], dtype=float)
     xyarr = xarr * yarr
-    xy_mov_sum = bn.move_sum(xyarr, window=window)
-    x_mov_sum = bn.move_sum(xarr, window=window)
+    xy_mov_sum = bn.move_sum(xyarr, window=window, min_count=window)
+    x_mov_sum = bn.move_sum(xarr, window=window, min_count=window)
     x2arr = xarr * xarr
-    x2_mov_sum = bn.move_sum(x2arr, window=window)
+    x2_mov_sum = bn.move_sum(x2arr, window=window, min_count=window)
     x_mov_sum_2 = x_mov_sum * x_mov_sum
-    y_mov_sum = bn.move_sum(yarr, window=window)
+    y_mov_sum = bn.move_sum(yarr, window=window, min_count=window)
     slope = (window * xy_mov_sum - (x_mov_sum * y_mov_sum)) / (window * x2_mov_sum - x_mov_sum_2)
     intercept = (y_mov_sum - (slope * x_mov_sum)) / window
     regr_end = xarr * slope + intercept
     return slope, regr_end
 
 
-def _regression_unit_test():
+def _regression_test():
     df = pd.DataFrame(data={"y": [2.9, 3.1, 3.6, 3.8, 4, 4.1, 5]}, index=[59, 60, 61, 62, 63, 65, 65], dtype=float)
     slope, regr_end = regression_line(df["y"].to_numpy(), len(df))
     df = pd.DataFrame(index=df.index)
@@ -259,7 +259,7 @@ def _regression_unit_test():
     # df["intercept"] = intercept
     df["regr_end"] = regr_end
     # assert np.equal(df.loc[63:, "slope"].values.round(2), np.array([0.29, 0.24, 0.31])).all()
-    # print(df)
+    print(df)
     df = df.dropna()
     print(df)
     # print(df.loc[63:, "slope"])
@@ -274,45 +274,58 @@ def relative_volume(volumes, short_window=5, large_window=60):
     """
     if volumes.shape[0] < large_window:
         return np.full((volumes.shape[0]), np.nan, dtype=np.float)
-    short_mean = bn.move_mean(volumes, short_window)
-    large_mean = bn.move_mean(volumes, large_window)
+    short_mean = bn.move_mean(volumes, short_window, min_count=1)
+    large_mean = bn.move_mean(volumes, large_window, min_count=1)
+    large_mean[large_mean == 0] = 1  # mitigate division with zero
     vol_rel = short_mean / large_mean
     return vol_rel
 
 
-def _relative_volume_unit_test():
+def _relative_volume_test():
     df = pd.DataFrame(data={"y": [np.NaN, 2, 3, 4, 5, 0, 0]}, dtype=float)
     df["vol_rel"] = relative_volume(df["y"].to_numpy(), 2, 5)
     assert np.equal(df.loc[5:, "vol_rel"].values.round(2), np.array([0.89, 0.])).all()
     print(df)
-    # df = df.dropna()
-    # print(df)
+    df = df.dropna()
+    print(df)
 
 
-def rolling_pivot_range(ohlcv_df, minutes_agg):
+def rolling_range(ohlcv_pivot_df, minutes_agg):
     """Time aggregation through rolling aggregation with the consequence that new data is
     generated every minute and even long time aggregations reflect all minute bumps in their
     features
 
     range: high-low
-    pivot: average(open, high, low, close)
 
     in:
         dataframe of minute ohlcv data of a currency pair
         with the columns: open, high, low, close.
-        minutes_agg is the number of minutes used to aggregate pivot and ranges
+        minutes_agg is the number of minutes used to aggregate ranges
     out:
-        dataframe of pivot and range aggregations
+        dataframe range aggregations
     """
-    df = pd.DataFrame()
-    df["range"] = ohlcv_df.high.rolling(minutes_agg).max() - ohlcv_df.low.rolling(minutes_agg).min()
-    df["pivot"] = (
-        ohlcv_df.open.rolling(minutes_agg).mean() + ohlcv_df.high.rolling(minutes_agg).mean() +
-        ohlcv_df.low.rolling(minutes_agg).mean() + ohlcv_df.close.rolling(minutes_agg).mean()) / 4
-    return df
+    return ohlcv_pivot_df.high.rolling(minutes_agg, min_periods=1).max() - \
+        ohlcv_pivot_df.low.rolling(minutes_agg, min_periods=1).min()
 
 
-def _rolling_pivot_range_unit_test():
+def rolling_pivot(ohlcv_pivot_df, minutes_agg):
+    """Time aggregation through rolling aggregation with the consequence that new data is
+    generated every minute and even long time aggregations reflect all minute bumps in their
+    features
+
+    pivot: is expected as input coulmn as average(open, high, low, close)
+
+    in:
+        dataframe of minute ohlcv data of a currency pair
+        with the columns: pivot.
+        minutes_agg is the number of minutes used to aggregate pivot
+    out:
+        numpy of pivot aggregations
+    """
+    return bn.move_mean(ohlcv_pivot_df["pivot"].to_numpy(), window=minutes_agg, min_count=1)
+
+
+def _rolling_pivot_range_test():
     cols = ["open", "high", "low", "close", "volume"]
     dat = [
         [0, 0, 0, 0, 0],
@@ -323,10 +336,14 @@ def _rolling_pivot_range_unit_test():
     df = pd.DataFrame(
         data=dat,
         columns=cols, index=pd.date_range("2012-10-08 18:15:05", periods=5, freq="T", tz="Europe/Amsterdam"))
+    df["pivot"] = ccd.calc_pivot(df)
     print(df)
-    ndf = rolling_pivot_range(df, 1)
+    ndf = pd.DataFrame(index=df.index)
+    ndf["range"] = rolling_range(df, 1)
+    ndf["pivot"] = rolling_pivot(df, 1)
     print(ndf)
-    ndf = rolling_pivot_range(df, 2)
+    ndf["range"] = rolling_range(df, 2)
+    ndf["pivot"] = rolling_pivot(df, 2)
     print(ndf)
 
 
@@ -339,21 +356,22 @@ def expand_feature_vectors(feature_df, minutes_agg, periods):
         A DataFrame with feature vectors as rows. The column name indicates
         the type of feature, e.g. 'pivot' or 'range' with aggregation+'T_'+period
         as column prefix.
+        Consider NaN elements in the first minutes_agg*(periods-1) rows
     """
     df = pd.DataFrame(index=feature_df.index)
     for period in range(periods):
-        ctitle = str(minutes_agg) + "T_" + str(period) + "_"
+        ctitle = str(period+1)
         offset = period*minutes_agg
         # now add feature columns according to aggregation
         for col in feature_df.columns:
-            df[ctitle + col] = feature_df[col].shift(offset)
-    df = df.dropna()
+            df[col+ctitle] = feature_df[col].shift(offset)
+    # df = df.dropna()
     if df.empty:
         logger.warning("empty dataframe from expand_feature_vectors")
     return df
 
 
-def _expand_feature_vectors_unit_test():
+def _expand_feature_vectors_test():
     cols = ["open", "high", "low", "close", "volume"]
     dat = [
         [0, 0, 0, 0, 0],
@@ -365,64 +383,136 @@ def _expand_feature_vectors_unit_test():
     df = pd.DataFrame(
         data=dat,
         columns=cols, index=pd.date_range("2012-10-08 18:15:05", periods=6, freq="T", tz="Europe/Amsterdam"))
+    df["pivot"] = ccd.calc_pivot(df)
     print(df)
-    ndf = rolling_pivot_range(df, 1)
-    print(ndf)
+    rdf = pd.DataFrame(index=df.index)
+    rdf["range"] = rolling_range(df, 1)
+    rdf["pivot"] = rolling_pivot(df, 1)
+    print(rdf)
     # ndf = rolling_pivot_range(df, 2)
-    # ndf = ndf.dropna()
-    # print(ndf)
-    ndf = expand_feature_vectors(ndf, 2, 3)
+    ndf = expand_feature_vectors(rdf, 2, 3)
+    print(ndf)
+    ndf = ndf.dropna()
     print(ndf)
 
 
-def pivot_range(ohlcv_df: pd.DataFrame, aggregation_minutes: int = 1):
-    """ Receives a float ohlcv_df DataFrame of consecutive prices in fixed minute frequency
-        and a number aggregation_minutes that identifies the number of minutes bundled.
-        Returns 2 numpy arrays pivots and ranges of length as the incoming ohlcv_df.
+def delta_pivot_features(ohlcvp_df, suffix, minutes, periods):
+    """ Returns the subsequent difference of 'minutes' rolling pivot values for the last 'periods'
+        normalized with the last pivot price value.
+        It is assumed (and not checked) that ovphlcvp contains values of minute frequency without gaps.
     """
-    time_aggs = {5: 12}
-    if (ohlcv_df is None) or ohlcv_df.empty:
-        ranges = np.array([], dtype=np.float)
-        pivots = np.array([], dtype=np.float)
-    else:
-        time_agg = f"{aggregation_minutes}T"
-        ranges = np.array((
-            ), dtype=np.float)
-        pivots = np.array(((
-            ohlcv_df["open"].to_numpy() +
-            ohlcv_df["close"].to_numpy() +
-            ohlcv_df["high"].to_numpy() +
-            ohlcv_df["low"].to_numpy()) / 4), dtype=np.float)
+    if "pivot" not in ohlcvp_df:
+        ohlcvp_df["pivot"] = ccd.calc_pivot(ohlcvp_df)
+    rdf = pd.DataFrame(index=ohlcvp_df.index)
+    pcol = "dpiv"+suffix
+    rdf[pcol] = rolling_pivot(ohlcvp_df, minutes)
 
-        # ! under constructioin
-        high = ohlcv_df["open"].resample(time_agg-1)
-        high = ohlcv_df["high"].resample(time_agg).max()
-        high = ohlcv_df["low"].resample(time_agg).min()
-        high = ohlcv_df["close"].resample(time_agg).max()
-        ranges = \
-            high.to_numpy() - \
-            ohlcv_df["low"].rolling(time_agg).min().to_numpy()
-        pivots = (ohlcv_df["open"].to_numpy() +
-                  ohlcv_df["close"].to_numpy() +
-                  ohlcv_df["high"].to_numpy() +
-                  ohlcv_df["low"].to_numpy()) / 4  # == pivot price
-
-    return pivots, ranges
+    if periods <= 1:
+        logger.error(f"no features due to unexpected periods {periods}")
+    # now expand vector
+    ndf = pd.DataFrame(index=rdf.index)
+    for period in range(periods):
+        ctitle = str(period)
+        offset = period*minutes
+        # now add percentage delta of pivot price
+        ndf[pcol+ctitle] = (rdf[pcol].shift(offset) - rdf[pcol].shift(offset+minutes)) / ohlcvp_df["pivot"]
+    return ndf
 
 
-def __pivot_regression__relative_volume_unit_test():
-    df = pivot_range(pd.DataFrame(columns=["open", "high", "low", "close", "volume"]))
-    print(df)
-    print(df.empty)
+def range_features(ohlcvp_df, suffix, minutes, periods):
+    """ Returns the rolling range (high - low) over 'minutes' values for the last 'periods'
+        normalized with the last pivot price value.
+        It is assumed (and not checked) that ovphlcvp contains values of minute frequency without gaps.
+    """
+    if "pivot" not in ohlcvp_df:
+        ohlcvp_df["pivot"] = ccd.calc_pivot(ohlcvp_df)
+    rdf = pd.DataFrame(index=ohlcvp_df.index)
+    rcol = "range"+suffix
+    rdf[rcol] = rolling_range(ohlcvp_df, minutes)
+
+    if periods <= 1:
+        logger.error(f"no features due to unexpected periods {periods}")
+    # now expand vector
+    ndf = pd.DataFrame(index=rdf.index)
+    for period in range(periods):
+        ctitle = str(period)
+        offset = period*minutes
+        # now normalize the price range
+        ndf[rcol+ctitle] = rdf[rcol].shift(offset) / ohlcvp_df["pivot"]
+    return ndf
 
 
-class F4cond14(ccd.Features):
+def regression_features(ohlcvp_df, suffix, minutes):
+    """ Returns the rolling gradient and last price of a 1D linear regression over 'minutes' values
+        normalized with the last pivot price value.
+        It is assumed (and not checked) that ovphlcvp contains values of minute frequency without gaps.
+    """
+    if "pivot" not in ohlcvp_df:
+        ohlcvp_df["pivot"] = ccd.calc_pivot(ohlcvp_df)
+    rdf = pd.DataFrame(index=ohlcvp_df.index)
+    grad_col = "grad"+suffix
+    level_col = "lvl"+suffix
+    rdf[grad_col], rdf[level_col] = regression_line(ohlcvp_df["pivot"].to_numpy(), window=minutes)
+    rdf[grad_col] = rdf[grad_col] / ohlcvp_df["pivot"]
+    rdf[level_col] = rdf[level_col] / ohlcvp_df["pivot"]
+    return rdf
+
+
+def volume_features(ohlcvp_df, suffix, minutes, norm_minutes):
+    """ Returns the rolling volume relation of 'minutes' / 'norm_minutes'.
+        It is assumed (and not checked) that ohlcvp contains values of minute frequency without gaps.
+    """
+    rdf = pd.DataFrame(index=ohlcvp_df.index)
+    vol_col = "vol"+suffix
+    rdf[vol_col] = relative_volume(ohlcvp_df["volume"].to_numpy(), short_window=minutes, large_window=norm_minutes)
+    return rdf
+
+
+class F4CondAgg(ccd.Features):
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        super().__init__(ohlcv)
+        self.func = {
+            "dpiv": delta_pivot_features,
+            "range": range_features,
+            "regr": regression_features,
+            "vol": volume_features
+        }
+        self.config = {
+            "dpiv": [  # dpiv == difference of subsequent pivot prices
+                {"suffix": "5m", "minutes": 5, "periods": 12}],
+            "range": [
+                {"suffix": "5m", "minutes": 5, "periods": 12},
+                {"suffix": "1h", "minutes": 60, "periods": 4}],
+            "regr": [  # regr == regression
+                {"suffix": "5m", "minutes": 5},
+                {"suffix": "15m", "minutes": 15},
+                {"suffix": "30m", "minutes": 30},
+                {"suffix": "1h", "minutes": 60},
+                {"suffix": "2h", "minutes": 2*60},
+                {"suffix": "4h", "minutes": 4*60},
+                {"suffix": "12h", "minutes": 12*60}],
+            "vol": [
+                {"suffix": "5m12h", "minutes": 5, "norm_minutes": 12*60},
+                {"suffix": "5m1h", "minutes": 5, "norm_minutes": 60}]
+        }
 
     def history(self):
         """ Returns the number of history sample minutes
             excluding the minute under consideration required to calculate a new sample data.
         """
-        return HMWF
+        hl = list()
+        for aspect in self.config:
+            if (aspect == "dpiv") or (aspect == "range"):
+                hl.extend([self.config[aspect][ix]["minutes"] *
+                           self.config[aspect][ix]["periods"] for ix in range(len(self.config[aspect]))])
+            elif aspect == "regr":
+                hl.extend([self.config[aspect][ix]["minutes"] for ix in range(len(self.config[aspect]))])
+            elif aspect == "vol":
+                hl.extend([self.config[aspect][ix]["norm_minutes"] for ix in range(len(self.config[aspect]))])
+            else:
+                logger.error(f"unexpected aspect {aspect}")
+        return max(hl)
 
     def load_data(self, base: str):
         df = super().load_data(base)
@@ -430,16 +520,25 @@ class F4cond14(ccd.Features):
 
     def keys(self):
         "returns the list of element keys"
-        cols = [
-            COL_PREFIX[ix] + ext
-            for regr_only, offset, minutes, ext in REGRESSION_KPI
-            for ix in range(3) if ((ix < 1) or (not regr_only))]
-        cols = cols + [COL_PREFIX[3] + ext for (svol, lvol, ext) in VOL_KPI]
-        return cols
+        kl = list()
+        for aspect in self.config:
+            for ix in range(len(self.config[aspect])):
+                if (aspect == "dpiv") or (aspect == "range"):
+                    kl.extend([
+                        aspect + self.config[aspect][ix]["suffix"] + str(p+1)
+                        for p in range(self.config[aspect][ix]["periods"])])
+                elif aspect == "regr":
+                    kl.append("grad" + self.config[aspect][ix]["suffix"])
+                    kl.append("lvl" + self.config[aspect][ix]["suffix"])
+                elif aspect == "vol":
+                    kl.append(aspect + self.config[aspect][ix]["suffix"])
+                else:
+                    logger.error(f"unexpected aspect {aspect}")
+        return kl
 
     def mnemonic(self):
         "returns a string that represents this class as mnemonic, e.g. to use it in file names"
-        return "F3cond{}".format(FEATURE_COUNT)
+        return "F4CondAgg"
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
         """ Downloads or calculates new data from 'first' sample up to and including 'last'.
@@ -447,21 +546,61 @@ class F4cond14(ccd.Features):
         ohlcv_first = first - pd.Timedelta(self.history(), unit="T")
         ohlcv_df = self.ohlcv.get_data(base, ohlcv_first, last)
         df = pd.DataFrame(index=ohlcv_df.index)
-        df["pivot"], df["range"] = pivot_range(ohlcv_df)
-        yarr = df["pivot"].to_numpy()
+        for aspect in self.config:
+            for ix in range(len(self.config[aspect])):
+                args = [self.config[aspect][ix][e] for e in self.config[aspect][ix]]
+                adf = self.func[aspect](ohlcv_df, *args)
+                for col in adf:
+                    # to_numpy() saves index check
+                    df[col] = adf[col].to_numpy()
 
-        df["grad_5m"], df["level_5m"] = regression_line(yarr, window=5)
-        df["grad_15m"], df["level_15m"] = regression_line(yarr, window=15)
-        df["grad_30m"], df["level_30m"] = regression_line(yarr, window=30)
-        df["grad_1h"], df["level_1h"] = regression_line(yarr, window=60)
-        df["grad_2h"], df["level_2h"] = regression_line(yarr, window=2*60)
-        df["grad_4h"], df["level_4h"] = regression_line(yarr, window=4*60)
-        df["grad_12h"], df["level_12h"] = regression_line(yarr, window=12*60)
-
-        df["vol_5m12h"] = relative_volume(ohlcv_df["volume"].to_numpy(), short_window=5, large_window=12*60)
-        df["vol_5m1h"] = relative_volume(ohlcv_df["volume"].to_numpy(), short_window=5, large_window=60)
         df = df.dropna()
-        return
+        return df
+
+    def new_data_test(self):
+        print(f"history: {self.history()}")
+        kl = self.keys()
+        print(f"len(keys): {len(kl)} keys: {kl}")
+        self.config = {
+            "dpiv": [
+                {"suffix": "2m", "minutes": 2, "periods": 2}],
+            "range": [
+                {"suffix": "2m", "minutes": 2, "periods": 2}],
+            "regr": [  # regr == regression
+                {"suffix": "2m", "minutes": 2}],
+            "vol": [
+                {"suffix": "2m3m", "minutes": 2, "norm_minutes": 3}]
+        }
+        print(f"history: {self.history()}")
+        print(self.keys())
+        cols = ["open", "high", "low", "close", "volume"]
+        dat = [
+            [1, 1, 0, 0, 1],
+            [1, 1, 0, 0, 2],
+            [2, 2, 1, 1, 3],
+            [3, 3, 2, 2, 4],
+            [4, 4, 3, 3, 5],
+            [6, 6, 5, 5, 6]]
+        ohlcv_df = pd.DataFrame(
+            data=dat,
+            columns=cols, index=pd.date_range("2012-10-08 18:15:05", periods=6, freq="T", tz="Europe/Amsterdam"))
+        ohlcv_df["pivot"] = ccd.calc_pivot(ohlcv_df)
+        ohlcv_df["pivot2m"] = rolling_pivot(ohlcv_df, 2)
+        print(ohlcv_df)
+        df = pd.DataFrame(index=ohlcv_df.index)
+        for aspect in self.config:
+            for ix in range(len(self.config[aspect])):
+                args = [self.config[aspect][ix][e] for e in self.config[aspect][ix]]
+                print(f"aspect: {aspect} args: {args}")
+                adf = self.func[aspect](ohlcv_df, *args)
+                print(adf)
+                for col in adf:
+                    # to_numpy() saves index check
+                    df[col] = adf[col].to_numpy()
+        kl = self.keys()
+        print(f"len(keys): {len(kl)} keys: {kl}")
+        df["target"] = df["grad2m"].shift(-1)
+        print(df)
 
 
 def feature_percentiles():
@@ -488,8 +627,9 @@ def feature_percentiles():
 
 if __name__ == "__main__":
     # feature_percentiles()
-    # _regression_unit_test()
-    # _relative_volume_unit_test()
-    # _pivot_regression__relative_volume_unit_test()
-    # _rolling_pivot_range_unit_test()
-    _expand_feature_vectors_unit_test()
+    # _regression_test()
+    # _relative_volume_test()
+    # _pivot_regression__relative_volume_test()
+    # _rolling_pivot_range_test()
+    # _expand_feature_vectors_test()
+    F4CondAgg(ccd.Ohlcv()).new_data_test()

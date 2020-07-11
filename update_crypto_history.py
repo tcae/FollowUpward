@@ -9,7 +9,7 @@ from local_xch import Xch
 import crypto_targets as ct
 import condensed_features as cof
 import aggregated_features as agf
-import adaptation_data as ad
+# import adaptation_data as ad
 
 logger = logging.getLogger(__name__)
 
@@ -166,12 +166,14 @@ def update_history(bases: list, first: pd.Timestamp, last: pd.Timestamp, data_ob
 def regenerate_dataset(bases: list, first, last, data_objs):
     """ regenerate data using the available timerange of stored ohlcv data
     """
-    for do in data_objs:
-        if do.history() > 0:
-            first = first - pd.Timedelta(do.history(), unit="T")
-        elif do.history() < 0:
-            last = last - pd.Timedelta(do.history(), unit="T")
-        update_history(bases, first, last, data_objs)
+    hl = [do.history() for do in data_objs]
+    hmax = max(hl)
+    if hmax > 0:
+        first = first - pd.Timedelta(hmax, unit="T")
+    hmin = min(hl)
+    if hmin < 0:
+        last = last - pd.Timedelta(hmin, unit="T")
+    update_history(bases, first, last, data_objs)
 
 
 def update_to_now(bases: list, ohlcv, data_objs):
@@ -186,8 +188,8 @@ def all_data_objs(ohlcv):
     """ prevents 'import but unused' plint warnings
     """
     f3cond14 = cof.F3cond14(ohlcv)
-    return [ohlcv, f3cond14, ct.Targets(ohlcv)]
-    return [ohlcv, f3cond14, agf.F1agg110(ohlcv), ct.Targets(ohlcv), ct.Target5up0low30minregr(ohlcv, f3cond14)]
+    return [ohlcv, cof.F4CondAgg(ohlcv), ct.Targets(ohlcv)]
+    return [ohlcv, f3cond14, agf.F1agg110(ohlcv), ct.Targets(ohlcv)]
 
 
 if __name__ == "__main__":
@@ -195,22 +197,23 @@ if __name__ == "__main__":
     tee = env.Tee(log_prefix="UpdateCryptoHistory")
     ohlcv = ccd.Ohlcv()
     bases = Env.bases
+    # bases = Env.training_bases
     # bases = ["zrx", "bch", "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm", "zec"]
     # bases = ["btc"]
-    bases = ["ont", "vet", "iost"]
+    # bases = ["ont", "vet", "iost"]
 
-    # first, last = ohlcv_timerange(bases, ohlcv)
-    first, last = ad.SplitSets.overall_timerange()
+    first, last = ohlcv_timerange(bases, ohlcv)
+    # first, last = ad.SplitSets.overall_timerange()
 
-    data_objs = [ohlcv]
+    data_objs = [cof.F4CondAgg(ohlcv)]
     # data_objs = all_data_objs(ohlcv)
     # data_objs = [ct.Target5up0low30minregr(ohlcv, cof.F3cond14(ohlcv))]
 
     # repair_stored_ohlcv(bases, ohlcv)
-    # regenerate_dataset(bases, first, last, data_objs)
-    update_history(
-        bases, pd.Timestamp("2017-10-30 23:59:00+00:00", tz=Env.tz),
-        pd.Timestamp("2020-05-21 20:59:00+00:00", tz=Env.tz), data_objs)
+    regenerate_dataset(bases, first, last, data_objs)
+    # update_history(
+    #     bases, pd.Timestamp("2017-10-30 23:59:00+00:00", tz=Env.tz),
+    #     pd.Timestamp("2020-05-21 20:59:00+00:00", tz=Env.tz), data_objs)
     # update_to_now(bases, ohlcv, data_objs)
 
     tee.close()

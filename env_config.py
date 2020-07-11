@@ -38,6 +38,7 @@ class Env():
         Env.test_mode = usage.test_mode
         Env.cache_path = f"{calc.data_path_prefix}cache/"
         Env.bases = usage.bases
+        Env.training_bases = usage.training_bases
         Env.model_path = f"{calc.other_path_prefix}classifier/"
         Env.tfblog_path = f"{calc.other_path_prefix}tensorflowlog/"
         Env.auth_file = calc.auth_path_prefix + "auth_Tst1.json"

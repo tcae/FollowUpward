@@ -109,13 +109,13 @@ class PredictionData(ccd.CryptoData):
         # pdf = pd.DataFrame(data=pred, index=fdf.index, columns=self.keys())
         return pred
 
-    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=False):
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp):
         """ Predicts all samples and returns the result.
             set_type specific evaluations can be done using the saved prediction data.
         """
-        ohlcv = self.predictor.ohlcv.get_data(base, first, last, use_cache=True)
-        fdf = self.predictor.features.get_data(base, first, last, use_cache=True)
-        tdf = self.predictor.targets.get_data(base, first, last, use_cache=True)
+        ohlcv = self.predictor.ohlcv.get_data(base, first, last)
+        fdf = self.predictor.features.get_data(base, first, last)
+        tdf = self.predictor.targets.get_data(base, first, last)
         if (tdf is None) or tdf.empty:
             return None
         pred = self.predict_batch(base, fdf)
@@ -123,8 +123,8 @@ class PredictionData(ccd.CryptoData):
         pdf = pd.concat([ohlcv.close, tdf.target, pdf], axis=1, join="inner")
         return self.check_timerange(pdf, first, last)
 
-    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=False):
-        return self.new_data(base, first, last, use_cache)
+    def get_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp):
+        return self.new_data(base, first, last)
 
     def process_hold_signal(self, row, bt, st):
         self.confusion.loc[row["target"], (bt, st, ct.TARGETS[ct.HOLD])] += 1

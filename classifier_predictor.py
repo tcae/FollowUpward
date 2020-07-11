@@ -523,7 +523,7 @@ def all_data_objs(ohlcv):
     """ prevents 'import but unused' plint warnings
     """
     f3cond14 = cof.F3cond14(ohlcv)
-    return [ohlcv, f3cond14, agf.F1agg110(ohlcv), ct.Targets(ohlcv), ct.Target5up0low30minregr(ohlcv, f3cond14)]
+    return [ohlcv, f3cond14, agf.F1agg110(ohlcv), ct.Targets(ohlcv)]
 
 
 if __name__ == "__main__":

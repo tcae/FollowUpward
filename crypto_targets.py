@@ -5,7 +5,7 @@ from sklearn.utils import Bunch
 from env_config import Env
 import env_config as env
 import cached_crypto_data as ccd
-# import condensed_features as cof
+import condensed_features as cof
 
 logger = logging.getLogger(__name__)
 
@@ -259,16 +259,6 @@ class Targets(ccd.CryptoData):
     def mnemonic(self):
         """
             returns a string that represents this class as mnemonic, e.g. to use it in file names.
-            if classes share the same saved data but use different subsets then save_mnemonic for storage
-            may differ from mnemonic or specific subclass usage.
-        """
-        return "TargetGain10up5low30min"
-
-    def save_mnemonic(self):
-        """
-            returns a string that represents this class as mnemonic, e.g. to use it in file names.
-            if classes share the same saved data but use different subsets then save_mnemonic for storage
-            may differ from mnemonic or specific subclass usage.
         """
         return "TargetGain10up5low30min"
 
@@ -284,6 +274,69 @@ class Targets(ccd.CryptoData):
         return tdf
 
 
+def regression_targets(ohlcvp_df, minutes):
+    """ Returns the rolling gradient and last price of a 1D linear regression over 'minutes' values
+        normalized with the first pivot price value. The normalization is teh difference to cof.regression_features.
+        It is assumed (and not checked) that ovphlcvp contains values of minute frequency without gaps.
+    """
+    df = pd.DataFrame(index=ohlcvp_df.index)
+    df["grad"], df["lvl"] = cof.regression_line(ohlcvp_df["pivot"].to_numpy(), window=minutes)
+    df["target"] = df["grad"].shift(-(minutes-1)) / ohlcvp_df["pivot"]
+    return df
+
+
+class TargetGrad30m(Targets):
+
+    def target_dict(self):
+        """ Shall return a dict of target categories that can be used as columns for prediction data.
+            The dict values are the corresponding target values.
+        """
+        return TARGETS
+
+    def history(self):
+        """ Returns the number of required history sample minutes excluding the minute under consideration.
+            It is negative for targets because future data is needed.
+        """
+        return -29
+
+    def mnemonic(self):
+        """
+            returns a string that represents this class as mnemonic, e.g. to use it in file names.
+        """
+        return "TargetGrad30m"
+
+    def keys(self):
+        "returns the list of element keys"
+        return ["target"]
+
+    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp):
+        """ New data from 'first' sample up to and including 'last'.
+            The .
+        """
+        ohlcv_last = last - pd.Timedelta(self.history(), unit="T")
+        ohlcv_df = self.ohlcv.get_data(base, first, ohlcv_last)
+        df = regression_targets(ohlcv_df, -(self.history() + 1))
+        return df
+
+    def new_data_test(self):
+        print(f"history: {self.history()}")
+        cols = ["open", "high", "low", "close", "volume"]
+        dat = [
+            [1, 1, 0, 0, 1],
+            [1, 1, 0, 0, 2],
+            [2, 2, 1, 1, 3],
+            [3, 3, 2, 2, 4],
+            [4, 4, 3, 3, 5],
+            [6, 6, 5, 5, 6]]
+        ohlcv_df = pd.DataFrame(
+            data=dat,
+            columns=cols, index=pd.date_range("2012-10-08 18:15:05", periods=6, freq="T", tz="Europe/Amsterdam"))
+        ohlcv_df["pivot"] = ccd.calc_pivot(ohlcv_df)
+        print(ohlcv_df)
+        df = regression_targets(ohlcv_df, 2)
+        print(df)
+
+
 class Target10up5low30min(Targets):
 
     def target_dict(self):
@@ -295,8 +348,6 @@ class Target10up5low30min(Targets):
     def mnemonic(self):
         """
             returns a string that represents this class as mnemonic, e.g. to use it in file names.
-            if classes share the same saved data but use different subsets then save_mnemonic for storage
-            may differ from mnemonic or specific subclass usage.
         """
         return "Target10up5low30min"
 
@@ -310,8 +361,6 @@ class Gain10up5low30min(Targets):
     def mnemonic(self):
         """
             returns a string that represents this class as mnemonic, e.g. to use it in file names.
-            if classes share the same saved data but use different subsets then save_mnemonic for storage
-            may differ from mnemonic or specific subclass usage.
         """
         return "Gain10up5low30min"
 
@@ -320,83 +369,9 @@ class Gain10up5low30min(Targets):
         return ["gain"]
 
 
-class Target5up0low30minregr(Targets):
-
-    def __init__(self, ohlcv: ccd.Ohlcv, features):
-        self.features = features
-        super().__init__(ohlcv)
-
-    def target_dict(self):
-        """ Shall return a dict of target categories that can be used as columns for prediction data.
-            The dict values are the corresponding target values.
-        """
-        return TARGETS
-
-    def history(self):
-        """ Returns the number of history sample minutes
-            excluding the minute under consideration required to calculate a new sample data.
-        """
-        return 0
-
-    def mnemonic(self):
-        """
-            returns a string that represents this class as mnemonic, e.g. to use it in file names.
-            if classes share the same saved data but use different subsets then save_mnemonic for storage
-            may differ from mnemonic or specific subclass usage.
-        """
-        return "Target5up0low30minregr"
-
-    def keys(self):
-        "returns the list of element keys"
-        return ["target"]
-
-    def save_mnemonic(self):
-        """
-            returns a string that represents this class as mnemonic, e.g. to use it in file names.
-            if classes share the same saved data but use different subsets then save_mnemonic for storage
-            may differ from mnemonic or specific subclass usage.
-        """
-        return self.mnemonic()
-
-    def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp, use_cache=True):
-        """ Downloads or calculates new data from 'first' sample up to and including 'last'.
-            This is the core method to be implemented by subclasses.
-        """
-        REGRLEN = 60 * 4  # 4h
-        PEAKREGRLEN = 30  # 30min
-        regr_last = last + pd.Timedelta(REGRLEN, unit="T")
-        fdf = self.features.get_data(base, first, regr_last)
-
-        tdf = pd.DataFrame(index=fdf.index[0:-REGRLEN], columns=["target", "mask", "at", "after30m", "after4h"])
-        tdf["after4h"] = fdf["gain4h"].shift(-REGRLEN)
-        tdf["after30m"] = fdf["gain30m"].shift(-PEAKREGRLEN)
-        tdf["at"] = fdf["gain30m"]
-
-        tdf["target"] = TARGETS[HOLD]  # defailt is HOLD
-
-        tdf["mask"] = (tdf["after4h"] < 0)
-        logger.debug(f"{base} tdf[after4h] < 0%\n {tdf['mask'].value_counts()}")
-        tdf.loc[tdf["mask"], "target"] = TARGETS[SELL]
-
-        tdf["mask"] = (tdf["after4h"] > 0.005)  # 0.5% gain in 4h
-        logger.debug(f"{base} tdf[after4h] > 0.5%\n {tdf['mask'].value_counts()}")
-        tdf.loc[tdf["mask"], "target"] = TARGETS[BUY]
-
-        # tdf["mask"] = (tdf["after30m"] < -0.01)  # -1% loss in 30min == strong sell
-        # logger.debug(f"{base} tdf[after30m] < -1%\n {tdf.mask.value_counts()}")
-        # tdf.loc[tdf["mask"], "target"] = TARGETS[SELL]
-
-        # tdf["mask"] = (tdf["after30m"] > 0.01)  # 1% gain in 30min == strong buy
-        # logger.debug(f"{base} tdf[after30m] > 1%\n {tdf.mask.value_counts()}")
-        # tdf.loc[tdf["mask"], "target"] = TARGETS[SELL]
-
-        tdf = tdf.loc[(tdf.index >= first) & (tdf.index <= last), self.keys()]
-        return tdf
-
-
 if __name__ == "__main__":
     env.test_mode()
-    if True:
+    if False:
         close = np.array([1., 1.02, 1.015, 1.016, 1.03, 1.024, 1.025, 1.026, 1.025, 1.024,
                           1.035, 1.022, 1.021, 1.02, 1.016, 1.014, 1.012, 1.024], np.dtype(np.float))
         ratio = [(close[ix]-close[ix-1])/close[ix-1] if ix > 0 else 0
@@ -414,29 +389,26 @@ if __name__ == "__main__":
         targets = Targets(ohlcv)
         tdf = targets.get_data(
             Env.bases[0], pd.Timestamp("2018-01-20 23:59:00+00:00"),
-            pd.Timestamp("2018-01-31 23:59:00+00:00"), use_cache=False)
+            pd.Timestamp("2018-01-31 23:59:00+00:00"))
         # tdf = targets.load_data(Env.bases[0])
-        ccd.dfdescribe("Gain10up5low30min", tdf)
+        ccd.dfdescribe("Targets", tdf)
 
         targets = Target10up5low30min(ohlcv)
         tdf = targets.get_data(
             Env.bases[0], pd.Timestamp("2018-01-20 23:59:00+00:00"),
-            pd.Timestamp("2018-01-31 23:59:00+00:00"), use_cache=False)
+            pd.Timestamp("2018-01-31 23:59:00+00:00"))
         # tdf = targets.load_data(Env.bases[0])
-        ccd.dfdescribe("Gain10up5low30min", tdf)
+        ccd.dfdescribe("Target10up5low30min", tdf)
 
         targets = Gain10up5low30min(ohlcv)
         tdf = targets.get_data(
             Env.bases[0], pd.Timestamp("2018-01-20 23:59:00+00:00"),
-            pd.Timestamp("2018-01-31 23:59:00+00:00"), use_cache=False)
+            pd.Timestamp("2018-01-31 23:59:00+00:00"))
 
         # tdf = targets.load_data(Env.bases[0])
         ccd.dfdescribe("Gain10up5low30min", tdf)
 
         # logger.debug(list(zip(close, perc, [TARGET_NAMES[ix] for ix in trade_targets])))
+
     else:
-        cdf = ccd.load_asset_dataframe("btc", path=Env.data_path, limit=100)
-        trade_targets = trade_signals(cdf["close"].values)
-        cdf["target"] = trade_targets
-        logger.debug(str(cdf.head(5)))
-        logger.debug(str(cdf.tail(5)))
+        TargetGrad30m(ccd.Ohlcv()).new_data_test()
