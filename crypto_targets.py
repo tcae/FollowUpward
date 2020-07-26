@@ -11,8 +11,6 @@ logger = logging.getLogger(__name__)
 
 FEE = 1/1000  # in per mille, transaction fee is 0.1%
 TRADE_SLIP = 0  # 1/1000  # in per mille, 0.1% trade slip
-BUY_THRESHOLD = float(10/1000)  # in per mille
-SELL_THRESHOLD = float(-5/1000)  # in per mille
 HOLD = "hold"
 BUY = "buy"
 SELL = "sell"
@@ -81,6 +79,8 @@ def trade_signals(close):
         - HOLD if fardelta and minute delta have different leading sign.
         - else HOLD.
     """
+    buy_threshold = float(10/1000)
+    sell_threshold = float(-5/1000)
     if close.ndim > 1:
         logger.warning("unexpected close array dimension {close.ndim}")
     maxdistance = min(close.size, max_look_back_minutes())
@@ -101,22 +101,22 @@ def trade_signals(close):
         subnotes["fardelta"] = (close[bix:] - close[:eix]) / close[bix:]
 
         subnotes["flag"] = (
-            (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
+            (subnotes["fardelta"] < sell_threshold) & (subnotes["nowdelta"] < 0.) &
             (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[SELL]
 
         subnotes["flag"] = (
-            (subnotes["fardelta"] < SELL_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
+            (subnotes["fardelta"] < sell_threshold) & (subnotes["nowdelta"] > 0.) &
             (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
 
         subnotes["flag"] = (
-            (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] > 0.) &
+            (subnotes["fardelta"] > buy_threshold) & (subnotes["nowdelta"] > 0.) &
             (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[BUY]
 
         subnotes["flag"] = (
-            (subnotes["fardelta"] > BUY_THRESHOLD) & (subnotes["nowdelta"] < 0.) &
+            (subnotes["fardelta"] > buy_threshold) & (subnotes["nowdelta"] < 0.) &
             (subnotes["target"] == UNDETERMINED))
         subnotes["target"][subnotes["flag"]] = TARGETS[HOLD]
         # print(f"subnotes {bix}: \n{subnotes}")
@@ -147,6 +147,8 @@ def target_signals_gains(close):
         - HOLD if fardelta and minute delta have different leading sign.
         - else HOLD.
     """
+    buy_threshold = float(10/1000)
+    sell_threshold = float(-5/1000)
     peak_list = list()
     dip_list = list()
     assert close.ndim == 1, f"unexpected close array dimension {close.ndim}"
@@ -172,7 +174,7 @@ def target_signals_gains(close):
                 sig_loss_ix = dip_list[0]
             farloss = (close[sig_loss_ix] - close[ix]) / close[ix]
             notes[ix]["gain"] = farloss
-            if farloss < SELL_THRESHOLD:
+            if farloss < sell_threshold:
                 notes[ix]["target"] = TARGETS[SELL]
                 peak_list = invalidate_all_later_entries(peak_list, sig_loss_ix)
             else:
@@ -188,7 +190,7 @@ def target_signals_gains(close):
                 sig_gain_ix = peak_list[0]
             fargain = (close[sig_gain_ix] - close[ix]) / close[ix]
             notes[ix]["gain"] = fargain
-            if fargain > BUY_THRESHOLD:
+            if fargain > buy_threshold:
                 notes[ix]["target"] = TARGETS[BUY]
                 dip_list = invalidate_all_later_entries(dip_list, sig_gain_ix)
             else:
@@ -274,18 +276,26 @@ class Targets(ccd.CryptoData):
         return tdf
 
 
-def regression_targets(ohlcvp_df, minutes):
-    """ Returns the rolling gradient and last price of a 1D linear regression over 'minutes' values
-        normalized with the first pivot price value. The normalization is teh difference to cof.regression_features.
+def regression_targets(ohlcvp_df, minutes, buy_threshold, sell_threshold):
+    """ Returns the rolling gradient and last price of a 1D linear regression over 'minutes' future values
+        normalized with the first pivot price value to express the gradient as a fraction of the pivot level.
+        Using future gradient values is the main difference to cof.regression_features.
         It is assumed (and not checked) that ovphlcvp contains values of minute frequency without gaps.
+
+        Returns a dataframe with the columns 'gain' as normalized gain per minute and 'target' as class indicator.
     """
     df = pd.DataFrame(index=ohlcvp_df.index)
+    shift_minutes = -round(minutes / 2)
     df["grad"], df["lvl"] = cof.regression_line(ohlcvp_df["pivot"].to_numpy(), window=minutes)
-    df["target"] = df["grad"].shift(-(minutes-1)) / ohlcvp_df["pivot"]
+    df["gain"] = df["grad"].shift(shift_minutes) / ohlcvp_df["pivot"]
+    # shift = look 'minutes' into future values incl current minute value
+    df["target"] = TARGETS[HOLD]
+    df.loc[df["gain"] > buy_threshold, "target"] = TARGETS[BUY]
+    df.loc[df["gain"] < sell_threshold, "target"] = TARGETS[SELL]
     return df
 
 
-class TargetGrad30m(Targets):
+class TargetGrad30m1pct(Targets):
 
     def target_dict(self):
         """ Shall return a dict of target categories that can be used as columns for prediction data.
@@ -303,7 +313,7 @@ class TargetGrad30m(Targets):
         """
             returns a string that represents this class as mnemonic, e.g. to use it in file names.
         """
-        return "TargetGrad30m"
+        return "TargetGrad30m1pct"
 
     def keys(self):
         "returns the list of element keys"
@@ -315,7 +325,7 @@ class TargetGrad30m(Targets):
         """
         ohlcv_last = last - pd.Timedelta(self.history(), unit="T")
         ohlcv_df = self.ohlcv.get_data(base, first, ohlcv_last)
-        df = regression_targets(ohlcv_df, -(self.history() + 1))
+        df = regression_targets(ohlcv_df, -self.history()+1, buy_threshold=0.01/30, sell_threshold=0.0)
         return df
 
     def new_data_test(self):
@@ -327,13 +337,14 @@ class TargetGrad30m(Targets):
             [2, 2, 1, 1, 3],
             [3, 3, 2, 2, 4],
             [4, 4, 3, 3, 5],
-            [6, 6, 5, 5, 6]]
+            [1, 1, 0, 0, 2]]
+        # [6, 6, 5, 5, 6]]
         ohlcv_df = pd.DataFrame(
             data=dat,
             columns=cols, index=pd.date_range("2012-10-08 18:15:05", periods=6, freq="T", tz="Europe/Amsterdam"))
         ohlcv_df["pivot"] = ccd.calc_pivot(ohlcv_df)
         print(ohlcv_df)
-        df = regression_targets(ohlcv_df, 2)
+        df = regression_targets(ohlcv_df, 3, buy_threshold=0.5, sell_threshold=0.0)
         print(df)
 
 
@@ -411,4 +422,4 @@ if __name__ == "__main__":
         # logger.debug(list(zip(close, perc, [TARGET_NAMES[ix] for ix in trade_targets])))
 
     else:
-        TargetGrad30m(ccd.Ohlcv()).new_data_test()
+        TargetGrad30m1pct(ccd.Ohlcv()).new_data_test()

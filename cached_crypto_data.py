@@ -6,6 +6,7 @@ import pandas as pd
 import env_config as env
 from env_config import Env
 from local_xch import Xch
+import testdata as td
 
 
 """ provides pandas prepresentation of cached crypto data.
@@ -286,8 +287,12 @@ class Ohlcv(CryptoData):
     """ Class for binance OHLCV samples handling
     """
 
+    def __init__(self):
+        super().__init__()
+        self.testdata = {"sinus": td.SinusTestdata, "triangle": td.TriangleTestdata}
+
     def history(self):
-        "no history minutes are requires to download OHLCV data"
+        "no history minutes are required to download OHLCV data"
         return 0
 
     def keys(self):
@@ -305,6 +310,8 @@ class Ohlcv(CryptoData):
         assert first is not None
         assert last is not None
         assert first <= last
+        if base in self.testdata:
+            return self.testdata[base](first, last)
         minutes = int((last - first) / pd.Timedelta(1, unit="T"))
         if minutes > 0:
             df = Xch.get_ohlcv(base, minutes, last)
@@ -320,6 +327,18 @@ class Ohlcv(CryptoData):
         if "pivot" not in df:
             df["pivot"] = calc_pivot(df)
         return df
+
+    def load_data(self, base: str):
+        if base in self.testdata:
+            first = pd.Timestamp("2018-06-29 00:00:00+00:00", tz=Env.tz)
+            now = pd.Timestamp.now(tz=Env.tz)
+            return self.testdata[base](first, now)
+        else:
+            return super().load_data(base)
+
+    def save_data(self, base: str, df: pd.DataFrame):
+        if base not in self.testdata:
+            super().save_data(base, df)
 
 
 class Features(CryptoData):

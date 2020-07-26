@@ -91,6 +91,7 @@ app.layout = html.Div([
             html.Button("all", id="all_button", style={"display": "inline-block"}),
             html.Button("none", id="none_button", style={"display": "inline-block"}),
             html.Button("update data", id="update_data", style={"display": "inline-block"}),
+            html.Button("reset selection", id="reset_selection", style={"display": "inline-block"}),
         ], style={"display": "inline-block"}),
         # html.H1("Crypto Price"),  # style={"textAlign": "center"},
         dcc.Graph(id="graph1day"),
@@ -191,7 +192,7 @@ def df_check(df, timerange):
     logger.debug(str(df.tail(1)))
 
 
-def get_trigger_update_data(update_data_click):
+def get_trigger_update_data(update_click):
     ctx = dash.callback_context
     if not ctx.triggered:
         trigger = "No Id"
@@ -201,7 +202,7 @@ def get_trigger_update_data(update_data_click):
 
     # logger.debug(f"trigger: {trigger}")
 
-    if (update_data_click is not None) and (trigger == "update_data"):
+    if (update_click is not None) and (trigger == "update_data"):
         # for base in ohlcv_df_dict.keys():
         #     del ohlcv_df_dict[base]
         global ohlcv_df_dict
@@ -222,9 +223,10 @@ def get_trigger_update_data(update_data_click):
      dash.dependencies.Input("graph10day", "clickData"),
      dash.dependencies.Input("graph1day", "clickData"),
      dash.dependencies.Input("graph4h", "clickData"),
-     dash.dependencies.Input("update_data", "n_clicks_timestamp")],
+     dash.dependencies.Input("update_data", "n_clicks_timestamp"),
+     dash.dependencies.Input("reset_selection", "n_clicks_timestamp")],
     [dash.dependencies.State("focus", "children")])
-def set_focus_time(click_all, click_6month, click_10day, click_1day, click_4h, update_data_click, focus_json):
+def set_focus_time(click_all, click_6month, click_10day, click_1day, click_4h, update_click, reset_click, focus_json):
     graph_position = None
     if focus_json is not None:
         graph_position = json.loads(focus_json)
@@ -235,7 +237,7 @@ def set_focus_time(click_all, click_6month, click_10day, click_1day, click_4h, u
             graph_position[g]["focus"] = None
             graph_position[g]["end"] = None
 
-    trigger = get_trigger_update_data(update_data_click)
+    trigger = get_trigger_update_data(update_click)
     graph_list = []
 
     if trigger == "graph_all":
@@ -869,8 +871,8 @@ def update_graph1day(focus_json, bases, base_radio, indicators):
 
 
 def target_list(base, start, end, bmd):
-    logger.warning("timely disabled")
-    return None
+    # logger.warning("timely disabled")
+    # return None
 
     # labels1 = [i for i in range(241)]
     # logger.debug(f"{len(labels1)}, {labels1}")
@@ -878,10 +880,10 @@ def target_list(base, start, end, bmd):
     colormap = {ct.TARGETS[ct.HOLD]: 0, ct.TARGETS[ct.BUY]: 1, ct.TARGETS[ct.SELL]: -1}
 
     target_dict = dict()
-    signals_df = classifier_set.predict_signals(base, start, end)
-    target_colors = [colormap[t] for t in signals_df["signal"]]
-    labels = [ct.TARGET_NAMES[t] for t in signals_df["signal"]]
-    target_dict["signals"] = {"targets": target_colors, "labels": labels}
+    # signals_df = classifier_set.predict_signals(base, start, end)
+    # target_colors = [colormap[t] for t in signals_df["signal"]]
+    # labels = [ct.TARGET_NAMES[t] for t in signals_df["signal"]]
+    # target_dict["signals"] = {"targets": target_colors, "labels": labels}
 
     target_df = targets.get_data(base, start, end)
     # fstart = start - pd.Timedelta(features.history(), "T")
@@ -1034,7 +1036,7 @@ if __name__ == "__main__":
     tee = env.Tee(log_prefix="CryptoDashboard")
     ohlcv = ccd.Ohlcv()
     features = cof.F3cond14(ohlcv)
-    targets = ct.Target10up5low30min(ohlcv)
+    targets = ct.TargetGrad30m1pct(ohlcv)  # old: Target10up5low30min
     ohlcv_df_dict = {base: ohlcv.load_data(base) for base in Env.bases}
     # ! temporary disabled classifier_set = cp.ClassifierSet()
     logging.getLogger('werkzeug').setLevel(logging.ERROR)

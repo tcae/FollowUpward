@@ -97,7 +97,7 @@ class Production(Usage):
     bases = [
         "btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx", "zrx", "bch",
         "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm", "zec",
-        "tfuel", "theta", "ont", "vet", "iost"]
+        "tfuel", "theta", "ont", "vet", "iost", "sinus", "triangle"]
     training_bases = [
         "btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
     set_split_fname = "sets_split.csv"
@@ -106,8 +106,8 @@ class Production(Usage):
 
 class Test(Usage):
     data_path_suffix = "TestFeatures/"
-    training_bases = ["btc"]
-    bases = ["btc", "xrp"]
+    training_bases = ["sinus"]
+    bases = ["sinus"]
     set_split_fname = "sets_split.csv"
     test_mode = True
 

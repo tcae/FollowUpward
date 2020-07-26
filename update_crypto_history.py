@@ -187,9 +187,8 @@ def update_to_now(bases: list, ohlcv, data_objs):
 def all_data_objs(ohlcv):
     """ prevents 'import but unused' plint warnings
     """
-    f3cond14 = cof.F3cond14(ohlcv)
-    return [ohlcv, cof.F4CondAgg(ohlcv), ct.Targets(ohlcv)]
-    return [ohlcv, f3cond14, agf.F1agg110(ohlcv), ct.Targets(ohlcv)]
+    return [ohlcv, cof.F4CondAgg(ohlcv), ct.TargetGrad30m1pct(ohlcv)]
+    return [ohlcv, cof.F3cond14(ohlcv), agf.F1agg110(ohlcv), ct.Targets(ohlcv)]
 
 
 if __name__ == "__main__":

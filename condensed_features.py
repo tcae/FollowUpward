@@ -217,79 +217,6 @@ class F3cond14(ccd.Features):
         return cal_features(df)
 
 
-def regression_line(yarr, window=5):
-    """
-        This implementation ignores index and assumes an equidistant x values
-        yarr is a one dimensional numpy array
-
-        Regression Equation(y) = a + bx
-        Slope(b) = (NΣXY - (ΣX)(ΣY)) / (NΣ(X^2) - (ΣX)^2)
-        Intercept(a) = (ΣY - b(ΣX)) / N
-        used from https://www.easycalculation.com/statistics/learn-regression.php
-
-        returns 2 numpy arrays: slope and regr_end
-        slope are the gradients
-        regr_end are the regression line last points
-    """
-    # yarr = df.to_numpy()
-    # xarr = df.index.values
-    yarr = yarr.flatten()
-    len = yarr.shape[0]
-    if len == 0:
-        return np.full((len), np.nan, dtype=np.float), np.full((len), np.nan, dtype=np.float)
-    xarr = np.array([x for x in range(len)], dtype=float)
-    xyarr = xarr * yarr
-    xy_mov_sum = bn.move_sum(xyarr, window=window, min_count=window)
-    x_mov_sum = bn.move_sum(xarr, window=window, min_count=window)
-    x2arr = xarr * xarr
-    x2_mov_sum = bn.move_sum(x2arr, window=window, min_count=window)
-    x_mov_sum_2 = x_mov_sum * x_mov_sum
-    y_mov_sum = bn.move_sum(yarr, window=window, min_count=window)
-    slope = (window * xy_mov_sum - (x_mov_sum * y_mov_sum)) / (window * x2_mov_sum - x_mov_sum_2)
-    intercept = (y_mov_sum - (slope * x_mov_sum)) / window
-    regr_end = xarr * slope + intercept
-    return slope, regr_end
-
-
-def _regression_test():
-    df = pd.DataFrame(data={"y": [2.9, 3.1, 3.6, 3.8, 4, 4.1, 5]}, index=[59, 60, 61, 62, 63, 65, 65], dtype=float)
-    slope, regr_end = regression_line(df["y"].to_numpy(), len(df))
-    df = pd.DataFrame(index=df.index)
-    df["slope"] = slope
-    # df["intercept"] = intercept
-    df["regr_end"] = regr_end
-    # assert np.equal(df.loc[63:, "slope"].values.round(2), np.array([0.29, 0.24, 0.31])).all()
-    print(df)
-    df = df.dropna()
-    print(df)
-    # print(df.loc[63:, "slope"])
-
-
-def relative_volume(volumes, short_window=5, large_window=60):
-    """
-        This implementation ignores index and assumes an equidistant x values
-        yarr is a one dimensional numpy array
-
-        returns a numpy array with short mean/long mean relation values
-    """
-    if volumes.shape[0] < large_window:
-        return np.full((volumes.shape[0]), np.nan, dtype=np.float)
-    short_mean = bn.move_mean(volumes, short_window, min_count=1)
-    large_mean = bn.move_mean(volumes, large_window, min_count=1)
-    large_mean[large_mean == 0] = 1  # mitigate division with zero
-    vol_rel = short_mean / large_mean
-    return vol_rel
-
-
-def _relative_volume_test():
-    df = pd.DataFrame(data={"y": [np.NaN, 2, 3, 4, 5, 0, 0]}, dtype=float)
-    df["vol_rel"] = relative_volume(df["y"].to_numpy(), 2, 5)
-    assert np.equal(df.loc[5:, "vol_rel"].values.round(2), np.array([0.89, 0.])).all()
-    print(df)
-    df = df.dropna()
-    print(df)
-
-
 def rolling_range(ohlcv_pivot_df, minutes_agg):
     """Time aggregation through rolling aggregation with the consequence that new data is
     generated every minute and even long time aggregations reflect all minute bumps in their
@@ -442,6 +369,54 @@ def range_features(ohlcvp_df, suffix, minutes, periods):
     return ndf
 
 
+def regression_line(yarr, window=5):
+    """
+        This implementation ignores index and assumes an equidistant x values
+        yarr is a one dimensional numpy array
+
+        Regression Equation(y) = a + bx
+        Slope(b) = (NΣXY - (ΣX)(ΣY)) / (NΣ(X^2) - (ΣX)^2)
+        Intercept(a) = (ΣY - b(ΣX)) / N
+        used from https://www.easycalculation.com/statistics/learn-regression.php
+
+        returns 2 numpy arrays: slope and regr_end
+        slope are the gradients per minute (= x equidistant)
+        regr_end are the regression line last points
+    """
+    # yarr = df.to_numpy()
+    # xarr = df.index.values
+    yarr = yarr.flatten()
+    len = yarr.shape[0]
+    if len == 0:
+        return np.full((len), np.nan, dtype=np.float), np.full((len), np.nan, dtype=np.float)
+    xarr = np.array([x for x in range(len)], dtype=float)
+    xyarr = xarr * yarr
+    xy_mov_sum = bn.move_sum(xyarr, window=window, min_count=window)
+    x_mov_sum = bn.move_sum(xarr, window=window, min_count=window)
+    x2arr = xarr * xarr
+    x2_mov_sum = bn.move_sum(x2arr, window=window, min_count=window)
+    x_mov_sum_2 = x_mov_sum * x_mov_sum
+    y_mov_sum = bn.move_sum(yarr, window=window, min_count=window)
+    slope = (window * xy_mov_sum - (x_mov_sum * y_mov_sum)) / (window * x2_mov_sum - x_mov_sum_2)
+    intercept = (y_mov_sum - (slope * x_mov_sum)) / window
+    regr_end = xarr * slope + intercept
+    return slope, regr_end
+
+
+def _regression_test():
+    df = pd.DataFrame(data={"y": [2.9, 3.1, 3.6, 3.8, 4, 4.1, 5]}, index=[59, 60, 61, 62, 63, 65, 65], dtype=float)
+    slope, regr_end = regression_line(df["y"].to_numpy(), len(df))
+    df = pd.DataFrame(index=df.index)
+    df["slope"] = slope
+    # df["intercept"] = intercept
+    df["regr_end"] = regr_end
+    # assert np.equal(df.loc[63:, "slope"].values.round(2), np.array([0.29, 0.24, 0.31])).all()
+    print(df)
+    df = df.dropna()
+    print(df)
+    # print(df.loc[63:, "slope"])
+
+
 def regression_features(ohlcvp_df, suffix, minutes):
     """ Returns the rolling gradient and last price of a 1D linear regression over 'minutes' values
         normalized with the last pivot price value.
@@ -456,6 +431,31 @@ def regression_features(ohlcvp_df, suffix, minutes):
     rdf[grad_col] = rdf[grad_col] / ohlcvp_df["pivot"]
     rdf[level_col] = rdf[level_col] / ohlcvp_df["pivot"]
     return rdf
+
+
+def relative_volume(volumes, short_window=5, large_window=60):
+    """
+        This implementation ignores index and assumes an equidistant x values
+        yarr is a one dimensional numpy array
+
+        returns a numpy array with short mean/long mean relation values
+    """
+    if volumes.shape[0] < large_window:
+        return np.full((volumes.shape[0]), np.nan, dtype=np.float)
+    short_mean = bn.move_median(volumes, short_window, min_count=1)
+    large_mean = bn.move_median(volumes, large_window, min_count=1)
+    large_mean[large_mean == 0] = 1  # mitigate division with zero
+    vol_rel = short_mean / large_mean
+    return vol_rel
+
+
+def _relative_volume_test():
+    df = pd.DataFrame(data={"y": [np.NaN, 2, 3, 4, 5, 0, 0]}, dtype=float)
+    df["vol_rel"] = relative_volume(df["y"].to_numpy(), 2, 5)
+    assert np.equal(df.loc[5:, "vol_rel"].values.round(2), np.array([0.89, 0.])).all()
+    print(df)
+    df = df.dropna()
+    print(df)
 
 
 def volume_features(ohlcvp_df, suffix, minutes, norm_minutes):
@@ -491,7 +491,10 @@ class F4CondAgg(ccd.Features):
                 {"suffix": "1h", "minutes": 60},
                 {"suffix": "2h", "minutes": 2*60},
                 {"suffix": "4h", "minutes": 4*60},
-                {"suffix": "12h", "minutes": 12*60}],
+                {"suffix": "12h", "minutes": 12*60},
+                {"suffix": "24h", "minutes": 24*60},
+                {"suffix": "3d", "minutes": 3*24*60},
+                {"suffix": "9d", "minutes": 9*24*60}],
             "vol": [
                 {"suffix": "5m12h", "minutes": 5, "norm_minutes": 12*60},
                 {"suffix": "5m1h", "minutes": 5, "norm_minutes": 60}]
