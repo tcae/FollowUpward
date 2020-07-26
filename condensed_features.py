@@ -339,7 +339,7 @@ def delta_pivot_features(ohlcvp_df, suffix, minutes, periods):
     # now expand vector
     ndf = pd.DataFrame(index=rdf.index)
     for period in range(periods):
-        ctitle = str(period)
+        ctitle = str(period+1)
         offset = period*minutes
         # now add percentage delta of pivot price
         ndf[pcol+ctitle] = (rdf[pcol].shift(offset) - rdf[pcol].shift(offset+minutes)) / ohlcvp_df["pivot"]
@@ -362,7 +362,7 @@ def range_features(ohlcvp_df, suffix, minutes, periods):
     # now expand vector
     ndf = pd.DataFrame(index=rdf.index)
     for period in range(periods):
-        ctitle = str(period)
+        ctitle = str(period+1)
         offset = period*minutes
         # now normalize the price range
         ndf[rcol+ctitle] = rdf[rcol].shift(offset) / ohlcvp_df["pivot"]
@@ -496,7 +496,7 @@ class F4CondAgg(ccd.Features):
                 {"suffix": "3d", "minutes": 3*24*60},
                 {"suffix": "9d", "minutes": 9*24*60}],
             "vol": [
-                {"suffix": "5m12h", "minutes": 5, "norm_minutes": 12*60},
+                # {"suffix": "5m12h", "minutes": 5, "norm_minutes": 12*60},
                 {"suffix": "5m1h", "minutes": 5, "norm_minutes": 60}]
         }
 
@@ -532,7 +532,7 @@ class F4CondAgg(ccd.Features):
                         for p in range(self.config[aspect][ix]["periods"])])
                 elif aspect == "regr":
                     kl.append("grad" + self.config[aspect][ix]["suffix"])
-                    kl.append("lvl" + self.config[aspect][ix]["suffix"])
+                    # kl.append("lvl" + self.config[aspect][ix]["suffix"])
                 elif aspect == "vol":
                     kl.append(aspect + self.config[aspect][ix]["suffix"])
                 else:

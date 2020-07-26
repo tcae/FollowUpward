@@ -9,7 +9,7 @@ from local_xch import Xch
 import crypto_targets as ct
 import condensed_features as cof
 import aggregated_features as agf
-# import adaptation_data as ad
+import adaptation_data as ad
 
 logger = logging.getLogger(__name__)
 
@@ -201,11 +201,11 @@ if __name__ == "__main__":
     # bases = ["btc"]
     # bases = ["ont", "vet", "iost"]
 
-    first, last = ohlcv_timerange(bases, ohlcv)
-    # first, last = ad.SplitSets.overall_timerange()
+    # first, last = ohlcv_timerange(bases, ohlcv)
+    first, last = ad.SplitSets.overall_timerange()
 
-    data_objs = [cof.F4CondAgg(ohlcv)]
-    # data_objs = all_data_objs(ohlcv)
+    # data_objs = [cof.F4CondAgg(ohlcv)]
+    data_objs = all_data_objs(ohlcv)
     # data_objs = [ct.Target5up0low30minregr(ohlcv, cof.F3cond14(ohlcv))]
 
     # repair_stored_ohlcv(bases, ohlcv)

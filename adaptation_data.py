@@ -40,7 +40,9 @@ class SplitSets:
             # logger.debug(str(cls.sets_split))
 
         first = cls.sets_split.start.min()
+        first = first.tz_convert(tz=Env.tz)
         last = cls.sets_split.end.max()
+        last = last.tz_convert(tz=Env.tz)
         logger.debug(f"split set time overall start {first} - end {last}")
         return (first, last)
 
