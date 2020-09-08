@@ -421,13 +421,13 @@ class Classifier(Predictor):
         tc = len(self.targets.target_dict())
         assert tc == 3
         params = {
-                "l1_neurons": [max(3*tc, int(1*fc)), max(3*tc, int(1.2*fc))],
-                "l2_neurons": [max(2*tc, int(0.5*fc)), max(2*tc, int(0.8*fc))],
+                "l1_neurons": [max(3*tc, int(1*fc))],  # , max(3*tc, int(1.2*fc))
+                "l2_neurons": [max(2*tc, int(0.5*fc))],  # , max(2*tc, int(0.8*fc))
                 "epochs": [50],
-                "use_l3": [False, True],
+                "use_l3": [True],  # False,
                 "l3_neurons": [max(1*tc, int(0.3*fc))],
                 "kernel_initializer": ["he_uniform"],
-                "dropout": [0.2, 0.45],
+                "dropout": [0.45],  # 0.2 performs worse than 0.45
                 "optimizer": ["Adam"],
                 "losses": ["categorical_crossentropy"],
                 "activation": ["relu"],
@@ -442,17 +442,15 @@ class Classifier(Predictor):
 
 class ClassifierSet():
 
-    def __init__(self):
+    def __init__(self, bases, ohlcv, features, targets):
         super().__init__()
-        ohlcv = ccd.Ohlcv()
-        self.features = cof.F3cond14(ohlcv)
-        targets = ct.Target10up5low30min(ohlcv)
-        classifier = Classifier(Env.bases, ohlcv, self.features, targets)
+        self.features = features
+        classifier = Classifier(bases, ohlcv, self.features, targets)
         classifier.load(
             "MLP2_2020-04-24_06h35m__base-trx_l1-14_do-0.2_l2-7_l3-no_opt-Adam__F3cond14__Target10up5low30min",
             epoch=1)
         classifier.adapt_scaler_training()
-        self.baseclass = {base: classifier for base in Env.bases}
+        self.baseclass = {base: classifier for base in bases}
 
     def predict_probs(self, base, first, last):
         if base not in self.baseclass:
@@ -522,26 +520,27 @@ class ClassifierSet():
 def all_data_objs(ohlcv):
     """ prevents 'import but unused' plint warnings
     """
-    f3cond14 = cof.F3cond14(ohlcv)
-    return [ohlcv, f3cond14, agf.F1agg110(ohlcv), ct.Targets(ohlcv)]
+    return [ohlcv, cof.F4CondAgg(ohlcv), ct.Targets(ohlcv)]
+    return [ohlcv, cof.F3cond14(ohlcv), agf.F1agg110(ohlcv), ct.Targets(ohlcv)]
 
 
 if __name__ == "__main__":
-    cs = ClassifierSet()
-    cs.predict_signals_test()
+    # env.test_mode()
+    bases = Env.training_bases
+    # bases = ["btc"]
+    ohlcv = ccd.Ohlcv()
+    features = cof.F4CondAgg(ohlcv)
+    # features = cof.F3cond14(ohlcv)
+    # features = agf.AggregatedFeatures(ohlcv)
+    targets = ct.TargetGrad1h1pct(ohlcv)  # old TargetGrad30m1pct
+    # targets = ct.Target10up5low30min(ohlcv)
+    # targets = ct.Target5up0low30minregr(ohlcv, features)
     if False:
-        # env.test_mode()
+        cs = ClassifierSet(bases, ohlcv, features, targets)
+        cs.predict_signals_test()
+    else:
         start_time = timeit.default_timer()
-        ohlcv = ccd.Ohlcv()
-
-        # bases = Env.bases
-        bases = ["btc"]
-
         try:
-            features = cof.F3cond14(ohlcv)
-            # features = agf.AggregatedFeatures(ohlcv)
-            targets = ct.Target10up5low30min(ohlcv)
-            # targets = ct.Target5up0low30minregr(ohlcv, features)
             classifier = Classifier(bases, ohlcv, features, targets)
             if True:
                 classifier.adapt_keras()

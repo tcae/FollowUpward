@@ -97,7 +97,7 @@ class Production(Usage):
     bases = [
         "btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx", "zrx", "bch",
         "etc", "link", "ada", "matic", "xtz", "zil", "omg", "xlm", "zec",
-        "tfuel", "theta", "ont", "vet", "iost", "sinus", "triangle"]
+        "tfuel", "theta", "ont", "vet", "iost", "sinus"]
     training_bases = [
         "btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
     set_split_fname = "sets_split.csv"

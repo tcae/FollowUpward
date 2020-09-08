@@ -217,6 +217,36 @@ class F3cond14(ccd.Features):
         return cal_features(df)
 
 
+def rolling_high(ohlcv_pivot_df, minutes_agg):
+    """Time aggregation through rolling aggregation with the consequence that new data is
+    generated every minute and even long time aggregations reflect all minute bumps in their
+    features
+
+    in:
+        dataframe of minute ohlcv data of a currency pair
+        with the columns: open, high, low, close.
+        minutes_agg is the number of minutes used to aggregate ranges
+    out:
+        dataframe range aggregations of high values
+    """
+    return ohlcv_pivot_df.high.rolling(minutes_agg, min_periods=1).max()
+
+
+def rolling_low(ohlcv_pivot_df, minutes_agg):
+    """Time aggregation through rolling aggregation with the consequence that new data is
+    generated every minute and even long time aggregations reflect all minute bumps in their
+    features
+
+    in:
+        dataframe of minute ohlcv data of a currency pair
+        with the columns: open, high, low, close.
+        minutes_agg is the number of minutes used to aggregate ranges
+    out:
+        dataframe range aggregations of low values
+    """
+    return ohlcv_pivot_df.low.rolling(minutes_agg, min_periods=1).min()
+
+
 def rolling_range(ohlcv_pivot_df, minutes_agg):
     """Time aggregation through rolling aggregation with the consequence that new data is
     generated every minute and even long time aggregations reflect all minute bumps in their
@@ -369,6 +399,52 @@ def range_features(ohlcvp_df, suffix, minutes, periods):
     return ndf
 
 
+def high_features(ohlcvp_df, suffix, minutes, periods):
+    """ Returns the rolling high over 'minutes' values for the last 'periods'
+        normalized with the last pivot price value.
+        It is assumed (and not checked) that ovphlcvp contains values of minute frequency without gaps.
+    """
+    if "pivot" not in ohlcvp_df:
+        ohlcvp_df["pivot"] = ccd.calc_pivot(ohlcvp_df)
+    df = pd.DataFrame(index=ohlcvp_df.index)
+    hcol = "high"+suffix
+    df[hcol] = rolling_high(ohlcvp_df, minutes)
+
+    if periods <= 1:
+        logger.error(f"no features due to unexpected periods {periods}")
+    # now expand vector
+    ndf = pd.DataFrame(index=df.index)
+    for period in range(periods):
+        ctitle = str(period+1)
+        offset = period*minutes
+        # now normalize the price range
+        ndf[hcol+ctitle] = df[hcol].shift(offset) / ohlcvp_df["pivot"]
+    return ndf
+
+
+def low_features(ohlcvp_df, suffix, minutes, periods):
+    """ Returns the rolling low over 'minutes' values for the last 'periods'
+        normalized with the last pivot price value.
+        It is assumed (and not checked) that ovphlcvp contains values of minute frequency without gaps.
+    """
+    if "pivot" not in ohlcvp_df:
+        ohlcvp_df["pivot"] = ccd.calc_pivot(ohlcvp_df)
+    df = pd.DataFrame(index=ohlcvp_df.index)
+    lcol = "low"+suffix
+    df[lcol] = rolling_low(ohlcvp_df, minutes)
+
+    if periods <= 1:
+        logger.error(f"no features due to unexpected periods {periods}")
+    # now expand vector
+    ndf = pd.DataFrame(index=df.index)
+    for period in range(periods):
+        ctitle = str(period+1)
+        offset = period*minutes
+        # now normalize the price range
+        ndf[lcol+ctitle] = df[lcol].shift(offset) / ohlcvp_df["pivot"]
+    return ndf
+
+
 def regression_line(yarr, window=5):
     """
         This implementation ignores index and assumes an equidistant x values
@@ -475,15 +551,18 @@ class F4CondAgg(ccd.Features):
         self.func = {
             "dpiv": delta_pivot_features,
             "range": range_features,
+            "high": high_features,
+            "low": low_features,
             "regr": regression_features,
             "vol": volume_features
         }
         self.config = {
             "dpiv": [  # dpiv == difference of subsequent pivot prices
                 {"suffix": "5m", "minutes": 5, "periods": 12}],
-            "range": [
-                {"suffix": "5m", "minutes": 5, "periods": 12},
-                {"suffix": "1h", "minutes": 60, "periods": 4}],
+            # "range": [
+            #    {"suffix": "5m", "minutes": 5, "periods": 12},  # ! to be checked - does not sem to be a good feature
+            #    # ! better: % high-now and % low-now for aggregations 30min, 1h, 2h, 4h
+            #    {"suffix": "1h", "minutes": 60, "periods": 4}],
             "regr": [  # regr == regression
                 {"suffix": "5m", "minutes": 5},
                 {"suffix": "15m", "minutes": 15},
@@ -569,6 +648,10 @@ class F4CondAgg(ccd.Features):
                 {"suffix": "2m", "minutes": 2, "periods": 2}],
             "range": [
                 {"suffix": "2m", "minutes": 2, "periods": 2}],
+            "high": [
+                {"suffix": "2m", "minutes": 2, "periods": 2}],
+            "low": [
+                {"suffix": "2m", "minutes": 2, "periods": 2}],
             "regr": [  # regr == regression
                 {"suffix": "2m", "minutes": 2}],
             "vol": [
@@ -606,10 +689,8 @@ class F4CondAgg(ccd.Features):
         print(df)
 
 
-def feature_percentiles():
-    bases = ["btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
+def feature_percentiles(bases, features):
     percentiles = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-    features = F3cond14(ccd.Ohlcv())
     # base_info = {base: features.load_data(base).describe(percentiles=percentiles, include='all') for base in bases}
     base_info = list()
     dfl = list()
@@ -629,7 +710,11 @@ def feature_percentiles():
 
 
 if __name__ == "__main__":
-    # feature_percentiles()
+    # env.test_mode()
+    # bases = ["btc", "xrp", "eos", "bnb", "eth", "neo", "ltc", "trx"]
+    # bases = Env.training_bases
+    # feature_percentiles(Env.training_bases, F3cond14(ccd.Ohlcv()))
+    # feature_percentiles(Env.training_bases, F4CondAgg(ccd.Ohlcv()))
     # _regression_test()
     # _relative_volume_test()
     # _pivot_regression__relative_volume_test()

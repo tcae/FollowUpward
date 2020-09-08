@@ -157,9 +157,22 @@ In order to focus on the ML part data handling shall be unified over all data pr
 
 CryptoData shall be extended to store and get data quick and easy but there shall be a layer in between to enable classes using the same data for different things, e.g.
 
+- update the values periodically in own process and read only file
+- Gestaltklassen targets
+- use distance to high and low of aggregations 30min, 1h, 2h, 4h, 12h,
 - features normalized, capped, masked (use some for visualization and others for ML)
 - ohlcv gaps stored but without gaps used
 - target classes or regression values
+
+#### targets determination - what am I asking as desirable target?
+
+Problem: when to decide a temporary fall back shall be ignores and when not?
+
+A buy signal shall only be given if there is a positive observable trend. Respectively, a sell target on a negative observable trend. Observability can come with different smooth factors, e.g. number of minutes to calculate a regression line. Situations may change that a trade target should follow a less smoothend trend or a smoother trend. To determine that one can start with the lowest smooth factor (e.g. just 1 minute aggragate) and compile the gain of a positive trend. If a sel buy differnece is less than a sell threshold and the next smoother trend compiles more gain then the target label generation follows the smoother trend instead of the less smooth trend, which is the default.
+
+Problem: adequate loss function
+
+Calculate the missed compiled gain or realized compiled loss as loss function - not only the gain/loss between consecutive samples because we want to weight in the beginning of a gain phase heavier than at its end. This also penelaizes HOLD less than a trade signal.
 
 ### Oberservations
 

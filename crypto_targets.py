@@ -276,16 +276,26 @@ class Targets(ccd.CryptoData):
         return tdf
 
 
-def regression_targets(ohlcvp_df, minutes, buy_threshold, sell_threshold):
-    """ Returns the rolling gradient and last price of a 1D linear regression over 'minutes' future values
-        normalized with the first pivot price value to express the gradient as a fraction of the pivot level.
+def regression_targets(ohlcvp_df, minutes, buy_threshold, sell_threshold=0.0, past_future_balanced=True):
+    """ Returns the rolling gradient and last price of a 1D linear regression over 'minutes'  values
+        normalized with the current pivot price value to express the gradient as a fraction of the pivot level.
+
+        If past_future_balanced=True then half the minutes are in the past and the other half is in the future
+        to calculate the gradient.
+
+        If past_future_balanced=False then all minutes are in the future to calculate the gradient.
+        This may lead to the opposite targets than the current gradient may suggest before the extreme is reached.
+
         Using future gradient values is the main difference to cof.regression_features.
         It is assumed (and not checked) that ovphlcvp contains values of minute frequency without gaps.
 
         Returns a dataframe with the columns 'gain' as normalized gain per minute and 'target' as class indicator.
     """
     df = pd.DataFrame(index=ohlcvp_df.index)
-    shift_minutes = -round(minutes / 2)
+    if past_future_balanced:
+        shift_minutes = -round(minutes / 2)
+    else:
+        shift_minutes = -round(minutes)
     df["grad"], df["lvl"] = cof.regression_line(ohlcvp_df["pivot"].to_numpy(), window=minutes)
     df["gain"] = df["grad"].shift(shift_minutes) / ohlcvp_df["pivot"]
     # shift = look 'minutes' into future values incl current minute value
@@ -295,7 +305,19 @@ def regression_targets(ohlcvp_df, minutes, buy_threshold, sell_threshold):
     return df
 
 
-class TargetGrad30m1pct(Targets):
+class TargetGradientBased(Targets):
+    """ Serves as base class for regression gradient based target definitons.
+        #  ! look for max gain in sequences of smoothed  - positive gradient - price gains
+        # ! to be adapted: what regression minutes to chose in what situation?
+    """
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        self.gradient_minutes = 30
+        self.gain = 0.005  # 5 per mille
+        self.loss = 0.0
+        self.past_future_balanced = True
+        self.mnemonic = "TargetGradientBased"
+        super().__init__(ohlcv)
 
     def target_dict(self):
         """ Shall return a dict of target categories that can be used as columns for prediction data.
@@ -307,13 +329,13 @@ class TargetGrad30m1pct(Targets):
         """ Returns the number of required history sample minutes excluding the minute under consideration.
             It is negative for targets because future data is needed.
         """
-        return -29
+        return -self.gradient_minutes + 1
 
     def mnemonic(self):
         """
             returns a string that represents this class as mnemonic, e.g. to use it in file names.
         """
-        return "TargetGrad30m1pct"
+        return self.mnemonic
 
     def keys(self):
         "returns the list of element keys"
@@ -321,11 +343,14 @@ class TargetGrad30m1pct(Targets):
 
     def new_data(self, base: str, first: pd.Timestamp, last: pd.Timestamp):
         """ New data from 'first' sample up to and including 'last'.
-            The .
         """
         ohlcv_last = last - pd.Timedelta(self.history(), unit="T")
         ohlcv_df = self.ohlcv.get_data(base, first, ohlcv_last)
-        df = regression_targets(ohlcv_df, -self.history()+1, buy_threshold=0.01/30, sell_threshold=0.0)
+        df = regression_targets(
+            ohlcv_df, self.gradient_minutes,
+            buy_threshold=self.gain/self.gradient_minutes,
+            sell_threshold=self.loss/self.gradient_minutes,
+            past_future_balanced=self.past_future_balanced)
         return df
 
     def new_data_test(self):
@@ -344,8 +369,65 @@ class TargetGrad30m1pct(Targets):
             columns=cols, index=pd.date_range("2012-10-08 18:15:05", periods=6, freq="T", tz="Europe/Amsterdam"))
         ohlcv_df["pivot"] = ccd.calc_pivot(ohlcv_df)
         print(ohlcv_df)
-        df = regression_targets(ohlcv_df, 3, buy_threshold=0.5, sell_threshold=0.0)
+        df = regression_targets(ohlcv_df, 3, buy_threshold=0.5, sell_threshold=0.0, past_future_balanced=False)
         print(df)
+
+
+class TargetGrad15m50bp(TargetGradientBased):
+    """ gradient over 15 minutes, buy if gradient > 50 base points), sell if < 0 """
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        super().__init__(ohlcv)
+        self.gradient_minutes = 15
+        self.gain = 50 / 10000
+        self.loss = 0.0
+        self.past_future_balanced = True
+        self.mnemonic = "TargetGrad15m5pml"  # pml == per mille
+
+
+class TargetGrad30m5pml(TargetGradientBased):
+    """ gradient over 30 minutes, buy if gradient > 5 per mille (pml), sell if < 0 """
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        super().__init__(ohlcv)
+        self.gradient_minutes = 30
+        self.gain = 0.005
+        self.loss = 0.0
+        self.past_future_balanced = True
+        self.mnemonic = "TargetGrad30m5pml"  # pml == per mille
+
+
+class TargetGrad1h1pct(TargetGradientBased):
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        super().__init__(ohlcv)
+        self.gradient_minutes = 60
+        self.gain = 0.01
+        self.loss = 0.0
+        self.past_future_balanced = True
+        self.mnemonic = "TargetGrad1h1pct"
+
+
+class TargetGrad2h2pct(TargetGradientBased):
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        super().__init__(ohlcv)
+        self.gradient_minutes = 120
+        self.gain = 0.02
+        self.loss = 0.0
+        self.past_future_balanced = True
+        self.mnemonic = "TargetGrad2h1pct"
+
+
+class TargetGrad4h2pct(TargetGradientBased):
+
+    def __init__(self, ohlcv: ccd.Ohlcv):
+        super().__init__(ohlcv)
+        self.gradient_minutes = 240
+        self.gain = 0.02
+        self.loss = 0.0
+        self.past_future_balanced = True
+        self.mnemonic = "TargetGrad4h2pct"
 
 
 class Target10up5low30min(Targets):
@@ -422,4 +504,4 @@ if __name__ == "__main__":
         # logger.debug(list(zip(close, perc, [TARGET_NAMES[ix] for ix in trade_targets])))
 
     else:
-        TargetGrad30m1pct(ccd.Ohlcv()).new_data_test()
+        TargetGradientBased(ccd.Ohlcv()).new_data_test()

@@ -59,14 +59,16 @@ view_config = {
     "graph_all": {"focusrange": pd.Timedelta(365/2, "D")},
     "kpi_table": {
         "regression": {
-            "1m": {"timerange": pd.Timedelta(1, "m"), "aggregation": "m", "buy": 60., "sell": -30.},
-            "5m": {"timerange": pd.Timedelta(5, "m"), "aggregation": "m", "buy": 12., "sell": -6.},
+            "5m": {"timerange": pd.Timedelta(5, "m"), "aggregation": "m", "buy": 8., "sell": -3.},
             "15m": {"timerange": pd.Timedelta(15, "m"), "aggregation": "m", "buy": 4., "sell": -2.},
             "30m": {"timerange": pd.Timedelta(30, "m"), "aggregation": "m", "buy": 2., "sell": -1.},
             "1h": {"timerange": pd.Timedelta(1, "h"), "aggregation": "m", "buy": 1., "sell": -0.5},
             "2h": {"timerange": pd.Timedelta(2, "h"), "aggregation": "m", "buy": 0.5, "sell": -0.25},
             "4h": {"timerange": pd.Timedelta(4, "h"), "aggregation": "m", "buy": 0.25, "sell": -0.125},
             "12h": {"timerange": pd.Timedelta(12, "h"), "aggregation": "m", "buy": 0.125, "sell": -0.0625},
+            "24h": {"timerange": pd.Timedelta(24, "h"), "aggregation": "m", "buy": 0.06, "sell": 0},
+            "3d": {"timerange": pd.Timedelta(24*3, "h"), "aggregation": "m", "buy": 0.03, "sell": 0},
+            "9d": {"timerange": pd.Timedelta(24*9, "h"), "aggregation": "m", "buy": 0.02, "sell": 0},
         },
         "volume": {
             # "5m1h": {"shortrange": pd.Timedelta(5, "m"), "longrange": pd.Timedelta(1, "h")},
@@ -409,7 +411,7 @@ def update_table(focus_json, bases, base_radio):
                 start = rend - regr_config[regression]["timerange"]
                 gradient, distance = regression_gradient_distance(start, rend, bmd)
                 df.loc[base, regression+"grad"] = gradient
-                df.loc[base, regression+"dist"] = distance
+                # df.loc[base, regression+"dist"] = distance
             for vol in vol_config:
                 df.loc[base, vol+"volrel"] = volume_relation_check(
                     vol_config[vol]["shortrange"], vol_config[vol]["longrange"], rend, ohlcv_df_dict[base])
@@ -417,7 +419,7 @@ def update_table(focus_json, bases, base_radio):
                 df.loc[base, liq+"_liq"] = minute_liquidity(
                     liq_config[liq]["timerange"], rend, ohlcv_df_dict[base])
     gl = [regression+"grad" for regression in regr_config]
-    dl = [regression+"dist" for regression in regr_config]
+    # dl = [regression+"dist" for regression in regr_config]
     vl = [vol+"volrel" for vol in vol_config]
     ll = [liq+"_liq" for liq in liq_config]
     cmp = dict()
@@ -427,22 +429,23 @@ def update_table(focus_json, bases, base_radio):
     cmp["sell_grad"] = {
         regression+"grad": regr_config[regression]["sell"]
         for regression in regr_config}
-    cmp["buy_dist"] = {regression+"dist": -0.5 for regression in regr_config}
-    cmp["sell_dist"] = {regression+"dist": 0.5 for regression in regr_config}
     cmp["best_grad"] = {
         col: max([cmp["buy_grad"][col]*2, value])
         for (col, value) in df.quantile(0.9).iteritems() if "grad" in col}
-    cmp["best_dist"] = {
-        col: min([cmp["buy_dist"][col]*2, value])
-        for (col, value) in df.quantile(0.9).iteritems() if "dist" in col}
     cmp["worst_grad"] = {
         col: min([cmp["sell_grad"][col]*2, value])
         for (col, value) in df.quantile(0.1).iteritems() if "grad" in col}
-    cmp["worst_dist"] = {
-        col: max([cmp["sell_dist"][col]*2, value])
-        for (col, value) in df.quantile(0.1).iteritems() if "dist" in col}
+    # cmp["buy_dist"] = {regression+"dist": -0.5 for regression in regr_config}
+    # cmp["sell_dist"] = {regression+"dist": 0.5 for regression in regr_config}
+    # cmp["best_dist"] = {
+    #     col: min([cmp["buy_dist"][col]*2, value])
+    #     for (col, value) in df.quantile(0.9).iteritems() if "dist" in col}
+    # cmp["worst_dist"] = {
+    #     col: max([cmp["sell_dist"][col]*2, value])
+    #     for (col, value) in df.quantile(0.1).iteritems() if "dist" in col}
     # logger.debug(json.dumps(cmp, indent=4))
-    df = df[gl+dl+vl+ll]
+    # df = df[gl+dl+vl+ll]
+    df = df[gl+vl+ll]
     df = df.reset_index()
     df["id"] = df["base"]
     df = df.sort_values(ll[0], ascending=False)
@@ -456,16 +459,6 @@ def update_table(focus_json, bases, base_radio):
             "color": "black"
         } for col in cmp["buy_grad"]
     ]
-    buy_dist = [
-        {
-            "if": {
-                "filter_query": "{{{}}} <= {}".format(col, cmp["buy_dist"][col]),
-                "column_id": col
-            },
-            "backgroundColor": "#86cb66",
-            "color": "black"
-        } for col in cmp["buy_dist"]
-    ]
     sell_grad = [
         {
             "if": {
@@ -475,16 +468,6 @@ def update_table(focus_json, bases, base_radio):
             "backgroundColor": "#f24632",
             "color": "black"
         } for col in cmp["sell_grad"]
-    ]
-    sell_dist = [
-        {
-            "if": {
-                "filter_query": "{{{}}} >= {}".format(col, cmp["sell_dist"][col]),
-                "column_id": col
-            },
-            "backgroundColor": "#f24632",
-            "color": "black"
-        } for col in cmp["sell_dist"]
     ]
     best_grad = [
         {
@@ -496,16 +479,6 @@ def update_table(focus_json, bases, base_radio):
             "color": "white"
         } for col in cmp["best_grad"]
     ]
-    best_dist = [
-        {
-            "if": {
-                "filter_query": "{{{}}} <= {}".format(col, cmp["best_dist"][col]),
-                "column_id": col
-            },
-            "backgroundColor": "#006837",
-            "color": "white"
-        } for col in cmp["best_dist"]
-    ]
     worst_grad = [
         {
             "if": {
@@ -516,16 +489,46 @@ def update_table(focus_json, bases, base_radio):
             "color": "white"
         } for col in cmp["worst_grad"]
     ]
-    worst_dist = [
-        {
-            "if": {
-                "filter_query": "{{{}}} >= {}".format(col, cmp["worst_dist"][col]),
-                "column_id": col
-            },
-            "backgroundColor": "#a50026",
-            "color": "white"
-        } for col in cmp["worst_dist"]
-    ]
+    # buy_dist = [
+    #     {
+    #         "if": {
+    #             "filter_query": "{{{}}} <= {}".format(col, cmp["buy_dist"][col]),
+    #             "column_id": col
+    #         },
+    #         "backgroundColor": "#86cb66",
+    #         "color": "black"
+    #     } for col in cmp["buy_dist"]
+    # ]
+    # sell_dist = [
+    #     {
+    #         "if": {
+    #             "filter_query": "{{{}}} >= {}".format(col, cmp["sell_dist"][col]),
+    #             "column_id": col
+    #         },
+    #         "backgroundColor": "#f24632",
+    #         "color": "black"
+    #     } for col in cmp["sell_dist"]
+    # ]
+    # best_dist = [
+    #     {
+    #         "if": {
+    #             "filter_query": "{{{}}} <= {}".format(col, cmp["best_dist"][col]),
+    #             "column_id": col
+    #         },
+    #         "backgroundColor": "#006837",
+    #         "color": "white"
+    #     } for col in cmp["best_dist"]
+    # ]
+    # worst_dist = [
+    #     {
+    #         "if": {
+    #             "filter_query": "{{{}}} >= {}".format(col, cmp["worst_dist"][col]),
+    #             "column_id": col
+    #         },
+    #         "backgroundColor": "#a50026",
+    #         "color": "white"
+    #     } for col in cmp["worst_dist"]
+    # ]
     return [
         df.to_dict("records"),
         [{
@@ -545,12 +548,12 @@ def update_table(focus_json, bases, base_radio):
             },
             *buy_grad,
             *sell_grad,
-            *buy_dist,
-            *sell_dist,
             *best_grad,
             *worst_grad,
-            *best_dist,
-            *worst_dist,
+            # *buy_dist,
+            # *sell_dist,
+            # *best_dist,
+            # *worst_dist,
         ]
     ]
 
@@ -1036,7 +1039,7 @@ if __name__ == "__main__":
     tee = env.Tee(log_prefix="CryptoDashboard")
     ohlcv = ccd.Ohlcv()
     features = cof.F3cond14(ohlcv)
-    targets = ct.TargetGrad30m1pct(ohlcv)  # old: Target10up5low30min
+    targets = ct.TargetGrad1h1pct(ohlcv)  # old:TargetGrad30m1pct  # old: Target10up5low30min
     ohlcv_df_dict = {base: ohlcv.load_data(base) for base in Env.bases}
     # ! temporary disabled classifier_set = cp.ClassifierSet()
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
