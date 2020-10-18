@@ -8,3 +8,5 @@ __pycache__/*
 Untitled*
 *.html
 *.msg
+.ipynb_checkpoints/08.Plotting-checkpoint.ipynb
+08.Plotting.ipynb

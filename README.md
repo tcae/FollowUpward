@@ -1,6 +1,9 @@
 # FollowUpward
 
-Follow crypto trend - a python and ML learning project
+Follow crypto trend - a python and ML learning project (documented in [Markdown][MD])
+
+[MD]: https://daringfireball.net/projects/markdown/dingus
+
 
 ## Vision
 
@@ -164,7 +167,7 @@ CryptoData shall be extended to store and get data quick and easy but there shal
 - ohlcv gaps stored but without gaps used
 - target classes or regression values
 
-#### targets determination - what am I asking as desirable target?
+### Targets determination
 
 Problem: when to decide a temporary fall back shall be ignores and when not?
 
@@ -174,8 +177,16 @@ Problem: adequate loss function
 
 Calculate the missed compiled gain or realized compiled loss as loss function - not only the gain/loss between consecutive samples because we want to weight in the beginning of a gain phase heavier than at its end. This also penelaizes HOLD less than a trade signal.
 
+Problem: Target metrics required
+
+- correlation of gain/loss with high/low distance
+- correlation of gradient sign change with minute distance (are there patterns that correlate with regression minutes?)
+- correlation of single gain with minutes of aggregation
+
+
 ### Oberservations
 
 Gradient alone may be insufficient - gain between gradient sign changes may be significant, e.g. mid term gaining crypto shows small losses between gradient sign changes but big gains. Hence the last complete loss and the last complete gain per aggregation may add value.
 
 Which aggregation is most profitable? Depends on last observed gains/losses, the liquidity (do I find a counterpart at the price I want to trade?)
+

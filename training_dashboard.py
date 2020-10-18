@@ -299,6 +299,8 @@ def get_end_focus(focus_json: str, base_radio: str, graph: str):
             end = ohlcv_df_dict[base_radio].index[-1]
     if (focus is not None) and (focus is pd.NaT):
         focus = None
+    if (focus is None) and (end is not None):
+        focus = end
     return (focus, end)
 
 
@@ -310,12 +312,12 @@ def get_end_focus(focus_json: str, base_radio: str, graph: str):
 def update_graph(focus_json, bases, base_radio):
     graph_bases = []
     (focus, _) = get_end_focus(focus_json, None, "graph_all")
-    if (focus is not None):
-        x1 = focus - pd.Timedelta(365/2, "D")
+    if focus is not None:
         x2 = focus
+        x1 = x2 - pd.Timedelta(365/2, "D")
         graph_bases.append(
             dict(x=[x1, x2, x2, x1, x1], y=[0, 0, 1, 1, 0],
-                 mode="none", yaxis="y", fill="tonexty", color="#bee4e7"))
+                 mode="lines", yaxis="y", color="#bee4e7"))  # mode="none", yaxis="y", fill="tonexty", color="#bee4e7"))
     if bases is None:
         bases = []
     if base_radio not in bases:
@@ -784,11 +786,11 @@ def timeline_graph(graph: str, focus, end, bases, base_radio, indicators):
     start = end - view_config[graph]["timerange"]
 
     if focus is not None:
-        x1 = focus - view_config[graph]["focusrange"]
         x2 = focus
+        x1 = x2 - view_config[graph]["focusrange"]
         graph_bases.append(
             dict(x=[x1, x2, x2, x1, x1], y=[0, 0, 1, 1, 0],
-                 mode="none", yaxis="y2", fill="tonexty", color="#bee4e7"))
+                 mode="lines", yaxis="y2", color="#bee4e7"))
 
     if bases is None:
         bases = []
