@@ -190,3 +190,5 @@ Gradient alone may be insufficient - gain between gradient sign changes may be s
 
 Which aggregation is most profitable? Depends on last observed gains/losses, the liquidity (do I find a counterpart at the price I want to trade?)
 
+A price that builds up creates a counterforce to cash the gains and a falling price builds a counterforce because the likelyhood of correction increases. That counterforce becomes stronger the shorter time the change needs and the higher the change amplitude. Thus it may be characterized by change * time window of change.
+The last 2 counterforces (one up, one down) shall be considerd because a build up counterforce may compensate the force build up

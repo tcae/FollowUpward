@@ -47,7 +47,6 @@ view_config = {
             "1h": {"timerange": pd.Timedelta(1, "h"), "aggregation": "m"},
             "30m": {"timerange": pd.Timedelta(30, "m"), "aggregation": "m"},
             "15m": {"timerange": pd.Timedelta(15, "m"), "aggregation": "m"},
-            "5m": {"timerange": pd.Timedelta(5, "m"), "aggregation": "m"}
         }
     },
     "graph1day": {
@@ -73,6 +72,14 @@ view_config = {
         "volume": {
             # "5m1h": {"shortrange": pd.Timedelta(5, "m"), "longrange": pd.Timedelta(1, "h")},
             "5m4h": {"shortrange": pd.Timedelta(5, "m"), "longrange": pd.Timedelta(4, "h")},
+            "4h9d": {"shortrange": pd.Timedelta(4, "h"), "longrange": pd.Timedelta(24*9, "h")},
+        },
+        "minmax": {
+            "30m": {"timerange": pd.Timedelta(30, "m")},
+            "1h": {"timerange": pd.Timedelta(1, "h")},
+            "4h": {"timerange": pd.Timedelta(4, "h")},
+            "1d": {"timerange": pd.Timedelta(24, "h")},
+            "9d": {"timerange": pd.Timedelta(24*9, "h")},
         },
         "liquidity": {
             # "5m1h": {"shortrange": pd.Timedelta(5, "m"), "longrange": pd.Timedelta(1, "h")},
@@ -297,6 +304,8 @@ def get_end_focus(focus_json: str, base_radio: str, graph: str):
     if (end is None) or (end is pd.NaT):
         if base_radio is not None:
             end = ohlcv_df_dict[base_radio].index[-1]
+        else:
+            end = ohlcv_df_dict[Env.bases[0]].index[-1]
     if (focus is not None) and (focus is pd.NaT):
         focus = None
     if (focus is None) and (end is not None):
@@ -366,6 +375,23 @@ def regression_gradient_distance(start, end, bmd):
     return (gradient, distance)
 
 
+def minmax(start, end, bmd):
+    """ returns the regression line gradient and
+        the y distance of the last y data point from the regression line
+    """
+    reduced_bmd = bmd.loc[(bmd.index >= start) & (bmd.index <= end)]
+    if reduced_bmd.empty:
+        logger.warning(f"empty df for bmd len: {len(bmd)} bmd end: {bmd.index[-1]} start: {start} end: {end}")
+        distance_min = distance_max = 0
+    else:
+        last = reduced_bmd.iloc[-1].close
+        maximum = reduced_bmd["close"].max()
+        distance_max = maximum - last  # bmd is already normalized
+        minimum = reduced_bmd["close"].min()
+        distance_min = minimum - last  # bmd is already normalized
+    return (distance_min, distance_max)
+
+
 def volume_relation_check(short_range, long_range, end, ohlcv_df):
     short_start = end - short_range
     long_start = end - long_range
@@ -400,6 +426,7 @@ def update_table(focus_json, bases, base_radio):
     regr_config = view_config["kpi_table"]["regression"]
     vol_config = view_config["kpi_table"]["volume"]
     liq_config = view_config["kpi_table"]["liquidity"]
+    minmax_config = view_config["kpi_table"]["minmax"]
     max_timerange = max([regr_config[reg]["timerange"] for reg in regr_config])
     for base in Env.bases:
         if end is None:  # is the case for initialization
@@ -414,6 +441,11 @@ def update_table(focus_json, bases, base_radio):
                 gradient, distance = regression_gradient_distance(start, rend, bmd)
                 df.loc[base, regression+"grad"] = gradient
                 # df.loc[base, regression+"dist"] = distance
+            for min_max in minmax_config:
+                start = rend - minmax_config[min_max]["timerange"]
+                distmin, distmax = minmax(start, rend, bmd)
+                df.loc[base, min_max+"DistMin"] = distmin
+                df.loc[base, min_max+"DistMax"] = distmax
             for vol in vol_config:
                 df.loc[base, vol+"volrel"] = volume_relation_check(
                     vol_config[vol]["shortrange"], vol_config[vol]["longrange"], rend, ohlcv_df_dict[base])
@@ -424,6 +456,10 @@ def update_table(focus_json, bases, base_radio):
     # dl = [regression+"dist" for regression in regr_config]
     vl = [vol+"volrel" for vol in vol_config]
     ll = [liq+"_liq" for liq in liq_config]
+    dml = list()
+    for min_max in minmax_config:
+        dml.append(min_max+"DistMin")
+        dml.append(min_max+"DistMax")
     cmp = dict()
     cmp["buy_grad"] = {
         regression+"grad": regr_config[regression]["buy"]
@@ -447,7 +483,7 @@ def update_table(focus_json, bases, base_radio):
     #     for (col, value) in df.quantile(0.1).iteritems() if "dist" in col}
     # logger.debug(json.dumps(cmp, indent=4))
     # df = df[gl+dl+vl+ll]
-    df = df[gl+vl+ll]
+    df = df[gl+dml+vl+ll]
     df = df.reset_index()
     df["id"] = df["base"]
     df = df.sort_values(ll[0], ascending=False)
@@ -999,7 +1035,13 @@ def update_detail_graph_by_click(focus_json, bases, base, indicators):
                     regression_graph(rstart, end, nbmd, aggregation))
 
         if focus is not None:
-            graph_bases.append(dict(x=[focus, focus], y=[0, 1], mode="lines", yaxis="y4"))
+            graph_bases.append(
+                dict(x=[focus, focus], y=[0, 1], mode="lines",
+                     yaxis="yaxis4",  # dict(autorange=True, showgrid=False, ticks='', showticklabels=False),
+                     color="#bee4e7"))
+
+        # dict(x=[x1, x2, x2, x1, x1], y=[0, 0, 1, 1, 0],
+        #         mode="lines", yaxis="y2", color="#bee4e7"))
 
         graph_bases.append(volume_graph(start, end, bmd))
 
@@ -1021,7 +1063,8 @@ def update_detail_graph_by_click(focus_json, bases, base, indicators):
                 "text": "normalized crypto prices"
             }],
             "yaxis2": {"domain": [0., 0.2], "side": "left"},
-            "yaxis4": {"domain": [0., 0.2], "side": "right", "overlaying": "y"},
+            "yaxis4": {"domain": [0., 0.2], "side": "right", "showgrid": False,
+                       "showticklabels": False, "overlaying": "y"},
             "yaxis3": {"domain": [0.2, 0.23], "showticklabels": False},
             "yaxis": {"type": "linear", "domain": [0.3, 1], "range": [ymin, ymax]},
             "xaxis": {"showgrid": False, "title": timeinfo, "rangeslider": {"visible": False}}
